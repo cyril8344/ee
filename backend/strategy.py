@@ -72,8 +72,12 @@ def rsi(series: pd.Series, period: int = RSI_PERIOD) -> pd.Series:
     loss = -delta.clip(upper=0.0)
     avg_gain = gain.ewm(alpha=1.0 / period, adjust=False).mean()
     avg_loss = loss.ewm(alpha=1.0 / period, adjust=False).mean()
-    rs = avg_gain / avg_loss.replace(0.0, np.nan)
+    rs = avg_gain / avg_loss
     out = 100.0 - (100.0 / (1.0 + rs))
+    # Degenerate cases when avg_loss == 0 (no down moves in the window):
+    #   gains present -> fully overbought (100); totally flat -> neutral (50).
+    out = out.mask((avg_loss == 0) & (avg_gain > 0), 100.0)
+    out = out.mask((avg_loss == 0) & (avg_gain == 0), 50.0)
     return out.fillna(50.0)
 
 

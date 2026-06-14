@@ -167,6 +167,16 @@ def run_backtest(cfg: BacktestConfig) -> Dict[str, Any]:
 
     m5 = add_indicators(m5_raw)
 
+    # Precompute the higher-timeframe indicator frames ONCE for the whole
+    # period (instead of resampling a trailing window on every M5 bar). At each
+    # step we slice these frames up to the current timestamp via searchsorted,
+    # which is O(log n) and keeps a 6-12 month backtest fast. This also mirrors
+    # the live engine, which feeds the strategy the full resampled history.
+    m15_full = add_indicators(resample(m5_raw, "15min"))
+    h1_full = add_indicators(resample(m5_raw, "60min"))
+    m15_index = m15_full.index
+    h1_index = h1_full.index
+
     equity = cfg.capital
     equity_curve: List[Dict[str, Any]] = [
         {"ts": m5.index[0].isoformat(), "equity": round(equity, 2)}
@@ -223,8 +233,19 @@ def run_backtest(cfg: BacktestConfig) -> Dict[str, Any]:
 
         # ---- Look for a new entry (only if flat & allowed) ----
         if open_trade is None and not day_blocked and trades_today < cfg.max_trades_per_day:
-            window5 = m5.iloc[: i + 1]
-            sig = _evaluate_at(m5, i)
+            # Slice precomputed higher-timeframe frames up to the current time.
+            j15 = m15_index.searchsorted(ts, side="right") - 1
+            j1h = h1_index.searchsorted(ts, side="right") - 1
+            if j15 < 2 or j1h < 0:
+                sig = None
+            else:
+                sig = evaluate(
+                    m5.iloc[: i + 1],
+                    m15_full.iloc[: j15 + 1],
+                    h1_full.iloc[: j1h + 1],
+                    now=ts.to_pydatetime(),
+                    check_session=True,
+                )
             if sig is not None:
                 vol = _round_lot(
                     (equity * cfg.risk_pct / 100.0)
@@ -253,17 +274,6 @@ def run_backtest(cfg: BacktestConfig) -> Dict[str, Any]:
                     trades_today += 1
 
     return _build_report(cfg, trades, equity_curve)
-
-
-def _evaluate_at(m5_full: pd.DataFrame, i: int):
-    """Recreate the M15/H1 context at bar i and evaluate the strategy."""
-    window5 = m5_full.iloc[max(0, i - 400): i + 1]
-    raw5 = window5[["open", "high", "low", "close", "volume"]]
-    m15 = add_indicators(resample(raw5, "15min"))
-    h1 = add_indicators(resample(raw5, "60min"))
-    m5w = window5  # already has indicators
-    return evaluate(m5w, m15, h1, now=m5_full.index[i].to_pydatetime(),
-                    check_session=True)
 
 
 def _try_exit(t: Dict[str, Any], bar, ts, slippage) -> Optional[tuple]:
