@@ -32,6 +32,7 @@ from strategy import (
     MAX_TRADE_MINUTES,
 )
 from risk_manager import CONTRACT_SIZE, MIN_LOT, LOT_STEP
+import data_provider
 
 PIP = 0.1  # 1 pip for gold = 0.1 price units
 
@@ -59,18 +60,16 @@ def _normalise_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_m5_data(start: str, end: str) -> pd.DataFrame:
-    """Load 5-minute gold data from yfinance, fallback to synthetic."""
+    """Load 5-minute gold data via the unified data provider.
+
+    Uses the configured/real provider (Twelve Data, Polygon, Alpha Vantage,
+    yfinance) when a key is available, otherwise falls back to a deterministic
+    synthetic series so the backtest never hard-fails.
+    """
     try:
-        import yfinance as yf
-        # yfinance caps 5m history to ~60 days; chunk if necessary.
-        data = yf.download(
-            "GC=F", start=start, end=end, interval="5m",
-            progress=False, auto_adjust=False,
-        )
-        if data is not None and len(data) > 0:
-            if isinstance(data.columns, pd.MultiIndex):
-                data.columns = data.columns.get_level_values(0)
-            return _normalise_ohlcv(data)
+        df, _provider = data_provider.get_m5(start=start, end=end, bars=5000)
+        if df is not None and len(df) > 0:
+            return df
     except Exception:
         pass
     return _synthetic_m5(start, end)
