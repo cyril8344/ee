@@ -82,7 +82,7 @@ class BotState:
         self.settings = db.get_settings()
         self.risk = RiskManager()
         self.risk.sync_from_settings(self.settings)
-        self.news = NewsFilter(window_minutes=30, currencies=("USD",))
+        self.news = NewsFilter(window_minutes=60, currencies=("USD",))
         self.broker = make_broker(
             self.settings.get("mode", "paper"),
             self.settings.get("symbol", "XAUUSD"),
@@ -210,21 +210,26 @@ def trading_tick() -> Dict[str, Any]:
             elif close_info and close_info.get("reason") == "tp1_partial":
                 state.push_alert("info", "TP1 atteint — 60% clôturé")
 
+        session_filter = state.settings.get("session_filter", True)
+
         # ---- Determine bot status ----
         if state.risk.blocked:
             state.bot_status = "BLOQUE"
         elif news_status["blocked"]:
             state.bot_status = "BLOQUE"
-        elif session is None:
+        elif session is None and session_filter:
             state.bot_status = "EN VEILLE"
+        elif session is None and not session_filter:
+            state.bot_status = "ACTIF"  # 24/7 mode
         else:
             state.bot_status = "ACTIF"
 
         # ---- Look for entry ----
-        if (state.position is None and session is not None
+        can_enter_session = (session is not None) or (not session_filter)
+        if (state.position is None and can_enter_session
                 and not state.risk.blocked and not news_status["blocked"]
                 and state.settings.get("bot_enabled", True)):
-            sig = evaluate(m5, m15, h1, now=now, check_session=True)
+            sig = evaluate(m5, m15, h1, now=now, check_session=session_filter)
             if sig is not None:
                 state.last_signal = sig.to_dict()
                 decision = state.risk.can_open_trade(sig.entry, sig.stop_loss)
@@ -390,6 +395,9 @@ def _public_state(snap=None, session=None, news_status=None) -> Dict[str, Any]:
         "position": _position_payload(),
         "last_signal": state.last_signal,
         "alerts": state.alerts[-8:],
+        "settings": {
+            "session_filter": state.settings.get("session_filter", True),
+        },
     }
 
 
@@ -502,6 +510,7 @@ class SettingsPatch(BaseModel):
     bot_enabled: Optional[bool] = None
     spread_pips: Optional[float] = None
     slippage_pips: Optional[float] = None
+    session_filter: Optional[bool] = None
 
 
 @app.post("/api/settings")

@@ -198,6 +198,8 @@ class PaperBroker(BaseBroker):
                 pos.realised += pnl_for(pos.take_profit1 - self.slippage * sign, lots60)
                 pos.remaining = round(pos.remaining - lots60, 2)
                 pos.tp1_done = True
+                # Move stop loss to breakeven after TP1
+                pos.stop_loss = pos.entry
                 if pos.remaining < 0.01:
                     return {"closed": True, "reason": "tp1",
                             "exit_price": pos.take_profit1, "pnl": pos.realised}
@@ -212,13 +214,29 @@ class PaperBroker(BaseBroker):
                     "reason": "sl" if not pos.tp1_done else "sl_after_tp1",
                     "exit_price": pos.stop_loss, "pnl": pos.realised}
 
-        # TP2
+        # TP2 + trailing stop after TP1
         if pos.tp1_done:
             hit_tp2 = price >= pos.take_profit2 if direction == "long" else price <= pos.take_profit2
             if hit_tp2:
                 pos.realised += pnl_for(pos.take_profit2 - self.slippage * sign, pos.remaining)
                 return {"closed": True, "reason": "tp2",
                         "exit_price": pos.take_profit2, "pnl": pos.realised}
+
+            # Trailing stop: if price moved 0.5×ATR in our favour, trail SL at 0.3×ATR behind price
+            atr_val = pos.meta.get("atr", 0) or 0
+            if atr_val > 0:
+                if direction == "long":
+                    trail_trigger = pos.entry + 0.5 * atr_val
+                    if price >= trail_trigger:
+                        new_sl = price - 0.3 * atr_val
+                        if new_sl > pos.stop_loss:
+                            pos.stop_loss = new_sl
+                else:
+                    trail_trigger = pos.entry - 0.5 * atr_val
+                    if price <= trail_trigger:
+                        new_sl = price + 0.3 * atr_val
+                        if new_sl < pos.stop_loss:
+                            pos.stop_loss = new_sl
 
         return None
 

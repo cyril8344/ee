@@ -45,10 +45,10 @@ ATR_PERIOD = 14
 ADX_PERIOD = 14
 VOL_AVG_PERIOD = 20
 
-RSI_LOW = 45.0
-RSI_HIGH = 55.0
+RSI_LOW = 47.0
+RSI_HIGH = 53.0
 ATR_MIN = 0.8
-ADX_MIN = 20.0              # minimum trend strength (0-100)
+ADX_MIN = 25.0              # minimum trend strength (0-100)
 SR_PROXIMITY_ATR = 0.5      # block entry if opposing S/R within 0.5×ATR
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
 SL_ATR_MULT = 1.2
@@ -212,6 +212,24 @@ def active_session(ts_utc: datetime) -> Optional[str]:
     if _in_window(local, NEWYORK):
         return "NewYork"
     return None
+
+
+def is_bad_timing(ts_utc: datetime) -> bool:
+    """Return True during high-uncertainty windows we want to avoid.
+
+    - Monday before 10:00 CET  (uncertain market open)
+    - Friday after 16:00 CET   (volatile weekly close)
+    """
+    if ts_utc.tzinfo is None:
+        ts_utc = ts_utc.replace(tzinfo=timezone.utc)
+    local = ts_utc.astimezone(CET)
+    weekday = local.weekday()   # 0=Monday, 4=Friday
+    t = local.time()
+    if weekday == 0 and t < time(10, 0):
+        return True
+    if weekday == 4 and t >= time(16, 0):
+        return True
+    return False
 
 
 # --------------------------------------------------------------------------- #
@@ -414,6 +432,10 @@ def evaluate(
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=timezone.utc)
 
+    # 0) Bad timing filter (Monday open / Friday close)
+    if is_bad_timing(ts):
+        return None
+
     # 1) Session gate
     session = active_session(ts)
     if check_session and session is None:
@@ -485,7 +507,7 @@ def evaluate(
 
     # Keep only non-asian-breakout triggers for the mandatory check
     core_triggers = [t for t in triggers if t != "asian_breakout"]
-    if not core_triggers:
+    if len(core_triggers) < 2:
         return None
 
     # 11) S/R proximity — don't enter into a wall

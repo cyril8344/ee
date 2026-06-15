@@ -306,6 +306,15 @@ export default function Dashboard() {
   const closeNow = () => fetch(`${API}/api/close`, { method: "POST" });
   const toggleBot = () => fetch(`${API}/api/bot/toggle`, { method: "POST" });
 
+  const sessionFilterOn = state?.settings?.session_filter !== false;
+  const toggle247 = () => {
+    fetch(`${API}/api/settings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_filter: sessionFilterOn ? false : true }),
+    });
+  };
+
   const switchLive = () => {
     if (state?.mode === "live") {
       fetch(`${API}/api/mode`, {
@@ -442,6 +451,13 @@ export default function Dashboard() {
                     borderColor: state?.mode === "live" ? COLORS.red : COLORS.border,
                     color: state?.mode === "live" ? COLORS.red : COLORS.text }}>
                   {state?.mode === "live" ? "→ Paper" : "→ Live"}
+                </button>
+                <button onClick={toggle247}
+                  style={{ ...tabBtn(false), flex: 1,
+                    background: !sessionFilterOn ? COLORS.green : "transparent",
+                    borderColor: !sessionFilterOn ? COLORS.green : COLORS.border,
+                    color: !sessionFilterOn ? "#fff" : COLORS.text }}>
+                  {!sessionFilterOn ? "24/7 ON" : "Sessions"}
                 </button>
               </div>
             </div>
