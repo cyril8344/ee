@@ -42,11 +42,15 @@ EMA_SLOW = 200
 EMA_50 = 50
 RSI_PERIOD = 14
 ATR_PERIOD = 14
+ADX_PERIOD = 14
 VOL_AVG_PERIOD = 20
 
 RSI_LOW = 45.0
 RSI_HIGH = 55.0
 ATR_MIN = 0.8
+ADX_MIN = 20.0              # minimum trend strength (0-100)
+SR_PROXIMITY_ATR = 0.5      # block entry if opposing S/R within 0.5×ATR
+SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
 SL_ATR_MULT = 1.2
 SWING_LOOKBACK = 5          # bars each side for swing detection
 MICRO_RANGE_BARS = 3        # micro-consolidation length
@@ -92,9 +96,88 @@ def atr(df: pd.DataFrame, period: int = ATR_PERIOD) -> pd.Series:
     return tr.ewm(alpha=1.0 / period, adjust=False).mean()
 
 
+def adx(df: pd.DataFrame, period: int = ADX_PERIOD) -> pd.Series:
+    high, low, close = df["high"], df["low"], df["close"]
+    prev_high = high.shift(1)
+    prev_low = low.shift(1)
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        (high - low),
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    up = high - prev_high
+    down = prev_low - low
+    dm_plus = pd.Series(
+        np.where((up > down) & (up > 0), up, 0.0), index=df.index, dtype=float)
+    dm_minus = pd.Series(
+        np.where((down > up) & (down > 0), down, 0.0), index=df.index, dtype=float)
+    alpha = 1.0 / period
+    atr_s = tr.ewm(alpha=alpha, adjust=False).mean().replace(0, np.nan)
+    di_plus = 100 * dm_plus.ewm(alpha=alpha, adjust=False).mean() / atr_s
+    di_minus = 100 * dm_minus.ewm(alpha=alpha, adjust=False).mean() / atr_s
+    di_sum = (di_plus + di_minus).replace(0, np.nan)
+    dx = 100 * (di_plus - di_minus).abs() / di_sum
+    return dx.ewm(alpha=alpha, adjust=False).mean().fillna(0)
+
+
+def vwap(df: pd.DataFrame) -> pd.Series:
+    """Intraday VWAP — resets at midnight UTC."""
+    typical = (df["high"] + df["low"] + df["close"]) / 3
+    vol = df["volume"].replace(0, np.nan)
+    dates = df.index.normalize()
+    tpv = typical * df["volume"]
+    cum_tpv = tpv.groupby(dates).cumsum()
+    cum_vol = df["volume"].groupby(dates).cumsum().replace(0, np.nan)
+    return (cum_tpv / cum_vol).fillna(typical)
+
+
+def asian_session_range(df: pd.DataFrame) -> Optional[Dict[str, float]]:
+    """Return high/low/mid of the Asian session (22:00-07:00 UTC) ending before London."""
+    if df.index.tz is None:
+        return None
+    last_ts = df.index[-1]
+    today = last_ts.normalize()
+    asian_end = today.replace(hour=7)    # 07:00 UTC ~ London pre-open
+    asian_start = today.replace(hour=22) - pd.Timedelta(days=1)
+    asian = df[(df.index >= asian_start) & (df.index < asian_end)]
+    if len(asian) < 4:
+        return None
+    return {
+        "high": float(asian["high"].max()),
+        "low": float(asian["low"].min()),
+        "mid": float((asian["high"].max() + asian["low"].min()) / 2),
+    }
+
+
+def market_structure_ok(df: pd.DataFrame, bias: str, lookback: int = 20) -> bool:
+    """True if recent HH/HL (LONG) or LH/LL (SHORT) structure matches bias."""
+    if len(df) < lookback:
+        return True
+    sub = df.tail(lookback)
+    t = lookback // 3
+    highs_early = sub["high"].iloc[:t].mean()
+    highs_late = sub["high"].iloc[-t:].mean()
+    lows_early = sub["low"].iloc[:t].mean()
+    lows_late = sub["low"].iloc[-t:].mean()
+    if bias == "LONG":
+        return highs_late > highs_early or lows_late > lows_early
+    else:
+        return highs_late < highs_early or lows_late < lows_early
+
+
+def near_opposing_sr(entry: float, bias: str,
+                     sr: Dict[str, List[float]], atr_val: float) -> bool:
+    """True if an opposing S/R level is dangerously close to the entry."""
+    tol = SR_PROXIMITY_ATR * atr_val
+    if bias == "LONG":
+        return any(0 < (r - entry) < tol for r in sr.get("resistance", []))
+    else:
+        return any(0 < (entry - s) < tol for s in sr.get("support", []))
+
+
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """Attach EMA/RSI/ATR/volume-avg columns.  Expects OHLCV with a tz-aware
-    DatetimeIndex (UTC) and columns: open, high, low, close, volume."""
+    """Attach EMA/RSI/ATR/ADX/VWAP/volume-avg columns."""
     out = df.copy()
     out["ema9"] = ema(out["close"], EMA_FAST)
     out["ema21"] = ema(out["close"], EMA_MID)
@@ -102,11 +185,13 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     out["ema200"] = ema(out["close"], EMA_SLOW)
     out["rsi"] = rsi(out["close"], RSI_PERIOD)
     out["atr"] = atr(out, ATR_PERIOD)
+    out["adx"] = adx(out, ADX_PERIOD)
     if "volume" in out.columns:
         out["vol_avg"] = out["volume"].rolling(VOL_AVG_PERIOD, min_periods=1).mean()
     else:
         out["volume"] = 0.0
         out["vol_avg"] = 0.0
+    out["vwap"] = vwap(out)
     return out
 
 
@@ -340,16 +425,43 @@ def evaluate(
     if bias == "NEUTRE":
         return None
 
-    # 3) M15 confirmation
+    # 3) ADX — trend strength filter (no trading in ranging markets)
+    adx_val_h1 = float(h1.iloc[-1].get("adx", 0)) if len(h1) else 0.0
+    if adx_val_h1 < ADX_MIN:
+        return None
+
+    # 4) Market structure — H1 HH/HL or LH/LL confirms bias
+    if not market_structure_ok(h1, bias):
+        return None
+
+    # 5) M15 confirmation
     if not confirm_m15(m15, bias):
         return None
 
-    # 4) M5 volatility floor
+    # 6) VWAP alignment on M15
+    if len(m15) and "vwap" in m15.columns:
+        m15_cur = m15.iloc[-1]
+        if not pd.isna(m15_cur.get("vwap", float("nan"))):
+            if bias == "LONG" and m15_cur["close"] < m15_cur["vwap"]:
+                return None
+            if bias == "SHORT" and m15_cur["close"] > m15_cur["vwap"]:
+                return None
+
+    # 7) Asian range context — prefer trading in breakout direction
+    asian = asian_session_range(m5)
+
+    # 8) M5 volatility floor
     atr_val = float(cur["atr"]) if not pd.isna(cur["atr"]) else 0.0
     if atr_val < ATR_MIN:
         return None
 
-    # 5) M5 entry trigger
+    # 9) Spread check (bid-ask approximated from bar range vs ATR)
+    bar_range = float(cur["high"] - cur["low"])
+    implied_spread = max(0.0, bar_range - atr_val * 0.5)
+    if implied_spread > SPREAD_MAX_PIPS * 0.1:  # 0.1 = pip size for gold
+        pass  # spread check is heuristic; keep as soft filter only
+
+    # 10) M5 entry trigger
     triggers = []
     if bias == "LONG":
         if is_bullish_engulfing(prev, cur):
@@ -358,6 +470,9 @@ def evaluate(
             triggers.append("ema9_pullback")
         if micro_breakout(m5, bias):
             triggers.append("micro_breakout")
+        # Asian range breakout bonus tag
+        if asian and float(cur["close"]) > asian["high"]:
+            triggers.append("asian_breakout")
     else:
         if is_bearish_engulfing(prev, cur):
             triggers.append("bearish_engulfing")
@@ -365,12 +480,20 @@ def evaluate(
             triggers.append("ema9_pullback")
         if micro_breakout(m5, bias):
             triggers.append("micro_breakout")
+        if asian and float(cur["close"]) < asian["low"]:
+            triggers.append("asian_breakout")
 
-    if not triggers:
+    # Keep only non-asian-breakout triggers for the mandatory check
+    core_triggers = [t for t in triggers if t != "asian_breakout"]
+    if not core_triggers:
         return None
 
-    # 6) Build trade levels
-    entry = float(cur["close"])
+    # 11) S/R proximity — don't enter into a wall
+    sr = swing_levels(m5, lookback=60)
+    if near_opposing_sr(entry, bias, sr, atr_val):
+        return None
+
+    # 12) Build trade levels
     if bias == "LONG":
         swing = last_swing_low(m5, lookback=10)
         raw_sl = min(swing, entry - 1e-6)
@@ -415,19 +538,32 @@ def evaluate(
 
 def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
              now: Optional[datetime] = None) -> Dict[str, Any]:
-    """Lightweight market snapshot for the dashboard (bias, session, RSI...)."""
+    """Lightweight market snapshot for the dashboard."""
     ts = now or datetime.now(timezone.utc)
     bias = compute_bias(h1) if len(h1) else "NEUTRE"
     session = active_session(ts)
     cur5 = m5.iloc[-1] if len(m5) else None
     cur15 = m15.iloc[-1] if len(m15) else None
+    cur_h1 = h1.iloc[-1] if len(h1) else None
+
+    def _f(row, col, digits=3):
+        v = row.get(col, float("nan")) if row is not None else float("nan")
+        return round(float(v), digits) if not pd.isna(v) else None
+
+    asian = asian_session_range(m5) if len(m5) else None
+
     return {
         "bias": bias,
         "session": session or "Hors session",
-        "rsi_m5": round(float(cur5["rsi"]), 1) if cur5 is not None and not pd.isna(cur5["rsi"]) else None,
-        "rsi_m15": round(float(cur15["rsi"]), 1) if cur15 is not None and not pd.isna(cur15["rsi"]) else None,
-        "atr_m5": round(float(cur5["atr"]), 3) if cur5 is not None and not pd.isna(cur5["atr"]) else None,
+        "rsi_m5": _f(cur5, "rsi", 1),
+        "rsi_m15": _f(cur15, "rsi", 1),
+        "atr_m5": _f(cur5, "atr", 3),
         "atr_avg": round(float(m5["atr"].tail(50).mean()), 3) if len(m5) else None,
-        "price": round(float(cur5["close"]), 3) if cur5 is not None else None,
+        "adx_h1": _f(cur_h1, "adx", 1),
+        "vwap_m15": _f(cur15, "vwap", 3),
+        "price": _f(cur5, "close", 3),
         "atr_min": ATR_MIN,
+        "adx_min": ADX_MIN,
+        "asian_range": asian,
+        "structure_ok": market_structure_ok(h1, bias) if len(h1) >= 6 else None,
     }

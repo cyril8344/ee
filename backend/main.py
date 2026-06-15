@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import threading
 import traceback
+import urllib.request
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 
@@ -31,6 +33,26 @@ import pandas as pd
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+
+# --------------------------------------------------------------------------- #
+# Telegram notifications (optional — set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID)
+# --------------------------------------------------------------------------- #
+def _send_telegram(message: str) -> None:
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+    if not token or not chat_id:
+        return
+    try:
+        payload = json.dumps({"chat_id": chat_id, "text": message, "parse_mode": "HTML"})
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data=payload.encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception:
+        pass
 
 import database as db
 from risk_manager import RiskManager
@@ -241,7 +263,12 @@ def _open_trade(sig, decision, now):
     pos.meta["trade_id"] = trade_id
     db.update_daily(db.today_utc(), {"trade_count": state.risk.trades_today})
     arrow = "🟢 LONG" if sig.direction == "long" else "🔴 SHORT"
+    msg = (f"{arrow} <b>XAU/USD ouvert</b>\n"
+           f"Entrée : {pos.entry:.2f}\n"
+           f"SL : {sig.stop_loss:.2f}  TP1 : {sig.take_profit1:.2f}  TP2 : {sig.take_profit2:.2f}\n"
+           f"Raison : {sig.reason}\nSession : {sig.session}")
     state.push_alert("entry", f"{arrow} ouvert @ {pos.entry:.2f} ({sig.reason})")
+    threading.Thread(target=_send_telegram, args=(msg,), daemon=True).start()
 
 
 def _finalize_trade(pos: Position, close_info: Dict[str, Any], now: datetime):
@@ -271,8 +298,15 @@ def _finalize_trade(pos: Position, close_info: Dict[str, Any], now: datetime):
 
     result = "✅ GAGNANT" if pnl >= 0 else "❌ PERDANT"
     state.push_alert("exit", f"{result} {pnl:+.2f}$ ({close_info['reason']})")
+    msg = (f"{result} <b>XAU/USD clôturé</b>\n"
+           f"PnL : {pnl:+.2f}$  Durée : {round(duration, 1)} min\n"
+           f"Raison : {close_info['reason']}")
+    threading.Thread(target=_send_telegram, args=(msg,), daemon=True).start()
     if state.risk.blocked:
         state.push_alert("danger", "🛑 Stop journalier atteint — bot bloqué jusqu'à demain")
+        threading.Thread(target=_send_telegram,
+                         args=("🛑 <b>Stop journalier atteint</b> — bot bloqué jusqu'à demain",),
+                         daemon=True).start()
 
 
 # --------------------------------------------------------------------------- #
