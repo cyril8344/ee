@@ -443,6 +443,26 @@ export default function Dashboard() {
                   min={mkt.indicators?.atr_min} />
               </div>
 
+              {state?.macro?.dxy && (
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ color: COLORS.sub, fontSize: 12 }}>DXY</span>
+                  <span style={{ fontSize: 12 }}>
+                    {state.macro.dxy?.toFixed(2)}
+                    <span style={{ marginLeft: 4, color: state.macro.dxy_trend === "up" ? COLORS.red : state.macro.dxy_trend === "down" ? COLORS.green : COLORS.sub }}>
+                      {state.macro.dxy_trend === "up" ? "▲" : state.macro.dxy_trend === "down" ? "▼" : "—"}
+                    </span>
+                  </span>
+                </div>
+              )}
+              {state?.macro?.vix !== undefined && state?.macro?.vix !== null && (
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ color: COLORS.sub, fontSize: 12 }}>VIX</span>
+                  <span style={{ fontSize: 12, color: state.macro.vix > 25 ? COLORS.red : state.macro.vix > 15 ? COLORS.amber : COLORS.green }}>
+                    {state.macro.vix?.toFixed(1)} {state.macro.vix_blocked ? "🛑" : ""}
+                  </span>
+                </div>
+              )}
+
               {/* news */}
               <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 6 }}>
                 <div style={{ fontSize: 12, color: COLORS.sub, marginBottom: 4 }}>Prochaine news majeure</div>

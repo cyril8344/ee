@@ -58,6 +58,7 @@ def _send_telegram(message: str) -> None:
 import database as db
 from risk_manager import RiskManager
 from news_filter import NewsFilter
+from macro_filter import MacroFilter
 from broker import make_broker, Position
 import strategy
 from strategy import add_indicators, evaluate, snapshot, swing_levels, active_session
@@ -113,6 +114,7 @@ class BotState:
         self.risk = RiskManager()
         self.risk.sync_from_settings(self.settings)
         self.news = NewsFilter(window_minutes=60, currencies=("USD", "EUR"))
+        self.macro = MacroFilter()
         self.alerts: List[Dict[str, Any]] = []
         self.bot_status = "EN VEILLE"     # ACTIF | EN VEILLE | BLOQUE
         self.lock = threading.Lock()
@@ -253,8 +255,12 @@ def trading_tick() -> Dict[str, Any]:
 
                 # ---- Look for entry ----
                 can_enter_session = (session is not None) or (not session_filter)
+                macro_blocked, macro_reason = state.macro.blocks_entry(ms.symbol, snap.get("bias", "NEUTRE"))
+                if macro_blocked:
+                    state.push_alert("warn", f"[{ms.symbol}] Macro bloqué: {macro_reason}")
                 if (ms.position is None and can_enter_session
                         and not state.risk.blocked and not news_status["blocked"]
+                        and not macro_blocked
                         and state.settings.get("bot_enabled", True)):
                     sig = evaluate(m5, m15, h1, now=now, check_session=session_filter,
                                    atr_min=ms.config["atr_min"],
@@ -457,6 +463,7 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
         "max_trades_per_day": state.risk.max_trades_per_day,
         "risk": state.risk.status(),
         "news": news_status,
+        "macro": state.macro.status(),
         "alerts": state.alerts[-8:],
         "settings": {
             "session_filter": state.settings.get("session_filter", True),
@@ -741,6 +748,11 @@ def optimize_apply(req: ApplyParamsRequest):
 def news():
     state.news.refresh()
     return state.news.status()
+
+
+@app.get("/api/macro")
+def macro_status():
+    return state.macro.status()
 
 
 @app.get("/api/pattern-stats")
