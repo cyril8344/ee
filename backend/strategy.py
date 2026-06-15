@@ -422,6 +422,7 @@ def evaluate(
     h1: pd.DataFrame,
     now: Optional[datetime] = None,
     check_session: bool = True,
+    atr_min: float = ATR_MIN,
 ) -> Optional[Signal]:
     """
     Evaluate the full multi-timeframe stack on the *last closed* M5 bar.
@@ -480,7 +481,7 @@ def evaluate(
 
     # 8) M5 volatility floor
     atr_val = float(cur["atr"]) if not pd.isna(cur["atr"]) else 0.0
-    if atr_val < ATR_MIN:
+    if atr_val < atr_min:
         return None
 
     # 9) Spread check (bid-ask approximated from bar range vs ATR)

@@ -107,7 +107,8 @@ class RiskManager:
         steps = round(lot / LOT_STEP)
         return round(steps * LOT_STEP, 2)
 
-    def compute_position(self, entry: float, stop: float) -> Tuple[float, float, float]:
+    def compute_position(self, entry: float, stop: float,
+                         contract_size: float = CONTRACT_SIZE) -> Tuple[float, float, float]:
         """
         Returns (volume_lots, risk_amount_usd, stop_distance).
         Volume sized so that hitting the stop loses exactly risk_per_trade_pct.
@@ -116,8 +117,8 @@ class RiskManager:
         risk_amount = self.capital * (self.risk_per_trade_pct / 100.0)
         if stop_distance <= 0:
             return 0.0, risk_amount, 0.0
-        # $ loss per lot if stop hit = stop_distance * CONTRACT_SIZE
-        loss_per_lot = stop_distance * CONTRACT_SIZE
+        # $ loss per lot if stop hit = stop_distance * contract_size
+        loss_per_lot = stop_distance * contract_size
         raw_lots = risk_amount / loss_per_lot if loss_per_lot > 0 else 0.0
         volume = self._round_lot(raw_lots)
         # Actual risk after rounding
@@ -127,7 +128,8 @@ class RiskManager:
     # ------------------------------------------------------------------ #
     # Pre-trade gate
     # ------------------------------------------------------------------ #
-    def can_open_trade(self, entry: float, stop: float) -> RiskDecision:
+    def can_open_trade(self, entry: float, stop: float,
+                       contract_size: float = CONTRACT_SIZE) -> RiskDecision:
         if self.blocked:
             return RiskDecision(False, f"Bot blocked: {self.block_reason}")
 
@@ -143,7 +145,7 @@ class RiskManager:
             self.block_reason = "Daily loss limit reached"
             return RiskDecision(False, f"Bot blocked: {self.block_reason}")
 
-        volume, risk_amount, stop_distance = self.compute_position(entry, stop)
+        volume, risk_amount, stop_distance = self.compute_position(entry, stop, contract_size)
         if volume < MIN_LOT or stop_distance <= 0:
             return RiskDecision(
                 False, "Invalid stop distance / volume too small"

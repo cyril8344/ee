@@ -1,13 +1,13 @@
 """
 data_provider.py
 ================
-Unified XAU/USD 5-minute data layer.
+Unified 5-minute data layer for multiple markets.
 
 Providers (selected via the XAU_DATA_PROVIDER env var, or auto):
     - "twelvedata"   : Twelve Data REST API  (key: TWELVEDATA_API_KEY)
     - "polygon"      : Polygon.io aggregates  (key: POLYGON_API_KEY)
     - "alphavantage" : Alpha Vantage FX intraday (key: ALPHAVANTAGE_API_KEY)
-    - "yfinance"     : Yahoo Finance GC=F proxy (no key, ~60d M5 limit)
+    - "yfinance"     : Yahoo Finance proxy (no key, ~60d M5 limit)
     - "synthetic"    : deterministic offline generator (always works)
 
 Resolution order when XAU_DATA_PROVIDER is unset ("auto"):
@@ -58,6 +58,28 @@ def _load_dotenv() -> None:
 
 _load_dotenv()
 
+MARKET_SYMBOLS = {
+    "XAUUSD": {
+        "twelvedata": "XAU/USD",
+        "polygon": "X:XAUUSD",
+        "alphavantage": ("XAU", "USD"),
+        "yfinance": "GC=F",
+        "synthetic_price": 2000.0,
+        "synthetic_vol": 0.0009,
+        "synthetic_spread": 0.4,
+    },
+    "EURUSD": {
+        "twelvedata": "EUR/USD",
+        "polygon": "C:EURUSD",
+        "alphavantage": ("EUR", "USD"),
+        "yfinance": "EURUSD=X",
+        "synthetic_price": 1.08,
+        "synthetic_vol": 0.00015,
+        "synthetic_spread": 0.00004,
+    },
+}
+
+# Keep backward-compatible alias
 SYMBOL_MAP = {
     "twelvedata": os.environ.get("XAU_TD_SYMBOL", "XAU/USD"),
     "polygon": os.environ.get("XAU_POLY_SYMBOL", "X:XAUUSD"),
@@ -83,12 +105,14 @@ def _normalise(df: pd.DataFrame) -> pd.DataFrame:
 # --------------------------------------------------------------------------- #
 # Provider implementations
 # --------------------------------------------------------------------------- #
-def _fetch_twelvedata(start: Optional[str], end: Optional[str], bars: int) -> pd.DataFrame:
+def _fetch_twelvedata(start: Optional[str], end: Optional[str], bars: int,
+                      symbol: str = "XAUUSD") -> pd.DataFrame:
     key = os.environ.get("TWELVEDATA_API_KEY")
     if not key:
         raise RuntimeError("TWELVEDATA_API_KEY not set")
+    td_symbol = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"])["twelvedata"]
     params = {
-        "symbol": SYMBOL_MAP["twelvedata"], "interval": "5min",
+        "symbol": td_symbol, "interval": "5min",
         "apikey": key, "format": "JSON", "timezone": "UTC",
         "outputsize": min(max(bars, 1), 5000),
     }
@@ -110,7 +134,8 @@ def _fetch_twelvedata(start: Optional[str], end: Optional[str], bars: int) -> pd
     return _normalise(df)
 
 
-def _fetch_polygon(start: Optional[str], end: Optional[str], bars: int) -> pd.DataFrame:
+def _fetch_polygon(start: Optional[str], end: Optional[str], bars: int,
+                   symbol: str = "XAUUSD") -> pd.DataFrame:
     key = os.environ.get("POLYGON_API_KEY")
     if not key:
         raise RuntimeError("POLYGON_API_KEY not set")
@@ -118,7 +143,7 @@ def _fetch_polygon(start: Optional[str], end: Optional[str], bars: int) -> pd.Da
         end = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     if not start:
         start = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
-    sym = SYMBOL_MAP["polygon"]
+    sym = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"])["polygon"]
     url = (f"https://api.polygon.io/v2/aggs/ticker/{sym}/range/5/minute/"
            f"{start}/{end}")
     r = requests.get(url, params={"adjusted": "true", "sort": "asc",
@@ -136,11 +161,12 @@ def _fetch_polygon(start: Optional[str], end: Optional[str], bars: int) -> pd.Da
     return _normalise(df)
 
 
-def _fetch_alphavantage(start: Optional[str], end: Optional[str], bars: int) -> pd.DataFrame:
+def _fetch_alphavantage(start: Optional[str], end: Optional[str], bars: int,
+                        symbol: str = "XAUUSD") -> pd.DataFrame:
     key = os.environ.get("ALPHAVANTAGE_API_KEY")
     if not key:
         raise RuntimeError("ALPHAVANTAGE_API_KEY not set")
-    from_sym, to_sym = SYMBOL_MAP["alphavantage"]
+    from_sym, to_sym = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"])["alphavantage"]
     r = requests.get("https://www.alphavantage.co/query", params={
         "function": "FX_INTRADAY", "from_symbol": from_sym,
         "to_symbol": to_sym, "interval": "5min", "outputsize": "full",
@@ -166,9 +192,10 @@ def _fetch_alphavantage(start: Optional[str], end: Optional[str], bars: int) -> 
     return out
 
 
-def _fetch_yfinance(start: Optional[str], end: Optional[str], bars: int) -> pd.DataFrame:
+def _fetch_yfinance(start: Optional[str], end: Optional[str], bars: int,
+                    symbol: str = "XAUUSD") -> pd.DataFrame:
     import yfinance as yf
-    sym = SYMBOL_MAP["yfinance"]
+    sym = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"])["yfinance"]
     if start and end:
         data = yf.download(sym, start=start, end=end, interval="5m",
                            progress=False, auto_adjust=False)
@@ -182,7 +209,13 @@ def _fetch_yfinance(start: Optional[str], end: Optional[str], bars: int) -> pd.D
     return _normalise(data)
 
 
-def _fetch_synthetic(start: Optional[str], end: Optional[str], bars: int) -> pd.DataFrame:
+def _fetch_synthetic(start: Optional[str], end: Optional[str], bars: int,
+                     symbol: str = "XAUUSD") -> pd.DataFrame:
+    cfg = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"])
+    base_price = cfg["synthetic_price"]
+    vol = cfg["synthetic_vol"]
+    spread_scale = cfg["synthetic_spread"]
+
     if start:
         start_dt = pd.Timestamp(start, tz="UTC")
     else:
@@ -202,14 +235,13 @@ def _fetch_synthetic(start: Optional[str], end: Optional[str], bars: int) -> pd.
     # deterministic seed from start so backtests are reproducible
     seed = int(start_dt.timestamp()) // 300
     rng = np.random.default_rng(seed if seed else 42)
-    price0 = 2000.0
-    rets = rng.normal(0, 0.0009, n)
+    rets = rng.normal(0, vol, n)
     hours = idx.hour.values
     boost = np.where(((hours >= 7) & (hours < 11)) | ((hours >= 13) & (hours < 17)), 1.6, 0.7)
     rets *= boost
-    close = price0 * np.exp(np.cumsum(rets))
-    spread = np.abs(rng.normal(0, 0.6, n)) + 0.2
-    open_ = np.concatenate([[price0], close[:-1]])
+    close = base_price * np.exp(np.cumsum(rets))
+    spread = np.abs(rng.normal(0, spread_scale * 1.5, n)) + spread_scale * 0.5
+    open_ = np.concatenate([[base_price], close[:-1]])
     df = pd.DataFrame({
         "open": open_,
         "high": np.maximum(close + spread, np.maximum(open_, close)),
@@ -249,7 +281,7 @@ def available_providers() -> List[str]:
 
 
 def get_m5(start: Optional[str] = None, end: Optional[str] = None,
-           bars: int = 500) -> tuple[pd.DataFrame, str]:
+           bars: int = 500, symbol: str = "XAUUSD") -> tuple[pd.DataFrame, str]:
     """
     Return (dataframe, provider_name_used).
 
@@ -271,14 +303,14 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
     last_err = None
     for name in order:
         try:
-            df = _PROVIDERS[name](start, end, bars)
+            df = _PROVIDERS[name](start, end, bars, symbol)
             if df is not None and len(df) > 0:
                 return df, name
         except Exception as e:  # noqa: BLE001 - intentional fallthrough
             last_err = e
             continue
     # absolute last resort
-    return _fetch_synthetic(start, end, bars), "synthetic"
+    return _fetch_synthetic(start, end, bars, symbol), "synthetic"
 
 
 if __name__ == "__main__":

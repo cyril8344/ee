@@ -38,10 +38,11 @@ PIP = 0.1
 # Data helper shared by paper broker
 # --------------------------------------------------------------------------- #
 class MarketData:
-    """Cached 5-minute XAU/USD data feed (yfinance proxy + synthetic fallback)."""
+    """Cached 5-minute market data feed (data_provider + synthetic fallback)."""
 
-    def __init__(self, ttl_seconds: int = 60):
+    def __init__(self, ttl_seconds: int = 60, symbol: str = "XAUUSD"):
         self.ttl = ttl_seconds
+        self.symbol = symbol
         self._cache: Optional[pd.DataFrame] = None
         self._fetched_at: float = 0.0
         self._lock = threading.Lock()
@@ -59,7 +60,7 @@ class MarketData:
     def _fetch(self) -> pd.DataFrame:
         try:
             import data_provider
-            df, _provider = data_provider.get_m5(bars=500)
+            df, _provider = data_provider.get_m5(bars=500, symbol=self.symbol)
             if df is not None and len(df) > 0:
                 return df
         except Exception:
@@ -72,10 +73,17 @@ class MarketData:
         idx = idx[idx.weekday < 5]
         n = len(idx)
         rng = np.random.default_rng(int(end.timestamp()) // 300)
-        price0 = 2000.0
-        rets = rng.normal(0, 0.0008, n)
+        if self.symbol == "EURUSD":
+            price0 = 1.08
+            vol = 0.00012
+            spread_base = 0.00003
+        else:
+            price0 = 2000.0
+            vol = 0.0008
+            spread_base = 0.2
+        rets = rng.normal(0, vol, n)
         close = price0 * np.exp(np.cumsum(rets))
-        spread = np.abs(rng.normal(0, 0.5, n)) + 0.2
+        spread = np.abs(rng.normal(0, spread_base * 2.5, n)) + spread_base
         open_ = np.concatenate([[price0], close[:-1]])
         df = pd.DataFrame({
             "open": open_,
@@ -111,9 +119,9 @@ class Position:
         if self.remaining == 0.0:
             self.remaining = self.volume
 
-    def unrealised_pnl(self, price: float) -> float:
+    def unrealised_pnl(self, price: float, contract_size: float = CONTRACT_SIZE) -> float:
         sign = 1.0 if self.direction == "long" else -1.0
-        return (price - self.entry) * sign * CONTRACT_SIZE * self.remaining + self.realised
+        return (price - self.entry) * sign * contract_size * self.remaining + self.realised
 
 
 # --------------------------------------------------------------------------- #
@@ -151,10 +159,12 @@ class BaseBroker:
 class PaperBroker(BaseBroker):
     name = "paper"
 
-    def __init__(self, spread_pips: float = 0.3, slippage_pips: float = 0.1):
+    def __init__(self, spread_pips: float = 0.3, slippage_pips: float = 0.1,
+                 symbol: str = "XAUUSD", contract_size: float = 100.0):
         self.spread = spread_pips * PIP
         self.slippage = slippage_pips * PIP
-        self.data = MarketData()
+        self.contract_size = contract_size
+        self.data = MarketData(symbol=symbol)
         self._ticket = 1000
 
     def connected(self) -> bool:
@@ -188,7 +198,7 @@ class PaperBroker(BaseBroker):
         sign = 1.0 if direction == "long" else -1.0
 
         def pnl_for(p, lots):
-            return (p - pos.entry) * sign * CONTRACT_SIZE * lots
+            return (p - pos.entry) * sign * self.contract_size * lots
 
         # TP1 partial (60%)
         if not pos.tp1_done:
@@ -244,7 +254,7 @@ class PaperBroker(BaseBroker):
         price = self.get_price()
         sign = 1.0 if pos.direction == "long" else -1.0
         fill = price - self.slippage * sign
-        pnl = pos.realised + (fill - pos.entry) * sign * CONTRACT_SIZE * pos.remaining
+        pnl = pos.realised + (fill - pos.entry) * sign * self.contract_size * pos.remaining
         pos.remaining = 0.0
         return {"closed": True, "reason": reason, "exit_price": fill, "pnl": pnl}
 
@@ -358,11 +368,12 @@ class MT5Broker(BaseBroker):
 
 
 def make_broker(mode: str = "paper", symbol: str = "XAUUSD",
-                spread_pips: float = 0.3, slippage_pips: float = 0.1) -> BaseBroker:
+                spread_pips: float = 0.3, slippage_pips: float = 0.1,
+                contract_size: float = 100.0) -> BaseBroker:
     """Factory: returns an MT5 broker for live mode if available, else paper."""
     if mode == "live":
         mt5 = MT5Broker(symbol)
         if mt5.connected():
             return mt5
         # fall back to paper if MT5 unavailable
-    return PaperBroker(spread_pips, slippage_pips)
+    return PaperBroker(spread_pips, slippage_pips, symbol=symbol, contract_size=contract_size)
