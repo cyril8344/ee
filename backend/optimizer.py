@@ -37,12 +37,16 @@ PARAM_GRID = {
 
 
 def run_optimize(cfg: OptimizeConfig) -> Dict[str, Any]:
+    from backtest import load_m5_data
     keys = list(PARAM_GRID.keys())
     values = list(PARAM_GRID.values())
     combos = list(itertools.product(*values))
 
     results = []
     total = len(combos)
+
+    # Load data ONCE — reused across all 108 backtests
+    shared_data = load_m5_data(cfg.start, cfg.end, symbol=cfg.symbol)
 
     # Save original strategy params
     orig = {
@@ -76,7 +80,7 @@ def run_optimize(cfg: OptimizeConfig) -> Dict[str, Any]:
         )
 
         try:
-            report = run_backtest(bt_cfg)
+            report = run_backtest(bt_cfg, preloaded_data=shared_data)
             summary = report.get("summary", {})
             if summary.get("trades", 0) < 10:
                 continue

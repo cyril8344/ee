@@ -157,8 +157,8 @@ def _round_lot(lot: float) -> float:
     return round(round(lot / LOT_STEP) * LOT_STEP, 2)
 
 
-def run_backtest(cfg: BacktestConfig) -> Dict[str, Any]:
-    m5_raw = load_m5_data(cfg.start, cfg.end, symbol=cfg.symbol)
+def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = None) -> Dict[str, Any]:
+    m5_raw = preloaded_data if preloaded_data is not None else load_m5_data(cfg.start, cfg.end, symbol=cfg.symbol)
     if len(m5_raw) < 250:
         return {"error": "Not enough data for the selected period.",
                 "config": cfg.__dict__}
