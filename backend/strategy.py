@@ -273,6 +273,80 @@ def last_swing_high(df: pd.DataFrame, lookback: int = 10) -> float:
 
 
 # --------------------------------------------------------------------------- #
+# SMC — Smart Money Concepts
+# --------------------------------------------------------------------------- #
+def find_fair_value_gaps(df: pd.DataFrame, lookback: int = 40) -> List[Dict[str, Any]]:
+    """Detect unfilled Fair Value Gaps (3-candle imbalance zones)."""
+    sub = df.tail(lookback)
+    fvgs: List[Dict[str, Any]] = []
+    for i in range(2, len(sub)):
+        c0, c2 = sub.iloc[i - 2], sub.iloc[i]
+        # Bullish FVG: gap between candle-1 high and candle+1 low
+        if c0["high"] < c2["low"]:
+            gap_low, gap_high = float(c0["high"]), float(c2["low"])
+            # Unfilled = price hasn't traded back into the gap
+            if sub["low"].iloc[i:].min() > gap_low:
+                fvgs.append({"type": "bullish", "low": gap_low, "high": gap_high})
+        # Bearish FVG: gap between candle-1 low and candle+1 high
+        if c0["low"] > c2["high"]:
+            gap_low, gap_high = float(c2["high"]), float(c0["low"])
+            if sub["high"].iloc[i:].max() < gap_high:
+                fvgs.append({"type": "bearish", "low": gap_low, "high": gap_high})
+    return fvgs
+
+
+def find_order_blocks(df: pd.DataFrame, lookback: int = 40) -> List[Dict[str, Any]]:
+    """Last bearish candle before a bullish impulse (bullish OB) and vice-versa."""
+    sub = df.tail(lookback)
+    atr_val = float(sub["atr"].iloc[-1]) if "atr" in sub.columns else 1.0
+    obs: List[Dict[str, Any]] = []
+    for i in range(1, len(sub) - 1):
+        c, nxt = sub.iloc[i], sub.iloc[i + 1]
+        impulse = abs(nxt["close"] - nxt["open"])
+        if impulse < 0.5 * atr_val:
+            continue
+        # Bullish OB: bearish candle before bullish impulse
+        if c["close"] < c["open"] and nxt["close"] > nxt["open"]:
+            obs.append({"type": "bullish",
+                        "low": float(c["close"]), "high": float(c["open"])})
+        # Bearish OB: bullish candle before bearish impulse
+        elif c["close"] > c["open"] and nxt["close"] < nxt["open"]:
+            obs.append({"type": "bearish",
+                        "low": float(c["open"]), "high": float(c["close"])})
+    return obs
+
+
+def liquidity_swept(df: pd.DataFrame, bias: str, lookback: int = 20) -> bool:
+    """True if sell-side (LONG) or buy-side (SHORT) liquidity was recently swept then recovered."""
+    sub = df.tail(lookback)
+    if len(sub) < 6:
+        return False
+    prior, recent = sub.iloc[:-5], sub.iloc[-5:]
+    if bias == "LONG":
+        swept = float(recent["low"].min()) < float(prior["low"].min())
+        recovered = float(sub["close"].iloc[-1]) > float(prior["low"].min())
+        return swept and recovered
+    else:
+        swept = float(recent["high"].max()) > float(prior["high"].max())
+        recovered = float(sub["close"].iloc[-1]) < float(prior["high"].max())
+        return swept and recovered
+
+
+def near_orderblock(price: float, bias: str,
+                    obs: List[Dict[str, Any]], atr_val: float) -> bool:
+    """True if price is inside or touching a matching order block."""
+    tol = 0.4 * atr_val
+    for ob in obs:
+        if ob["type"] == bias.upper() if False else ob["type"]:
+            pass
+        match = (ob["type"] == "bullish" and bias == "LONG") or \
+                (ob["type"] == "bearish" and bias == "SHORT")
+        if match and ob["low"] - tol <= price <= ob["high"] + tol:
+            return True
+    return False
+
+
+# --------------------------------------------------------------------------- #
 # Bias / confirmation / entry primitives
 # --------------------------------------------------------------------------- #
 def compute_bias(h1: pd.DataFrame) -> str:
@@ -496,9 +570,11 @@ def evaluate(
     if bias == "SHORT" and cur["close"] > cur["ema9"]:
         return None
 
-    # 10b) M5 entry trigger
+    # 10b) M5 entry trigger + SMC confluence
     entry = float(cur["close"])
     triggers = []
+
+    # Classic triggers
     if bias == "LONG":
         if is_bullish_engulfing(prev, cur, atr_val):
             triggers.append("bullish_engulfing")
@@ -518,7 +594,18 @@ def evaluate(
         if asian and entry < asian["low"]:
             triggers.append("asian_breakout")
 
-    # Keep only non-asian-breakout triggers for the mandatory check
+    # SMC triggers
+    obs_m5 = find_order_blocks(m5, lookback=40)
+    fvgs_m5 = find_fair_value_gaps(m5, lookback=40)
+    if near_orderblock(entry, bias, obs_m5, atr_val):
+        triggers.append("orderblock")
+    if any((f["low"] <= entry <= f["high"])
+           for f in fvgs_m5 if f["type"] == ("bullish" if bias == "LONG" else "bearish")):
+        triggers.append("fvg")
+    if liquidity_swept(m5, bias):
+        triggers.append("liquidity_sweep")
+
+    # Need 2+ core triggers (SMC triggers count, asian_breakout doesn't)
     core_triggers = [t for t in triggers if t != "asian_breakout"]
     if len(core_triggers) < 2:
         return None
