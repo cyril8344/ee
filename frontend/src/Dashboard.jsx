@@ -220,6 +220,7 @@ const hms = (s) => {
 export default function Dashboard() {
   const [tab, setTab] = useState("live");
   const [activeMarket, setActiveMarket] = useState("XAUUSD");
+  const [weightsOpen, setWeightsOpen] = useState(false);
   const [state, setState] = useState(null);
   const [chart, setChart] = useState(null);
   const [tf, setTf] = useState("M5");
@@ -355,7 +356,7 @@ export default function Dashboard() {
     <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.text,
       fontFamily: "'Inter', system-ui, sans-serif", padding: 16 }}>
       {/* ===== header / tabs ===== */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
         <h1 style={{ fontSize: 20, margin: 0, letterSpacing: 0.5 }}>
           🟡 <span style={{ color: COLORS.sub, fontWeight: 400 }}>Scalping Bot</span>
         </h1>
@@ -367,7 +368,7 @@ export default function Dashboard() {
           color: state?.mode === "live" ? "#fff" : COLORS.sub }}>
           {state?.mode === "live" ? "LIVE" : "PAPER"}
         </span>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+        <div className="header-tabs" style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           {Object.keys(state?.markets || { XAUUSD: 1 }).map((sym) => (
             <button key={sym} onClick={() => setActiveMarket(sym)}
               style={tabBtn(activeMarket === sym)}>
@@ -388,7 +389,7 @@ export default function Dashboard() {
       ) : (
         <>
           {/* ===== top band ===== */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 14 }}>
+          <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 14 }}>
             <Stat label="Biais du jour"
               value={mkt.bias || "—"}
               color={biasColor(mkt.bias)} big />
@@ -403,9 +404,9 @@ export default function Dashboard() {
               color={COLORS.text} />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14 }}>
+          <div className="main-layout" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14 }}>
             {/* ===== main chart ===== */}
-            <div style={panel()}>
+            <div className="dashboard-panel" style={panel()}>
               <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
                 <h3 style={{ margin: 0, fontSize: 14 }}>Graphique</h3>
                 <span style={{ marginLeft: 12, color: COLORS.sub, fontSize: 13 }}>
@@ -427,7 +428,7 @@ export default function Dashboard() {
             </div>
 
             {/* ===== side panel ===== */}
-            <div style={panel()}>
+            <div className="dashboard-panel" style={panel()}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <h3 style={{ margin: 0, fontSize: 14 }}>Statut bot</h3>
                 <span style={{ padding: "3px 10px", borderRadius: 4, fontWeight: 600, fontSize: 12,
@@ -443,42 +444,45 @@ export default function Dashboard() {
                   min={mkt.indicators?.atr_min} />
               </div>
 
-              {state?.macro?.dxy && (
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ color: COLORS.sub, fontSize: 12 }}>DXY</span>
-                  <span style={{ fontSize: 12 }}>
-                    {state.macro.dxy?.toFixed(2)}
-                    <span style={{ marginLeft: 4, color: state.macro.dxy_trend === "up" ? COLORS.red : state.macro.dxy_trend === "down" ? COLORS.green : COLORS.sub }}>
-                      {state.macro.dxy_trend === "up" ? "▲" : state.macro.dxy_trend === "down" ? "▼" : "—"}
+              {/* macro indicators: 4-in-a-row on desktop, 2x2 on mobile */}
+              <div className="macro-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginBottom: 4 }}>
+                {state?.macro?.dxy && (
+                  <div style={{ display: "flex", flexDirection: "column", padding: "4px 0" }}>
+                    <span style={{ color: COLORS.sub, fontSize: 12 }}>DXY</span>
+                    <span style={{ fontSize: 12 }}>
+                      {state.macro.dxy?.toFixed(2)}
+                      <span style={{ marginLeft: 4, color: state.macro.dxy_trend === "up" ? COLORS.red : state.macro.dxy_trend === "down" ? COLORS.green : COLORS.sub }}>
+                        {state.macro.dxy_trend === "up" ? "▲" : state.macro.dxy_trend === "down" ? "▼" : "—"}
+                      </span>
                     </span>
-                  </span>
-                </div>
-              )}
-              {state?.macro?.vix !== undefined && state?.macro?.vix !== null && (
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ color: COLORS.sub, fontSize: 12 }}>VIX</span>
-                  <span style={{ fontSize: 12, color: state.macro.vix > 25 ? COLORS.red : state.macro.vix > 15 ? COLORS.amber : COLORS.green }}>
-                    {state.macro.vix?.toFixed(1)} {state.macro.vix_blocked ? "🛑" : ""}
-                  </span>
-                </div>
-              )}
-              {state?.macro?.tnx && (
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontSize: 12, color: COLORS.sub }}>TNX 10Y</span>
-                  <span style={{ fontSize: 12, color: state.macro.tnx_trend === "up" ? COLORS.red : state.macro.tnx_trend === "down" ? COLORS.green : COLORS.text }}>
-                    {state.macro.tnx?.toFixed(2)}%
-                    {state.macro.tnx_trend === "up" ? " ▲" : state.macro.tnx_trend === "down" ? " ▼" : ""}
-                  </span>
-                </div>
-              )}
-              {state?.macro?.fear_greed !== undefined && state?.macro?.fear_greed !== null && (
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontSize: 12, color: COLORS.sub }}>Peur/Avidité</span>
-                  <span style={{ fontSize: 12, color: state.macro.fear_greed < 25 ? COLORS.red : state.macro.fear_greed > 75 ? COLORS.green : COLORS.amber }}>
-                    {state.macro.fear_greed}/100 {state.macro.fear_greed < 25 ? "😱" : state.macro.fear_greed > 75 ? "🤑" : "😐"}
-                  </span>
-                </div>
-              )}
+                  </div>
+                )}
+                {state?.macro?.vix !== undefined && state?.macro?.vix !== null && (
+                  <div style={{ display: "flex", flexDirection: "column", padding: "4px 0" }}>
+                    <span style={{ color: COLORS.sub, fontSize: 12 }}>VIX</span>
+                    <span style={{ fontSize: 12, color: state.macro.vix > 25 ? COLORS.red : state.macro.vix > 15 ? COLORS.amber : COLORS.green }}>
+                      {state.macro.vix?.toFixed(1)} {state.macro.vix_blocked ? "🛑" : ""}
+                    </span>
+                  </div>
+                )}
+                {state?.macro?.tnx && (
+                  <div style={{ display: "flex", flexDirection: "column", padding: "4px 0" }}>
+                    <span style={{ fontSize: 12, color: COLORS.sub }}>TNX 10Y</span>
+                    <span style={{ fontSize: 12, color: state.macro.tnx_trend === "up" ? COLORS.red : state.macro.tnx_trend === "down" ? COLORS.green : COLORS.text }}>
+                      {state.macro.tnx?.toFixed(2)}%
+                      {state.macro.tnx_trend === "up" ? " ▲" : state.macro.tnx_trend === "down" ? " ▼" : ""}
+                    </span>
+                  </div>
+                )}
+                {state?.macro?.fear_greed !== undefined && state?.macro?.fear_greed !== null && (
+                  <div style={{ display: "flex", flexDirection: "column", padding: "4px 0" }}>
+                    <span style={{ fontSize: 12, color: COLORS.sub }}>Peur/Avidité</span>
+                    <span style={{ fontSize: 12, color: state.macro.fear_greed < 25 ? COLORS.red : state.macro.fear_greed > 75 ? COLORS.green : COLORS.amber }}>
+                      {state.macro.fear_greed}/100 {state.macro.fear_greed < 25 ? "😱" : state.macro.fear_greed > 75 ? "🤑" : "😐"}
+                    </span>
+                  </div>
+                )}
+              </div>
 
               {/* news */}
               <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 6 }}>
@@ -505,8 +509,15 @@ export default function Dashboard() {
               {/* pattern weights */}
               {Object.keys(patternStats).length > 0 && (
                 <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 10 }}>
-                  <div style={{ fontSize: 12, color: COLORS.sub, marginBottom: 6 }}>Poids des patterns</div>
-                  {Object.entries(patternStats)
+                  <button
+                    onClick={() => setWeightsOpen((o) => !o)}
+                    style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
+                      fontSize: 12, color: COLORS.sub, marginBottom: 6, textAlign: "left",
+                      width: "100%", display: "flex", justifyContent: "space-between" }}>
+                    <span>Poids des patterns</span>
+                    <span>{weightsOpen ? "▲" : "▼"}</span>
+                  </button>
+                  {weightsOpen && Object.entries(patternStats)
                     .filter(([, s]) => s.trades >= 1)
                     .sort((a, b) => b[1].weight - a[1].weight)
                     .map(([name, s]) => (
@@ -545,7 +556,7 @@ export default function Dashboard() {
 
           {/* ===== active trade ===== */}
           {pos && (
-            <div style={{ ...panel(), marginTop: 14, borderColor: pos.direction === "long" ? COLORS.green : COLORS.red }}>
+            <div className="dashboard-panel" style={{ ...panel(), marginTop: 14, borderColor: pos.direction === "long" ? COLORS.green : COLORS.red }}>
               <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
                 <span style={{ fontWeight: 700, fontSize: 16,
                   color: pos.direction === "long" ? COLORS.green : COLORS.red }}>
@@ -575,15 +586,17 @@ export default function Dashboard() {
           )}
 
           {/* ===== history + equity ===== */}
-          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14, marginTop: 14 }}>
-            <div style={panel()}>
+          <div className="history-layout" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14, marginTop: 14 }}>
+            <div className="dashboard-panel" style={panel()}>
               <h3 style={{ margin: "0 0 10px", fontSize: 14 }}>Historique du jour</h3>
               <div style={{ maxHeight: 240, overflowY: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead>
                     <tr style={{ color: COLORS.sub, textAlign: "left" }}>
                       <th style={th}>Heure</th><th style={th}>Dir</th><th style={th}>Entrée</th>
-                      <th style={th}>Sortie</th><th style={th}>Durée</th><th style={th}>Résultat</th>
+                      <th style={th}>Sortie</th>
+                      <th className="hide-mobile" style={th}>Durée</th>
+                      <th style={th}>Résultat</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -595,7 +608,7 @@ export default function Dashboard() {
                         </td>
                         <td style={td}>{fmt(t.entry_price, 2)}</td>
                         <td style={td}>{fmt(t.exit_price, 2)}</td>
-                        <td style={td}>{fmt(t.duration_min, 0)}m</td>
+                        <td className="hide-mobile" style={td}>{fmt(t.duration_min, 0)}m</td>
                         <td style={{ ...td, fontWeight: 600, color: (t.pnl || 0) >= 0 ? COLORS.green : COLORS.red }}>
                           {money(t.pnl)}
                         </td>
@@ -609,9 +622,10 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div style={panel()}>
+            <div className="dashboard-panel" style={panel()}>
               <h3 style={{ margin: "0 0 10px", fontSize: 14 }}>Équité intraday</h3>
-              <ResponsiveContainer width="100%" height={210}>
+              <div className="chart-container" style={{ height: 210 }}>
+              <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={(trades.equity_curve || []).map((p, i) => ({
                   i, equity: p.equity, t: (p.ts || "").slice(11, 16),
                 }))}>
@@ -632,7 +646,7 @@ export default function Dashboard() {
           </div>
 
           {/* ===== alerts feed ===== */}
-          <div style={{ ...panel(), marginTop: 14 }}>
+          <div className="dashboard-panel" style={{ ...panel(), marginTop: 14 }}>
             <h3 style={{ margin: "0 0 8px", fontSize: 14 }}>Alertes</h3>
             <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 130, overflowY: "auto" }}>
               {(state?.alerts || []).slice().reverse().map((a, i) => (

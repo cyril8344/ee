@@ -10,6 +10,77 @@
       ::-webkit-scrollbar { width: 8px; height: 8px; }
       ::-webkit-scrollbar-thumb { background: #2a3346; border-radius: 4px; }
       ::-webkit-scrollbar-track { background: #0f1420; }
+
+      /* ── Mobile responsiveness ── */
+      @media (max-width: 768px) {
+        /* Top stat cards: 2-column grid on mobile */
+        .stat-grid {
+          grid-template-columns: repeat(2, 1fr) !important;
+        }
+
+        /* Main layout: single column on mobile */
+        .main-layout {
+          grid-template-columns: 1fr !important;
+        }
+
+        /* History + equity: single column on mobile */
+        .history-layout {
+          grid-template-columns: 1fr !important;
+        }
+
+        /* Macro panel: 2x2 grid on mobile */
+        .macro-grid {
+          grid-template-columns: repeat(2, 1fr) !important;
+        }
+
+        /* Chart height reduced on mobile */
+        .chart-container {
+          height: 200px !important;
+        }
+
+        /* Headings: ~20% smaller */
+        h1 { font-size: 16px !important; }
+        h2 { font-size: 15px !important; }
+        h3 { font-size: 12px !important; }
+
+        /* Buttons: larger touch targets */
+        button {
+          min-height: 44px !important;
+          padding-top: 10px !important;
+          padding-bottom: 10px !important;
+        }
+
+        /* Market + tab buttons: horizontal scroll */
+        .header-tabs {
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          flex-wrap: nowrap !important;
+          width: 100%;
+          margin-left: 0 !important;
+        }
+
+        /* Header: wrap to two lines on mobile */
+        .header-bar {
+          flex-wrap: wrap;
+          gap: 8px !important;
+        }
+
+        /* Hide non-critical table columns */
+        .hide-mobile {
+          display: none !important;
+        }
+
+        /* Panels: reduced padding on mobile */
+        .dashboard-panel {
+          padding: 10px !important;
+        }
+
+        /* Active trade row: allow wrapping on small screens */
+        .active-trade-row {
+          flex-wrap: wrap;
+          gap: 8px !important;
+        }
+      }
     </style>
   </head>
   <body>

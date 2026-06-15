@@ -31,7 +31,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 
 import pandas as pd
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -64,6 +64,9 @@ import strategy
 from strategy import add_indicators, evaluate, snapshot, swing_levels, active_session
 from backtest import BacktestConfig, run_backtest
 from optimizer import OptimizeConfig, run_optimize
+from auth import create_access_token, get_current_user, verify_credentials
+import cot_report
+import retail_sentiment
 
 
 MARKET_CONFIG = {
@@ -494,15 +497,32 @@ async def _loop():
 # --------------------------------------------------------------------------- #
 # REST API
 # --------------------------------------------------------------------------- #
+
+# ---- Authentication --------------------------------------------------------
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/login")
+def login(req: LoginRequest):
+    """Public endpoint — no auth required. Returns a JWT on success."""
+    if not verify_credentials(req.username, req.password):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    token = create_access_token({"sub": req.username})
+    return {"access_token": token, "token_type": "bearer"}
+
+
+# ---- Protected endpoints ---------------------------------------------------
 @app.get("/api/health")
-def health():
+def health(_user: dict = Depends(get_current_user)):
     brokers = {sym: {"name": ms.broker.name, "connected": ms.broker.connected()}
                for sym, ms in state.market_states.items()}
     return {"status": "ok", "brokers": brokers, "mode": state.settings.get("mode")}
 
 
 @app.get("/api/state")
-def get_state():
+def get_state(_user: dict = Depends(get_current_user)):
     try:
         return trading_tick()
     except Exception as e:
@@ -510,7 +530,7 @@ def get_state():
 
 
 @app.get("/api/chart")
-def get_chart(tf: str = "M5", symbol: str = "XAUUSD"):
+def get_chart(tf: str = "M5", symbol: str = "XAUUSD", _user: dict = Depends(get_current_user)):
     """Candles + EMAs + swing S/R for the dashboard chart."""
     ms = state.market_states.get(symbol)
     if ms is None:
@@ -560,7 +580,7 @@ def get_chart(tf: str = "M5", symbol: str = "XAUUSD"):
 
 
 @app.get("/api/trades")
-def get_trades(scope: str = "today"):
+def get_trades(scope: str = "today", _user: dict = Depends(get_current_user)):
     mode = state.settings.get("mode")
     if scope == "today":
         trades = db.get_trades_for_day(db.today_utc(), mode=mode)
@@ -571,7 +591,7 @@ def get_trades(scope: str = "today"):
 
 
 @app.get("/api/settings")
-def read_settings():
+def read_settings(_user: dict = Depends(get_current_user)):
     return state.settings
 
 
@@ -589,7 +609,7 @@ class SettingsPatch(BaseModel):
 
 
 @app.post("/api/settings")
-def write_settings(patch: SettingsPatch):
+def write_settings(patch: SettingsPatch, _user: dict = Depends(get_current_user)):
     data = patch.dict(exclude_none=True)
     if "risk_per_trade_pct" in data:
         if not data.pop("confirm_risk_change", False):
@@ -611,7 +631,7 @@ class ModeSwitch(BaseModel):
 
 
 @app.post("/api/mode")
-def switch_mode(req: ModeSwitch):
+def switch_mode(req: ModeSwitch, _user: dict = Depends(get_current_user)):
     if req.mode not in ("paper", "live"):
         raise HTTPException(status_code=400, detail="mode must be paper|live")
     if req.mode == "live" and not (req.confirm and req.confirm_again):
@@ -641,7 +661,7 @@ def switch_mode(req: ModeSwitch):
 
 
 @app.post("/api/close")
-def close_now(symbol: str = "XAUUSD"):
+def close_now(symbol: str = "XAUUSD", _user: dict = Depends(get_current_user)):
     with state.lock:
         ms = state.market_states.get(symbol)
         if ms is None:
@@ -656,7 +676,7 @@ def close_now(symbol: str = "XAUUSD"):
 
 
 @app.post("/api/bot/toggle")
-def toggle_bot():
+def toggle_bot(_user: dict = Depends(get_current_user)):
     with state.lock:
         new_val = not state.settings.get("bot_enabled", True)
         state.settings = db.update_settings({"bot_enabled": new_val})
@@ -676,7 +696,7 @@ class BacktestRequest(BaseModel):
 
 
 @app.post("/api/backtest")
-async def backtest(req: BacktestRequest):
+async def backtest(req: BacktestRequest, _user: dict = Depends(get_current_user)):
     cfg = BacktestConfig(
         start=req.start, end=req.end, capital=req.capital,
         risk_pct=req.risk_pct, spread_pips=req.spread_pips,
@@ -702,7 +722,7 @@ class OptimizeRequest(BaseModel):
 
 
 @app.post("/api/optimize")
-async def optimize(req: OptimizeRequest):
+async def optimize(req: OptimizeRequest, _user: dict = Depends(get_current_user)):
     cfg = OptimizeConfig(
         start=req.start, end=req.end, symbol=req.symbol,
         capital=req.capital, risk_pct=req.risk_pct,
@@ -723,7 +743,7 @@ class ApplyParamsRequest(BaseModel):
 
 
 @app.post("/api/optimize/apply")
-def optimize_apply(req: ApplyParamsRequest):
+def optimize_apply(req: ApplyParamsRequest, _user: dict = Depends(get_current_user)):
     """Apply optimised strategy parameters in-memory (no DB persistence)."""
     applied: Dict[str, Any] = {}
     if req.adx_min is not None:
