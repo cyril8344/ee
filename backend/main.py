@@ -572,6 +572,17 @@ def news():
     return state.news.status()
 
 
+@app.get("/api/data-provider")
+def data_provider_status():
+    """Which market-data providers are configured / currently usable."""
+    import data_provider
+    import os
+    return {
+        "configured": os.environ.get("XAU_DATA_PROVIDER", "auto"),
+        "available": data_provider.available_providers(),
+    }
+
+
 # --------------------------------------------------------------------------- #
 # WebSocket endpoint
 # --------------------------------------------------------------------------- #

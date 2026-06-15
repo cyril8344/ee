@@ -1,0 +1,288 @@
+"""
+data_provider.py
+================
+Unified XAU/USD 5-minute data layer.
+
+Providers (selected via the XAU_DATA_PROVIDER env var, or auto):
+    - "twelvedata"   : Twelve Data REST API  (key: TWELVEDATA_API_KEY)
+    - "polygon"      : Polygon.io aggregates  (key: POLYGON_API_KEY)
+    - "alphavantage" : Alpha Vantage FX intraday (key: ALPHAVANTAGE_API_KEY)
+    - "yfinance"     : Yahoo Finance GC=F proxy (no key, ~60d M5 limit)
+    - "synthetic"    : deterministic offline generator (always works)
+
+Resolution order when XAU_DATA_PROVIDER is unset ("auto"):
+    twelvedata -> polygon -> alphavantage -> yfinance -> synthetic
+(only providers whose API key is present are attempted).
+
+All providers return a tz-aware (UTC) DataFrame indexed by time with columns:
+    open, high, low, close, volume
+
+Set credentials in a `.env` file (see .env.example) or the real environment.
+"""
+
+from __future__ import annotations
+
+import os
+from datetime import datetime, timedelta, timezone
+from typing import Optional, List
+
+import numpy as np
+import pandas as pd
+import requests
+
+REQUEST_TIMEOUT = 12
+
+
+# --------------------------------------------------------------------------- #
+# .env loader (zero-dependency; avoids requiring python-dotenv)
+# --------------------------------------------------------------------------- #
+def _load_dotenv() -> None:
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env")
+    path = os.path.normpath(path)
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                # don't override an already-set real env var
+                os.environ.setdefault(key, value)
+    except OSError:
+        pass
+
+
+_load_dotenv()
+
+SYMBOL_MAP = {
+    "twelvedata": os.environ.get("XAU_TD_SYMBOL", "XAU/USD"),
+    "polygon": os.environ.get("XAU_POLY_SYMBOL", "X:XAUUSD"),
+    "alphavantage": ("XAU", "USD"),
+    "yfinance": os.environ.get("XAU_YF_SYMBOL", "GC=F"),
+}
+
+
+def _normalise(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.rename(columns=str.lower)
+    if "volume" not in df.columns:
+        df["volume"] = 0.0
+    df = df[["open", "high", "low", "close", "volume"]].dropna()
+    df = df.astype(float)
+    if df.index.tz is None:
+        df.index = df.index.tz_localize("UTC")
+    else:
+        df.index = df.index.tz_convert("UTC")
+    df.index.name = "time"
+    return df.sort_index()
+
+
+# --------------------------------------------------------------------------- #
+# Provider implementations
+# --------------------------------------------------------------------------- #
+def _fetch_twelvedata(start: Optional[str], end: Optional[str], bars: int) -> pd.DataFrame:
+    key = os.environ.get("TWELVEDATA_API_KEY")
+    if not key:
+        raise RuntimeError("TWELVEDATA_API_KEY not set")
+    params = {
+        "symbol": SYMBOL_MAP["twelvedata"], "interval": "5min",
+        "apikey": key, "format": "JSON", "timezone": "UTC",
+        "outputsize": min(max(bars, 1), 5000),
+    }
+    if start:
+        params["start_date"] = start
+    if end:
+        params["end_date"] = end
+    r = requests.get("https://api.twelvedata.com/time_series",
+                     params=params, timeout=REQUEST_TIMEOUT)
+    r.raise_for_status()
+    data = r.json()
+    if data.get("status") == "error" or "values" not in data:
+        raise RuntimeError(f"TwelveData error: {data.get('message', data)}")
+    df = pd.DataFrame(data["values"])
+    df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
+    df = df.set_index("datetime")
+    if "volume" not in df.columns:
+        df["volume"] = 0.0
+    return _normalise(df)
+
+
+def _fetch_polygon(start: Optional[str], end: Optional[str], bars: int) -> pd.DataFrame:
+    key = os.environ.get("POLYGON_API_KEY")
+    if not key:
+        raise RuntimeError("POLYGON_API_KEY not set")
+    if not end:
+        end = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if not start:
+        start = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+    sym = SYMBOL_MAP["polygon"]
+    url = (f"https://api.polygon.io/v2/aggs/ticker/{sym}/range/5/minute/"
+           f"{start}/{end}")
+    r = requests.get(url, params={"adjusted": "true", "sort": "asc",
+                                  "limit": 50000, "apiKey": key},
+                     timeout=REQUEST_TIMEOUT)
+    r.raise_for_status()
+    data = r.json()
+    results = data.get("results")
+    if not results:
+        raise RuntimeError(f"Polygon: no results ({data.get('status')})")
+    df = pd.DataFrame(results)
+    df["time"] = pd.to_datetime(df["t"], unit="ms", utc=True)
+    df = df.set_index("time").rename(
+        columns={"o": "open", "h": "high", "l": "low", "c": "close", "v": "volume"})
+    return _normalise(df)
+
+
+def _fetch_alphavantage(start: Optional[str], end: Optional[str], bars: int) -> pd.DataFrame:
+    key = os.environ.get("ALPHAVANTAGE_API_KEY")
+    if not key:
+        raise RuntimeError("ALPHAVANTAGE_API_KEY not set")
+    from_sym, to_sym = SYMBOL_MAP["alphavantage"]
+    r = requests.get("https://www.alphavantage.co/query", params={
+        "function": "FX_INTRADAY", "from_symbol": from_sym,
+        "to_symbol": to_sym, "interval": "5min", "outputsize": "full",
+        "apikey": key,
+    }, timeout=REQUEST_TIMEOUT)
+    r.raise_for_status()
+    data = r.json()
+    ts_key = next((k for k in data if "Time Series" in k), None)
+    if ts_key is None:
+        raise RuntimeError(f"AlphaVantage error: {data.get('Note') or data.get('Error Message') or data}")
+    rows = data[ts_key]
+    df = pd.DataFrame(rows).T
+    df.index = pd.to_datetime(df.index, utc=True)
+    df = df.rename(columns={
+        "1. open": "open", "2. high": "high",
+        "3. low": "low", "4. close": "close"})
+    df["volume"] = 0.0
+    out = _normalise(df)
+    if start:
+        out = out[out.index >= pd.Timestamp(start, tz="UTC")]
+    if end:
+        out = out[out.index <= pd.Timestamp(end, tz="UTC")]
+    return out
+
+
+def _fetch_yfinance(start: Optional[str], end: Optional[str], bars: int) -> pd.DataFrame:
+    import yfinance as yf
+    sym = SYMBOL_MAP["yfinance"]
+    if start and end:
+        data = yf.download(sym, start=start, end=end, interval="5m",
+                           progress=False, auto_adjust=False)
+    else:
+        data = yf.download(sym, period="5d", interval="5m",
+                           progress=False, auto_adjust=False)
+    if data is None or len(data) == 0:
+        raise RuntimeError("yfinance returned no data")
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+    return _normalise(data)
+
+
+def _fetch_synthetic(start: Optional[str], end: Optional[str], bars: int) -> pd.DataFrame:
+    if start:
+        start_dt = pd.Timestamp(start, tz="UTC")
+    else:
+        start_dt = pd.Timestamp.now(tz="UTC").floor("5min") - pd.Timedelta(days=7)
+    if end:
+        end_dt = pd.Timestamp(end, tz="UTC")
+    else:
+        end_dt = pd.Timestamp.now(tz="UTC").floor("5min")
+    if end_dt <= start_dt:
+        end_dt = start_dt + pd.Timedelta(days=30)
+    idx = pd.date_range(start_dt, end_dt, freq="5min", tz="UTC")
+    idx = idx[idx.weekday < 5]
+    n = len(idx)
+    if n == 0:
+        idx = pd.date_range(start_dt, start_dt + pd.Timedelta(days=5), freq="5min", tz="UTC")
+        n = len(idx)
+    # deterministic seed from start so backtests are reproducible
+    seed = int(start_dt.timestamp()) // 300
+    rng = np.random.default_rng(seed if seed else 42)
+    price0 = 2000.0
+    rets = rng.normal(0, 0.0009, n)
+    hours = idx.hour.values
+    boost = np.where(((hours >= 7) & (hours < 11)) | ((hours >= 13) & (hours < 17)), 1.6, 0.7)
+    rets *= boost
+    close = price0 * np.exp(np.cumsum(rets))
+    spread = np.abs(rng.normal(0, 0.6, n)) + 0.2
+    open_ = np.concatenate([[price0], close[:-1]])
+    df = pd.DataFrame({
+        "open": open_,
+        "high": np.maximum(close + spread, np.maximum(open_, close)),
+        "low": np.minimum(close - spread, np.minimum(open_, close)),
+        "close": close,
+        "volume": (np.abs(rng.normal(1000, 300, n)) * boost).round(),
+    }, index=idx)
+    df.index.name = "time"
+    return df
+
+
+_PROVIDERS = {
+    "twelvedata": _fetch_twelvedata,
+    "polygon": _fetch_polygon,
+    "alphavantage": _fetch_alphavantage,
+    "yfinance": _fetch_yfinance,
+    "synthetic": _fetch_synthetic,
+}
+
+_AUTO_ORDER = ["twelvedata", "polygon", "alphavantage", "yfinance", "synthetic"]
+
+_KEY_ENV = {
+    "twelvedata": "TWELVEDATA_API_KEY",
+    "polygon": "POLYGON_API_KEY",
+    "alphavantage": "ALPHAVANTAGE_API_KEY",
+}
+
+
+def available_providers() -> List[str]:
+    """Providers usable right now (key present, or keyless)."""
+    out = []
+    for name in _AUTO_ORDER:
+        env = _KEY_ENV.get(name)
+        if env is None or os.environ.get(env):
+            out.append(name)
+    return out
+
+
+def get_m5(start: Optional[str] = None, end: Optional[str] = None,
+           bars: int = 500) -> tuple[pd.DataFrame, str]:
+    """
+    Return (dataframe, provider_name_used).
+
+    Honors XAU_DATA_PROVIDER if set to a concrete provider; otherwise walks the
+    auto order and falls back through providers until one succeeds. Synthetic is
+    the guaranteed last resort so callers never get an empty result.
+    """
+    chosen = os.environ.get("XAU_DATA_PROVIDER", "auto").strip().lower()
+    if chosen and chosen != "auto" and chosen in _PROVIDERS:
+        order = [chosen]
+        if chosen != "synthetic":
+            order.append("synthetic")  # safety net
+    else:
+        order = [p for p in _AUTO_ORDER
+                 if _KEY_ENV.get(p) is None or os.environ.get(_KEY_ENV[p])]
+        if "synthetic" not in order:
+            order.append("synthetic")
+
+    last_err = None
+    for name in order:
+        try:
+            df = _PROVIDERS[name](start, end, bars)
+            if df is not None and len(df) > 0:
+                return df, name
+        except Exception as e:  # noqa: BLE001 - intentional fallthrough
+            last_err = e
+            continue
+    # absolute last resort
+    return _fetch_synthetic(start, end, bars), "synthetic"
+
+
+if __name__ == "__main__":
+    print("Available providers:", available_providers())
+    df, used = get_m5(bars=50)
+    print(f"Provider used: {used} | rows: {len(df)}")
+    print(df.tail(3))

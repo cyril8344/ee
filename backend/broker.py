@@ -57,65 +57,14 @@ class MarketData:
             return df.tail(bars).copy()
 
     def _fetch(self) -> pd.DataFrame:
-        import os
-        twelvedata_key = os.environ.get("TWELVEDATA_API_KEY", "")
-        if twelvedata_key:
-            df = self._fetch_twelvedata(twelvedata_key)
-            if df is not None and len(df) > 0:
-                return df
         try:
-            import yfinance as yf
-            data = yf.download(
-                "GC=F", period="5d", interval="5m",
-                progress=False, auto_adjust=False,
-            )
-            if data is not None and len(data) > 0:
-                if isinstance(data.columns, pd.MultiIndex):
-                    data.columns = data.columns.get_level_values(0)
-                data = data.rename(columns=str.lower)
-                if "volume" not in data.columns:
-                    data["volume"] = 0.0
-                df = data[["open", "high", "low", "close", "volume"]].dropna()
-                if df.index.tz is None:
-                    df.index = df.index.tz_localize("UTC")
-                else:
-                    df.index = df.index.tz_convert("UTC")
-                df.index.name = "time"
+            import data_provider
+            df, _provider = data_provider.get_m5(bars=500)
+            if df is not None and len(df) > 0:
                 return df
         except Exception:
             pass
         return self._synthetic()
-
-    def _fetch_twelvedata(self, api_key: str) -> Optional[pd.DataFrame]:
-        try:
-            import urllib.request, json as _json
-            url = (
-                f"https://api.twelvedata.com/time_series"
-                f"?symbol=XAU/USD&interval=5min&outputsize=500"
-                f"&timezone=UTC&apikey={api_key}"
-            )
-            with urllib.request.urlopen(url, timeout=10) as resp:
-                payload = _json.loads(resp.read())
-            if payload.get("status") != "ok":
-                return None
-            values = payload.get("values", [])
-            if not values:
-                return None
-            rows = []
-            for v in reversed(values):
-                rows.append({
-                    "time": pd.Timestamp(v["datetime"], tz="UTC"),
-                    "open": float(v["open"]),
-                    "high": float(v["high"]),
-                    "low": float(v["low"]),
-                    "close": float(v["close"]),
-                    "volume": float(v.get("volume", 0)),
-                })
-            df = pd.DataFrame(rows).set_index("time")
-            df.index.name = "time"
-            return df
-        except Exception:
-            return None
 
     def _synthetic(self) -> pd.DataFrame:
         end = pd.Timestamp.now(tz="UTC").floor("5min")

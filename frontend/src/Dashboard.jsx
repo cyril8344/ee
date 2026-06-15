@@ -10,8 +10,16 @@ import BacktestPanel from "./BacktestPanel";
  * Dark theme, real-time via WebSocket, optimised for scalping.
  * ==========================================================================*/
 
-const API = import.meta?.env?.VITE_API_URL || "http://localhost:8000";
-const WS_URL = API.replace(/^http/, "ws") + "/ws";
+// Empty API => same-origin: works behind the Vite dev proxy (dev) and the
+// nginx reverse-proxy (docker/prod). Set VITE_API_URL to target a remote API.
+const API = import.meta?.env?.VITE_API_URL || "";
+const WS_URL =
+  (API
+    ? API.replace(/^http/, "ws")
+    : (typeof window !== "undefined"
+        ? (window.location.protocol === "https:" ? "wss:" : "ws:") +
+          "//" + window.location.host
+        : "ws://localhost:8000")) + "/ws";
 
 const COLORS = {
   bg: "#0a0e17",
