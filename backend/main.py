@@ -8,7 +8,7 @@ Responsibilities
 - Run a background trading loop (paper by default) that:
     * resamples M5 -> M15/H1, computes indicators,
     * checks session / news / risk gates,
-    * evaluates the strategy, opens/manages a single position,
+    * evaluates the strategy, opens/manages positions per market,
     * persists trades + equity to SQLite,
     * pushes live state to the dashboard over WebSocket.
 - Expose REST endpoints for state, chart data, trades, settings, mode
@@ -26,6 +26,7 @@ import os
 import threading
 import traceback
 import urllib.request
+from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 
@@ -63,6 +64,34 @@ from strategy import add_indicators, evaluate, snapshot, swing_levels, active_se
 from backtest import BacktestConfig, run_backtest
 
 
+MARKET_CONFIG = {
+    "XAUUSD": {
+        "name": "XAU/USD",
+        "atr_min": 0.8,
+        "contract_size": 100.0,
+        "spread_pips": 0.3,
+        "slippage_pips": 0.1,
+    },
+    "EURUSD": {
+        "name": "EUR/USD",
+        "atr_min": 0.00030,
+        "contract_size": 100000.0,
+        "spread_pips": 0.2,
+        "slippage_pips": 0.05,
+    },
+}
+
+
+@dataclass
+class MarketState:
+    symbol: str
+    config: dict
+    broker: Any
+    position: Optional[Any] = None
+    last_signal: Optional[Dict[str, Any]] = None
+    last_snapshot: Dict[str, Any] = field(default_factory=dict)
+
+
 # --------------------------------------------------------------------------- #
 # App + global state
 # --------------------------------------------------------------------------- #
@@ -83,18 +112,23 @@ class BotState:
         self.risk = RiskManager()
         self.risk.sync_from_settings(self.settings)
         self.news = NewsFilter(window_minutes=60, currencies=("USD",))
-        self.broker = make_broker(
-            self.settings.get("mode", "paper"),
-            self.settings.get("symbol", "XAUUSD"),
-            self.settings.get("spread_pips", 0.3),
-            self.settings.get("slippage_pips", 0.1),
-        )
-        self.position: Optional[Position] = None
-        self.last_signal: Optional[Dict[str, Any]] = None
-        self.last_snapshot: Dict[str, Any] = {}
         self.alerts: List[Dict[str, Any]] = []
         self.bot_status = "EN VEILLE"     # ACTIF | EN VEILLE | BLOQUE
         self.lock = threading.Lock()
+
+        active_markets = self.settings.get("active_markets", ["XAUUSD", "EURUSD"])
+        mode = self.settings.get("mode", "paper")
+        self.market_states: Dict[str, MarketState] = {}
+        for sym in active_markets:
+            cfg = MARKET_CONFIG.get(sym, MARKET_CONFIG["XAUUSD"])
+            broker = make_broker(
+                mode, sym,
+                self.settings.get("spread_pips", cfg["spread_pips"]),
+                self.settings.get("slippage_pips", cfg["slippage_pips"]),
+                cfg["contract_size"],
+            )
+            self.market_states[sym] = MarketState(symbol=sym, config=cfg, broker=broker)
+
         self._hydrate_today()
 
     def _hydrate_today(self):
@@ -154,9 +188,9 @@ ws_manager = WSManager()
 # --------------------------------------------------------------------------- #
 # Market context builder
 # --------------------------------------------------------------------------- #
-def build_context():
-    """Return (m5, m15, h1) indicator-ready frames from the broker feed."""
-    m5_raw = state.broker.get_rates_m5(500)
+def build_context(broker):
+    """Return (m5, m15, h1) indicator-ready frames from the given broker feed."""
+    m5_raw = broker.get_rates_m5(500)
     m5 = add_indicators(m5_raw)
     agg = {"open": "first", "high": "max", "low": "min",
            "close": "last", "volume": "sum"}
@@ -169,11 +203,12 @@ def build_context():
 
 def current_equity() -> float:
     eq = state.risk.capital
-    if state.position is not None:
-        try:
-            eq += state.position.unrealised_pnl(state.broker.get_price())
-        except Exception:
-            pass
+    for ms in state.market_states.values():
+        if ms.position is not None:
+            try:
+                eq += ms.position.unrealised_pnl(ms.broker.get_price())
+            except Exception:
+                pass
     return eq
 
 
@@ -188,70 +223,82 @@ def trading_tick() -> Dict[str, Any]:
         if state.risk.start_equity_today is None:
             state.risk.start_new_day(daily["start_equity"])
 
-        m5, m15, h1 = build_context()
-        snap = snapshot(m5, m15, h1)
-        state.last_snapshot = snap
-
         now = datetime.now(timezone.utc)
         session = active_session(now)
         news_status = state.news.status(now)
-
-        # ---- Manage open position ----
-        if state.position is not None:
-            pos = state.position
-            close_info = state.broker.update_position(pos)
-            # forced timeout (45 min)
-            age_min = (now - pos.open_time).total_seconds() / 60.0
-            if close_info is None and age_min >= strategy.MAX_TRADE_MINUTES:
-                close_info = state.broker.close_position(pos, "timeout")
-            if close_info and close_info.get("closed"):
-                _finalize_trade(pos, close_info, now)
-                state.position = None
-            elif close_info and close_info.get("reason") == "tp1_partial":
-                state.push_alert("info", "TP1 atteint — 60% clôturé")
-
         session_filter = state.settings.get("session_filter", True)
 
-        # ---- Determine bot status ----
+        any_active = False
+        for ms in state.market_states.values():
+            try:
+                m5, m15, h1 = build_context(ms.broker)
+                snap = snapshot(m5, m15, h1)
+                ms.last_snapshot = snap
+
+                # ---- Manage open position ----
+                if ms.position is not None:
+                    pos = ms.position
+                    close_info = ms.broker.update_position(pos)
+                    age_min = (now - pos.open_time).total_seconds() / 60.0
+                    if close_info is None and age_min >= strategy.MAX_TRADE_MINUTES:
+                        close_info = ms.broker.close_position(pos, "timeout")
+                    if close_info and close_info.get("closed"):
+                        _finalize_trade(ms, pos, close_info, now)
+                        ms.position = None
+                    elif close_info and close_info.get("reason") == "tp1_partial":
+                        state.push_alert("info", f"[{ms.symbol}] TP1 atteint — 60% clôturé")
+
+                # ---- Look for entry ----
+                can_enter_session = (session is not None) or (not session_filter)
+                if (ms.position is None and can_enter_session
+                        and not state.risk.blocked and not news_status["blocked"]
+                        and state.settings.get("bot_enabled", True)):
+                    sig = evaluate(m5, m15, h1, now=now, check_session=session_filter,
+                                   atr_min=ms.config["atr_min"])
+                    if sig is not None:
+                        ms.last_signal = sig.to_dict()
+                        decision = state.risk.can_open_trade(
+                            sig.entry, sig.stop_loss,
+                            contract_size=ms.config["contract_size"],
+                        )
+                        if decision.allowed:
+                            _open_trade(ms, sig, decision, now)
+                        else:
+                            state.push_alert("warn", f"[{ms.symbol}] Signal ignoré: {decision.reason}")
+
+                if ms.position is not None:
+                    any_active = True
+            except Exception:
+                traceback.print_exc()
+
+        # ---- Determine overall bot status ----
         if state.risk.blocked:
             state.bot_status = "BLOQUE"
         elif news_status["blocked"]:
             state.bot_status = "BLOQUE"
         elif session is None and session_filter:
             state.bot_status = "EN VEILLE"
+        elif any_active:
+            state.bot_status = "ACTIF"
         elif session is None and not session_filter:
-            state.bot_status = "ACTIF"  # 24/7 mode
+            state.bot_status = "ACTIF"
         else:
             state.bot_status = "ACTIF"
 
-        # ---- Look for entry ----
-        can_enter_session = (session is not None) or (not session_filter)
-        if (state.position is None and can_enter_session
-                and not state.risk.blocked and not news_status["blocked"]
-                and state.settings.get("bot_enabled", True)):
-            sig = evaluate(m5, m15, h1, now=now, check_session=session_filter)
-            if sig is not None:
-                state.last_signal = sig.to_dict()
-                decision = state.risk.can_open_trade(sig.entry, sig.stop_loss)
-                if decision.allowed:
-                    _open_trade(sig, decision, now)
-                else:
-                    state.push_alert("warn", f"Signal ignoré: {decision.reason}")
-
-        return _public_state(snap, session, news_status)
+        return _public_state(session, news_status)
 
 
-def _open_trade(sig, decision, now):
-    pos = state.broker.market_order(
+def _open_trade(ms: MarketState, sig, decision, now):
+    pos = ms.broker.market_order(
         sig.direction, decision.volume, sig.stop_loss,
         sig.take_profit1, sig.take_profit2,
         session=sig.session, meta=sig.meta,
     )
-    state.position = pos
+    ms.position = pos
     state.risk.register_open()
 
     trade_id = db.insert_trade({
-        "symbol": state.settings.get("symbol", "XAUUSD"),
+        "symbol": ms.symbol,
         "direction": sig.direction,
         "session": sig.session,
         "entry_time": pos.open_time.isoformat(),
@@ -268,15 +315,15 @@ def _open_trade(sig, decision, now):
     pos.meta["trade_id"] = trade_id
     db.update_daily(db.today_utc(), {"trade_count": state.risk.trades_today})
     arrow = "🟢 LONG" if sig.direction == "long" else "🔴 SHORT"
-    msg = (f"{arrow} <b>XAU/USD ouvert</b>\n"
-           f"Entrée : {pos.entry:.2f}\n"
-           f"SL : {sig.stop_loss:.2f}  TP1 : {sig.take_profit1:.2f}  TP2 : {sig.take_profit2:.2f}\n"
+    msg = (f"{arrow} <b>{ms.config['name']} ouvert</b>\n"
+           f"Entrée : {pos.entry:.5f}\n"
+           f"SL : {sig.stop_loss:.5f}  TP1 : {sig.take_profit1:.5f}  TP2 : {sig.take_profit2:.5f}\n"
            f"Raison : {sig.reason}\nSession : {sig.session}")
-    state.push_alert("entry", f"{arrow} ouvert @ {pos.entry:.2f} ({sig.reason})")
+    state.push_alert("entry", f"[{ms.symbol}] {arrow} ouvert @ {pos.entry:.5f} ({sig.reason})")
     threading.Thread(target=_send_telegram, args=(msg,), daemon=True).start()
 
 
-def _finalize_trade(pos: Position, close_info: Dict[str, Any], now: datetime):
+def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], now: datetime):
     pnl = float(close_info["pnl"])
     state.risk.register_close(pnl)
     duration = (now - pos.open_time).total_seconds() / 60.0
@@ -292,7 +339,6 @@ def _finalize_trade(pos: Position, close_info: Dict[str, Any], now: datetime):
             "status": "closed",
             "exit_reason": close_info["reason"],
         })
-    # update daily + equity
     today = db.today_utc()
     daily = db.get_daily(today) or {"pnl": 0.0}
     db.update_daily(today, {
@@ -302,8 +348,8 @@ def _finalize_trade(pos: Position, close_info: Dict[str, Any], now: datetime):
     db.add_equity_point(state.risk.capital, source="live")
 
     result = "✅ GAGNANT" if pnl >= 0 else "❌ PERDANT"
-    state.push_alert("exit", f"{result} {pnl:+.2f}$ ({close_info['reason']})")
-    msg = (f"{result} <b>XAU/USD clôturé</b>\n"
+    state.push_alert("exit", f"[{ms.symbol}] {result} {pnl:+.2f}$ ({close_info['reason']})")
+    msg = (f"{result} <b>{ms.config['name']} clôturé</b>\n"
            f"PnL : {pnl:+.2f}$  Durée : {round(duration, 1)} min\n"
            f"Raison : {close_info['reason']}")
     threading.Thread(target=_send_telegram, args=(msg,), daemon=True).start()
@@ -317,19 +363,18 @@ def _finalize_trade(pos: Position, close_info: Dict[str, Any], now: datetime):
 # --------------------------------------------------------------------------- #
 # Public state serialisation
 # --------------------------------------------------------------------------- #
-def _position_payload() -> Optional[Dict[str, Any]]:
-    pos = state.position
+def _position_payload(ms: MarketState) -> Optional[Dict[str, Any]]:
+    pos = ms.position
     if pos is None:
         return None
     try:
-        price = state.broker.get_price()
+        price = ms.broker.get_price()
     except Exception:
         price = pos.entry
     upnl = pos.unrealised_pnl(price)
     age = (datetime.now(timezone.utc) - pos.open_time).total_seconds()
     remaining_sec = max(0, strategy.MAX_TRADE_MINUTES * 60 - int(age))
 
-    # progress toward TP1/TP2
     if pos.direction == "long":
         denom1 = (pos.take_profit1 - pos.entry) or 1e-9
         denom2 = (pos.take_profit2 - pos.entry) or 1e-9
@@ -344,11 +389,11 @@ def _position_payload() -> Optional[Dict[str, Any]]:
     return {
         "ticket": pos.ticket,
         "direction": pos.direction,
-        "entry": round(pos.entry, 3),
-        "price": round(price, 3),
-        "stop_loss": round(pos.stop_loss, 3),
-        "take_profit1": round(pos.take_profit1, 3),
-        "take_profit2": round(pos.take_profit2, 3),
+        "entry": round(pos.entry, 5),
+        "price": round(price, 5),
+        "stop_loss": round(pos.stop_loss, 5),
+        "take_profit1": round(pos.take_profit1, 5),
+        "take_profit2": round(pos.take_profit2, 5),
         "volume": pos.volume,
         "remaining": pos.remaining,
         "tp1_done": pos.tp1_done,
@@ -362,9 +407,7 @@ def _position_payload() -> Optional[Dict[str, Any]]:
     }
 
 
-def _public_state(snap=None, session=None, news_status=None) -> Dict[str, Any]:
-    if snap is None:
-        snap = state.last_snapshot
+def _public_state(session=None, news_status=None) -> Dict[str, Any]:
     if news_status is None:
         news_status = state.news.status()
     today = db.today_utc()
@@ -372,32 +415,42 @@ def _public_state(snap=None, session=None, news_status=None) -> Dict[str, Any]:
     day_pnl = daily.get("pnl") or 0.0
     start_eq = daily.get("start_equity") or state.risk.capital
 
+    markets = {}
+    for sym, ms in state.market_states.items():
+        snap = ms.last_snapshot
+        markets[sym] = {
+            "symbol": sym,
+            "name": ms.config["name"],
+            "bias": snap.get("bias", "NEUTRE"),
+            "session": snap.get("session", "Hors session"),
+            "price": snap.get("price"),
+            "indicators": {
+                "rsi_m5": snap.get("rsi_m5"),
+                "rsi_m15": snap.get("rsi_m15"),
+                "atr_m5": snap.get("atr_m5"),
+                "atr_avg": snap.get("atr_avg"),
+                "atr_min": ms.config["atr_min"],
+            },
+            "position": _position_payload(ms),
+            "last_signal": ms.last_signal,
+        }
+
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "bias": snap.get("bias", "NEUTRE"),
-        "session": snap.get("session", "Hors session"),
         "bot_status": state.bot_status,
         "mode": state.settings.get("mode", "paper"),
-        "price": snap.get("price"),
         "day_pnl": round(day_pnl, 2),
         "day_pnl_pct": round(day_pnl / start_eq * 100.0, 3) if start_eq else 0.0,
         "trades_today": state.risk.trades_today,
         "max_trades_per_day": state.risk.max_trades_per_day,
         "risk": state.risk.status(),
-        "indicators": {
-            "rsi_m5": snap.get("rsi_m5"),
-            "rsi_m15": snap.get("rsi_m15"),
-            "atr_m5": snap.get("atr_m5"),
-            "atr_avg": snap.get("atr_avg"),
-            "atr_min": snap.get("atr_min"),
-        },
         "news": news_status,
-        "position": _position_payload(),
-        "last_signal": state.last_signal,
         "alerts": state.alerts[-8:],
         "settings": {
             "session_filter": state.settings.get("session_filter", True),
+            "active_markets": state.settings.get("active_markets", ["XAUUSD", "EURUSD"]),
         },
+        "markets": markets,
     }
 
 
@@ -424,9 +477,9 @@ async def _loop():
 # --------------------------------------------------------------------------- #
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "broker": state.broker.name,
-            "connected": state.broker.connected(),
-            "mode": state.settings.get("mode")}
+    brokers = {sym: {"name": ms.broker.name, "connected": ms.broker.connected()}
+               for sym, ms in state.market_states.items()}
+    return {"status": "ok", "brokers": brokers, "mode": state.settings.get("mode")}
 
 
 @app.get("/api/state")
@@ -434,14 +487,16 @@ def get_state():
     try:
         return trading_tick()
     except Exception as e:
-        # Return last known state rather than 500ing the dashboard.
         return {**_public_state(), "error": str(e)}
 
 
 @app.get("/api/chart")
-def get_chart(tf: str = "M5"):
+def get_chart(tf: str = "M5", symbol: str = "XAUUSD"):
     """Candles + EMAs + swing S/R for the dashboard chart."""
-    m5_raw = state.broker.get_rates_m5(500)
+    ms = state.market_states.get(symbol)
+    if ms is None:
+        raise HTTPException(status_code=404, detail=f"Unknown market: {symbol}")
+    m5_raw = ms.broker.get_rates_m5(500)
     rule = {"M5": None, "M15": "15min", "H1": "60min"}.get(tf.upper())
     if rule:
         agg = {"open": "first", "high": "max", "low": "min",
@@ -456,20 +511,21 @@ def get_chart(tf: str = "M5"):
     for ts, row in df.iterrows():
         candles.append({
             "time": ts.isoformat(),
-            "open": round(float(row["open"]), 3),
-            "high": round(float(row["high"]), 3),
-            "low": round(float(row["low"]), 3),
-            "close": round(float(row["close"]), 3),
-            "ema9": round(float(row["ema9"]), 3),
-            "ema21": round(float(row["ema21"]), 3),
-            "ema200": round(float(row["ema200"]), 3),
+            "open": round(float(row["open"]), 5),
+            "high": round(float(row["high"]), 5),
+            "low": round(float(row["low"]), 5),
+            "close": round(float(row["close"]), 5),
+            "ema9": round(float(row["ema9"]), 5),
+            "ema21": round(float(row["ema21"]), 5),
+            "ema200": round(float(row["ema200"]), 5),
             "rsi": round(float(row["rsi"]), 1),
             "volume": float(row["volume"]),
         })
 
-    # entry/exit markers from today's trades
     markers = []
     for t in db.get_trades_for_day(db.today_utc(), mode=state.settings.get("mode")):
+        if t.get("symbol", "XAUUSD") != symbol:
+            continue
         markers.append({
             "time": t["entry_time"], "type": "entry",
             "direction": t["direction"], "price": t["entry_price"],
@@ -480,7 +536,7 @@ def get_chart(tf: str = "M5"):
                 "price": t.get("exit_price"), "pnl": t.get("pnl"),
             })
 
-    return {"timeframe": tf.upper(), "candles": candles,
+    return {"timeframe": tf.upper(), "symbol": symbol, "candles": candles,
             "levels": levels, "markers": markers}
 
 
@@ -491,7 +547,6 @@ def get_trades(scope: str = "today"):
         trades = db.get_trades_for_day(db.today_utc(), mode=mode)
     else:
         trades = db.get_recent_trades(200, mode=mode)
-    # intraday equity curve
     curve = db.get_equity_curve(source="live", limit=500)
     return {"trades": trades, "equity_curve": curve}
 
@@ -511,12 +566,12 @@ class SettingsPatch(BaseModel):
     spread_pips: Optional[float] = None
     slippage_pips: Optional[float] = None
     session_filter: Optional[bool] = None
+    active_markets: Optional[List[str]] = None
 
 
 @app.post("/api/settings")
 def write_settings(patch: SettingsPatch):
     data = patch.dict(exclude_none=True)
-    # Risk % change requires confirmation
     if "risk_per_trade_pct" in data:
         if not data.pop("confirm_risk_change", False):
             raise HTTPException(
@@ -547,30 +602,38 @@ def switch_mode(req: ModeSwitch):
                    "(confirm=true & confirm_again=true)",
         )
     with state.lock:
-        if state.position is not None:
+        any_open = any(ms.position is not None for ms in state.market_states.values())
+        if any_open:
             raise HTTPException(status_code=409,
-                                detail="Close the open position before switching mode")
+                                detail="Close all open positions before switching mode")
         state.settings = db.update_settings({"mode": req.mode})
-        state.broker = make_broker(
-            req.mode, state.settings.get("symbol", "XAUUSD"),
-            state.settings.get("spread_pips", 0.3),
-            state.settings.get("slippage_pips", 0.1),
-        )
+        for sym, ms in state.market_states.items():
+            cfg = ms.config
+            ms.broker = make_broker(
+                req.mode, sym,
+                state.settings.get("spread_pips", cfg["spread_pips"]),
+                state.settings.get("slippage_pips", cfg["slippage_pips"]),
+                cfg["contract_size"],
+            )
         state.push_alert("info", f"Mode basculé sur {req.mode.upper()}")
-    return {"mode": req.mode, "broker": state.broker.name,
-            "connected": state.broker.connected()}
+    first_ms = next(iter(state.market_states.values()))
+    return {"mode": req.mode, "broker": first_ms.broker.name,
+            "connected": first_ms.broker.connected()}
 
 
 @app.post("/api/close")
-def close_now():
+def close_now(symbol: str = "XAUUSD"):
     with state.lock:
-        if state.position is None:
-            raise HTTPException(status_code=404, detail="No open position")
+        ms = state.market_states.get(symbol)
+        if ms is None:
+            raise HTTPException(status_code=404, detail=f"Unknown market: {symbol}")
+        if ms.position is None:
+            raise HTTPException(status_code=404, detail=f"No open position for {symbol}")
         now = datetime.now(timezone.utc)
-        info = state.broker.close_position(state.position, "manual")
-        _finalize_trade(state.position, info, now)
-        state.position = None
-    return {"closed": True}
+        info = ms.broker.close_position(ms.position, "manual")
+        _finalize_trade(ms, ms.position, info, now)
+        ms.position = None
+    return {"closed": True, "symbol": symbol}
 
 
 @app.post("/api/bot/toggle")
@@ -602,10 +665,6 @@ async def backtest(req: BacktestRequest):
         daily_stop_pct=req.daily_stop_pct,
     )
     result = await asyncio.to_thread(run_backtest, cfg)
-    # persist backtest equity curve under its own source
-    if "equity_curve" in result:
-        # don't spam the DB; only summary is interesting to keep
-        pass
     return result
 
 
@@ -633,7 +692,6 @@ def data_provider_status():
 async def websocket_endpoint(ws: WebSocket):
     await ws_manager.connect(ws)
     try:
-        # send an immediate snapshot
         try:
             await ws.send_text(json.dumps(
                 {"type": "state", "data": await asyncio.to_thread(trading_tick)},
@@ -641,7 +699,6 @@ async def websocket_endpoint(ws: WebSocket):
         except Exception:
             pass
         while True:
-            # keep the socket alive; ignore client messages
             await ws.receive_text()
     except WebSocketDisconnect:
         ws_manager.disconnect(ws)

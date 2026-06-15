@@ -219,6 +219,7 @@ const hms = (s) => {
 /* ============================ Dashboard ================================== */
 export default function Dashboard() {
   const [tab, setTab] = useState("live");
+  const [activeMarket, setActiveMarket] = useState("XAUUSD");
   const [state, setState] = useState(null);
   const [chart, setChart] = useState(null);
   const [tf, setTf] = useState("M5");
@@ -267,11 +268,13 @@ export default function Dashboard() {
     }
   }, [state, beep]);
 
+  const mkt = state?.markets?.[activeMarket] || {};
+
   /* Chart polling */
   useEffect(() => {
     let active = true;
     const load = () =>
-      fetch(`${API}/api/chart?tf=${tf}`)
+      fetch(`${API}/api/chart?tf=${tf}&symbol=${activeMarket}`)
         .then((r) => r.json())
         .then((d) => active && setChart(d))
         .catch(() => {});
@@ -281,7 +284,7 @@ export default function Dashboard() {
       active = false;
       clearInterval(id);
     };
-  }, [tf]);
+  }, [tf, activeMarket]);
 
   /* Trades polling */
   useEffect(() => {
@@ -299,11 +302,11 @@ export default function Dashboard() {
     };
   }, []);
 
-  const pos = state?.position;
+  const pos = mkt.position;
   const remaining = useCountdown(pos?.remaining_seconds);
   const newsCountdown = useCountdown(state?.news?.next_event_countdown_sec);
 
-  const closeNow = () => fetch(`${API}/api/close`, { method: "POST" });
+  const closeNow = () => fetch(`${API}/api/close?symbol=${activeMarket}`, { method: "POST" });
   const toggleBot = () => fetch(`${API}/api/bot/toggle`, { method: "POST" });
 
   const sessionFilterOn = state?.settings?.session_filter !== false;
@@ -341,7 +344,7 @@ export default function Dashboard() {
       {/* ===== header / tabs ===== */}
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
         <h1 style={{ fontSize: 20, margin: 0, letterSpacing: 0.5 }}>
-          🟡 XAU/USD <span style={{ color: COLORS.sub, fontWeight: 400 }}>Scalping Bot</span>
+          🟡 <span style={{ color: COLORS.sub, fontWeight: 400 }}>Scalping Bot</span>
         </h1>
         <span style={{ fontSize: 12, color: connected ? COLORS.green : COLORS.red }}>
           ● {connected ? "connecté" : "déconnecté"}
@@ -352,6 +355,13 @@ export default function Dashboard() {
           {state?.mode === "live" ? "LIVE" : "PAPER"}
         </span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          {Object.keys(state?.markets || { XAUUSD: 1 }).map((sym) => (
+            <button key={sym} onClick={() => setActiveMarket(sym)}
+              style={tabBtn(activeMarket === sym)}>
+              {sym === "XAUUSD" ? "XAU/USD" : sym === "EURUSD" ? "EUR/USD" : sym}
+            </button>
+          ))}
+          <div style={{ width: 1, background: COLORS.border, margin: "0 4px" }} />
           {["live", "backtest"].map((t) => (
             <button key={t} onClick={() => setTab(t)} style={tabBtn(tab === t)}>
               {t === "live" ? "Live" : "Backtest"}
@@ -367,11 +377,11 @@ export default function Dashboard() {
           {/* ===== top band ===== */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 14 }}>
             <Stat label="Biais du jour"
-              value={state?.bias || "—"}
-              color={biasColor(state?.bias)} big />
+              value={mkt.bias || "—"}
+              color={biasColor(mkt.bias)} big />
             <Stat label="Session"
-              value={state?.session || "—"}
-              color={state?.session?.includes("session") ? COLORS.grey : COLORS.blue} />
+              value={mkt.session || "—"}
+              color={mkt.session?.includes("session") ? COLORS.grey : COLORS.blue} />
             <Stat label="P&L du jour"
               value={`${money(state?.day_pnl)} (${pct(state?.day_pnl_pct)})`}
               color={(state?.day_pnl || 0) >= 0 ? COLORS.green : COLORS.red} />
@@ -386,7 +396,7 @@ export default function Dashboard() {
               <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
                 <h3 style={{ margin: 0, fontSize: 14 }}>Graphique</h3>
                 <span style={{ marginLeft: 12, color: COLORS.sub, fontSize: 13 }}>
-                  {fmt(state?.price, 2)} $
+                  {fmt(mkt.price, activeMarket === "EURUSD" ? 5 : 2)} {activeMarket === "EURUSD" ? "" : "$"}
                 </span>
                 <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
                   {["M5", "M15", "H1"].map((t) => (
@@ -413,11 +423,11 @@ export default function Dashboard() {
                 </span>
               </div>
 
-              <RsiBar label="RSI M5" value={state?.indicators?.rsi_m5} />
-              <RsiBar label="RSI M15" value={state?.indicators?.rsi_m15} />
+              <RsiBar label="RSI M5" value={mkt.indicators?.rsi_m5} />
+              <RsiBar label="RSI M15" value={mkt.indicators?.rsi_m15} />
               <div style={{ margin: "12px 0" }}>
-                <AtrGauge atr={state?.indicators?.atr_m5} avg={state?.indicators?.atr_avg}
-                  min={state?.indicators?.atr_min} />
+                <AtrGauge atr={mkt.indicators?.atr_m5} avg={mkt.indicators?.atr_avg}
+                  min={mkt.indicators?.atr_min} />
               </div>
 
               {/* news */}
