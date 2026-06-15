@@ -791,6 +791,32 @@ def data_provider_status():
     }
 
 
+@app.get("/api/cot")
+def get_cot(_user: dict = Depends(get_current_user)):
+    """
+    Return the latest CFTC Commitments of Traders data for Gold (XAUUSD).
+    Cached for 6 hours — data is published weekly on Fridays.
+    """
+    try:
+        return cot_report.get_cot_data()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"COT data unavailable: {exc}")
+
+
+@app.get("/api/sentiment")
+def get_sentiment(_user: dict = Depends(get_current_user)):
+    """
+    Return retail trader sentiment for XAUUSD and EURUSD.
+    Primary source: Myfxbook community outlook (scraping).
+    Fallback: COT-derived proxy for XAUUSD, static 50/50 for EURUSD.
+    Cached for 15 minutes.
+    """
+    try:
+        return retail_sentiment.get_sentiment()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Sentiment data unavailable: {exc}")
+
+
 # --------------------------------------------------------------------------- #
 # WebSocket endpoint
 # --------------------------------------------------------------------------- #

@@ -63,7 +63,8 @@ function OptimizerPanel({ api }) {
     setLoading(true); setErr(null); setRes(null); setApplyStatus({});
     try {
       const r = await fetch(`${api}/api/optimize`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           ...form,
           capital: Number(form.capital), risk_pct: Number(form.risk_pct),
@@ -72,6 +73,7 @@ function OptimizerPanel({ api }) {
           daily_stop_pct: Number(form.daily_stop_pct),
         }),
       });
+      if (logout401(r)) return;
       const data = await r.json();
       if (data.detail) setErr(data.detail);
       else setRes(data);
@@ -86,7 +88,8 @@ function OptimizerPanel({ api }) {
     setApplyStatus((s) => ({ ...s, [idx]: "loading" }));
     try {
       const r = await fetch(`${api}/api/optimize/apply`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           adx_min: params.adx_min,
           rsi_low: params.rsi_low,
@@ -95,6 +98,7 @@ function OptimizerPanel({ api }) {
           sr_proximity: params.sr_proximity,
         }),
       });
+      if (logout401(r)) return;
       if (r.ok) setApplyStatus((s) => ({ ...s, [idx]: "ok" }));
       else setApplyStatus((s) => ({ ...s, [idx]: "err" }));
     } catch {
@@ -294,7 +298,8 @@ export default function BacktestPanel({ api }) {
     setLoading(true); setErr(null); setRes(null);
     try {
       const r = await fetch(`${api}/api/backtest`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           ...form,
           capital: Number(form.capital), risk_pct: Number(form.risk_pct),
@@ -304,6 +309,7 @@ export default function BacktestPanel({ api }) {
           symbol: form.symbol || "XAUUSD",
         }),
       });
+      if (logout401(r)) return;
       const data = await r.json();
       if (data.error) setErr(data.error);
       else setRes(data);
