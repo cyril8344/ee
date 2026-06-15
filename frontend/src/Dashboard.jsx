@@ -356,7 +356,7 @@ export default function Dashboard() {
     <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.text,
       fontFamily: "'Inter', system-ui, sans-serif", padding: 16 }}>
       {/* ===== header / tabs ===== */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
+      <div className="header-bar" style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
         <h1 style={{ fontSize: 20, margin: 0, letterSpacing: 0.5 }}>
           🟡 <span style={{ color: COLORS.sub, fontWeight: 400 }}>Scalping Bot</span>
         </h1>
@@ -557,7 +557,7 @@ export default function Dashboard() {
           {/* ===== active trade ===== */}
           {pos && (
             <div className="dashboard-panel" style={{ ...panel(), marginTop: 14, borderColor: pos.direction === "long" ? COLORS.green : COLORS.red }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+              <div className="active-trade-row" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
                 <span style={{ fontWeight: 700, fontSize: 16,
                   color: pos.direction === "long" ? COLORS.green : COLORS.red }}>
                   {pos.direction === "long" ? "▲ LONG" : "▼ SHORT"} · {pos.volume} lots
@@ -646,7 +646,7 @@ export default function Dashboard() {
           </div>
 
           {/* ===== alerts feed ===== */}
-          <div className="dashboard-panel" style={{ ...panel(), marginTop: 14 }}>
+          <div className="dashboard-panel alerts-panel" style={{ ...panel(), marginTop: 14 }}>
             <h3 style={{ margin: "0 0 8px", fontSize: 14 }}>Alertes</h3>
             <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 130, overflowY: "auto" }}>
               {(state?.alerts || []).slice().reverse().map((a, i) => (
