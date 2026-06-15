@@ -686,6 +686,7 @@ export default function Dashboard({ onLogout }) {
               </ResponsiveContainer>
             </div>
           </div>
+          </div>
 
           {/* ===== alerts feed ===== */}
           <div className="dashboard-panel alerts-panel" style={{ ...panel(), marginTop: 14 }}>
