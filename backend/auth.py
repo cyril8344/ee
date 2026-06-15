@@ -30,14 +30,36 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 # --------------------------------------------------------------------------- #
+# .env loader (zero-dependency) — checks backend/.env AND repo-root .env so the
+# file is found regardless of which folder the user dropped it in.
+# --------------------------------------------------------------------------- #
+def _load_dotenv() -> None:
+    here = os.path.dirname(os.path.abspath(__file__))
+    for path in (os.path.join(here, ".env"),
+                 os.path.normpath(os.path.join(here, "..", ".env"))):
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, _, value = line.partition("=")
+                    os.environ.setdefault(key.strip(),
+                                          value.strip().strip('"').strip("'"))
+        except OSError:
+            pass
+
+
+_load_dotenv()
+
+# --------------------------------------------------------------------------- #
 # Config
 # --------------------------------------------------------------------------- #
 SECRET_KEY: str = os.environ.get("AUTH_SECRET", secrets.token_hex(32))
 ALGORITHM: str = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS: int = 24
-
-ADMIN_USERNAME: str = os.environ.get("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD: str = os.environ.get("ADMIN_PASSWORD", "changeme")
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -136,5 +158,11 @@ def get_current_user(
 # Credential verification
 # --------------------------------------------------------------------------- #
 def verify_credentials(username: str, password: str) -> bool:
-    """Return True if username + password match the configured admin account."""
-    return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
+    """Return True if username + password match the configured admin account.
+
+    Credentials are read at call time (not import time) so they always reflect
+    the loaded .env, regardless of module import order.
+    """
+    admin_user = os.environ.get("ADMIN_USERNAME", "admin")
+    admin_pass = os.environ.get("ADMIN_PASSWORD", "changeme")
+    return username == admin_user and password == admin_pass
