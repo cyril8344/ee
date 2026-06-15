@@ -267,6 +267,14 @@ export default function BacktestPanel({ api }) {
 
   const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
+  const subTabBtn = (active) => ({
+    background: active ? COLORS.blue : "transparent",
+    color: active ? "#fff" : COLORS.text,
+    border: `1px solid ${active ? COLORS.blue : COLORS.border}`,
+    borderRadius: 6, padding: "6px 16px", fontSize: 13,
+    cursor: "pointer", fontWeight: 500,
+  });
+
   const run = async () => {
     setLoading(true); setErr(null); setRes(null);
     try {
@@ -297,6 +305,19 @@ export default function BacktestPanel({ api }) {
 
   return (
     <div>
+      {/* ===== sub-tab navigation ===== */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <button onClick={() => setSubTab("backtest")} style={subTabBtn(subTab === "backtest")}>
+          Backtest
+        </button>
+        <button onClick={() => setSubTab("optimizer")} style={subTabBtn(subTab === "optimizer")}>
+          Optimiseur
+        </button>
+      </div>
+
+      {subTab === "optimizer" && <OptimizerPanel api={api} />}
+
+      {subTab === "backtest" && <>
       {/* ===== parameters ===== */}
       <div style={panel()}>
         <h3 style={{ margin: "0 0 12px", fontSize: 14 }}>Paramètres du backtest (M5)</h3>
@@ -479,6 +500,7 @@ export default function BacktestPanel({ api }) {
           </div>
         </>
       )}
+      </>}
     </div>
   );
 }
