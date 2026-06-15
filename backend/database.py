@@ -117,6 +117,13 @@ def init_db() -> None:
                 blocked       INTEGER NOT NULL DEFAULT 0,
                 updated_at    TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS pattern_stats (
+                pattern     TEXT PRIMARY KEY,
+                trades      INTEGER DEFAULT 0,
+                wins        INTEGER DEFAULT 0,
+                updated_at  TEXT
+            );
             """
         )
 
@@ -313,6 +320,45 @@ def get_daily(day: str) -> Optional[Dict[str, Any]]:
 
 def today_utc() -> str:
     return date.today().isoformat()
+
+
+# --------------------------------------------------------------------------- #
+# Pattern stats
+# --------------------------------------------------------------------------- #
+def get_pattern_stats() -> Dict[str, Dict]:
+    """Return {pattern: {trades, wins, win_rate, weight}} for all patterns."""
+    with get_conn() as conn:
+        rows = conn.execute("SELECT pattern, trades, wins FROM pattern_stats").fetchall()
+    result = {}
+    for row in rows:
+        pattern, trades, wins = row["pattern"], row["trades"], row["wins"]
+        win_rate = (wins + 2) / (trades + 4)  # Laplace smoothing
+        # weight: 50% win_rate -> 1.0, 70% -> 1.8, 30% -> 0.3 (capped)
+        weight = max(0.3, min(2.0, win_rate * 2.0)) if trades >= 5 else 1.0
+        result[pattern] = {
+            "trades": trades,
+            "wins": wins,
+            "win_rate": round((wins / trades * 100) if trades > 0 else 50.0, 1),
+            "weight": round(weight, 3),
+        }
+    return result
+
+
+def update_pattern_stats(patterns: List[str], won: bool) -> None:
+    """Increment trades (+1) and optionally wins (+1) for each pattern."""
+    if not patterns:
+        return
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        for p in patterns:
+            conn.execute("""
+                INSERT INTO pattern_stats (pattern, trades, wins, updated_at)
+                VALUES (?, 1, ?, ?)
+                ON CONFLICT(pattern) DO UPDATE SET
+                    trades = trades + 1,
+                    wins = wins + ?,
+                    updated_at = ?
+            """, (p, 1 if won else 0, now, 1 if won else 0, now))
 
 
 if __name__ == "__main__":

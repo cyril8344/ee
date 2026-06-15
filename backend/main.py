@@ -130,6 +130,7 @@ class BotState:
             )
             self.market_states[sym] = MarketState(symbol=sym, config=cfg, broker=broker)
 
+        self.pattern_weights: Dict = db.get_pattern_stats()
         self._hydrate_today()
 
     def _hydrate_today(self):
@@ -229,6 +230,7 @@ def trading_tick() -> Dict[str, Any]:
         news_status = state.news.status(now)
         session_filter = state.settings.get("session_filter", True)
 
+        state.pattern_weights = db.get_pattern_stats()
         any_active = False
         for ms in state.market_states.values():
             try:
@@ -255,7 +257,8 @@ def trading_tick() -> Dict[str, Any]:
                         and not state.risk.blocked and not news_status["blocked"]
                         and state.settings.get("bot_enabled", True)):
                     sig = evaluate(m5, m15, h1, now=now, check_session=session_filter,
-                                   atr_min=ms.config["atr_min"])
+                                   atr_min=ms.config["atr_min"],
+                                   pattern_weights=state.pattern_weights)
                     if sig is not None:
                         ms.last_signal = sig.to_dict()
                         decision = state.risk.can_open_trade(
@@ -327,6 +330,14 @@ def _open_trade(ms: MarketState, sig, decision, now):
 def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], now: datetime):
     pnl = float(close_info["pnl"])
     state.risk.register_close(pnl)
+
+    # Update pattern performance stats
+    triggers = pos.meta.get("triggers", [])
+    if triggers:
+        won = pnl > 0
+        db.update_pattern_stats(triggers, won)
+        state.pattern_weights = db.get_pattern_stats()
+
     duration = (now - pos.open_time).total_seconds() / 60.0
     trade_id = pos.meta.get("trade_id")
     start_eq = state.risk.start_equity_today or state.risk.capital
@@ -730,6 +741,11 @@ def optimize_apply(req: ApplyParamsRequest):
 def news():
     state.news.refresh()
     return state.news.status()
+
+
+@app.get("/api/pattern-stats")
+def pattern_stats():
+    return db.get_pattern_stats()
 
 
 @app.get("/api/data-provider")

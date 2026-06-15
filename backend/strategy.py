@@ -610,6 +610,7 @@ def evaluate(
     now: Optional[datetime] = None,
     check_session: bool = True,
     atr_min: float = ATR_MIN,
+    pattern_weights: Optional[Dict[str, float]] = None,
 ) -> Optional[Signal]:
     """
     Evaluate the full multi-timeframe stack on the *last closed* M5 bar.
@@ -742,9 +743,16 @@ def evaluate(
     if liquidity_swept(m5, bias):
         triggers.append("liquidity_sweep")
 
-    # Need 2+ core triggers (SMC triggers count, asian_breakout doesn't)
+    # Weighted scoring: each trigger gets its dynamic weight (default 1.0)
+    def _w(t: str) -> float:
+        if pattern_weights is None:
+            return 1.0
+        info = pattern_weights.get(t)
+        return info["weight"] if isinstance(info, dict) else float(info) if info else 1.0
+
     core_triggers = [t for t in triggers if t != "asian_breakout"]
-    if len(core_triggers) < 2:
+    weighted_score = sum(_w(t) for t in core_triggers)
+    if weighted_score < 1.5:
         return None
 
     # 11) S/R proximity — don't enter into a wall

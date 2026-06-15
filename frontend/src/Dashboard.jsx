@@ -225,6 +225,7 @@ export default function Dashboard() {
   const [tf, setTf] = useState("M5");
   const [trades, setTrades] = useState({ trades: [], equity_curve: [] });
   const [connected, setConnected] = useState(false);
+  const [patternStats, setPatternStats] = useState({});
   const beep = useBeep();
   const lastAlertTs = useRef(null);
 
@@ -300,6 +301,18 @@ export default function Dashboard() {
       active = false;
       clearInterval(id);
     };
+  }, []);
+
+  /* Pattern stats polling */
+  useEffect(() => {
+    const load = () =>
+      fetch(`${API}/api/pattern-stats`)
+        .then((r) => r.json())
+        .then(setPatternStats)
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 30000);
+    return () => clearInterval(id);
   }, []);
 
   const pos = mkt.position;
@@ -451,6 +464,26 @@ export default function Dashboard() {
                 <Row k="Risque / trade" v={`${fmt(state?.risk?.risk_per_trade_pct, 1)}% · $${fmt(state?.risk?.risk_amount_usd, 0)}`} />
                 <Row k="Stop journalier" v={`-$${fmt(state?.risk?.daily_loss_limit_usd, 0)}`} />
               </div>
+
+              {/* pattern weights */}
+              {Object.keys(patternStats).length > 0 && (
+                <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 10 }}>
+                  <div style={{ fontSize: 12, color: COLORS.sub, marginBottom: 6 }}>Poids des patterns</div>
+                  {Object.entries(patternStats)
+                    .filter(([, s]) => s.trades >= 1)
+                    .sort((a, b) => b[1].weight - a[1].weight)
+                    .map(([name, s]) => (
+                      <div key={name} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 3 }}>
+                        <span style={{ color: COLORS.text }}>{name.replace(/_/g, " ")}</span>
+                        <span style={{ color: COLORS.sub }}>{s.trades}t {s.win_rate}%</span>
+                        <span style={{ color: s.weight > 1.2 ? COLORS.green : s.weight < 0.8 ? COLORS.red : COLORS.sub, fontWeight: "bold" }}>
+                          x{s.weight.toFixed(2)}
+                        </span>
+                      </div>
+                    ))
+                  }
+                </div>
+              )}
 
               <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                 <button onClick={toggleBot} style={{ ...tabBtn(false), flex: 1 }}>
