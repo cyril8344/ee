@@ -8,6 +8,21 @@ import {
  * Backtest panel — XAU/USD M5 scalping
  * ==========================================================================*/
 
+/* ----------------------------- auth helpers ----------------------------- */
+function authHeaders() {
+  const token = localStorage.getItem("token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function logout401(res) {
+  if (res && res.status === 401) {
+    localStorage.removeItem("token");
+    window.location.reload();
+    return true;
+  }
+  return false;
+}
+
 const COLORS = {
   bg: "#0a0e17", panel: "#121826", panel2: "#0f1420", border: "#1f2937",
   text: "#e5e7eb", sub: "#8b95a7", green: "#16c784", red: "#ea3943",

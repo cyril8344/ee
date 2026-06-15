@@ -216,8 +216,20 @@ const hms = (s) => {
   return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 };
 
+/* ----------------------------- auth helpers ----------------------------- */
+function authHeaders() {
+  const token = localStorage.getItem("token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function logout401(onLogout) {
+  localStorage.removeItem("token");
+  if (onLogout) onLogout();
+  else window.location.reload();
+}
+
 /* ============================ Dashboard ================================== */
-export default function Dashboard() {
+export default function Dashboard({ onLogout }) {
   const [tab, setTab] = useState("live");
   const [activeMarket, setActiveMarket] = useState("XAUUSD");
   const [weightsOpen, setWeightsOpen] = useState(false);
@@ -276,8 +288,10 @@ export default function Dashboard() {
   useEffect(() => {
     let active = true;
     const load = () =>
-      fetch(`${API}/api/chart?tf=${tf}&symbol=${activeMarket}`)
-        .then((r) => r.json())
+      fetch(`${API}/api/chart?tf=${tf}&symbol=${activeMarket}`, {
+        headers: authHeaders(),
+      })
+        .then((r) => { if (r.status === 401) { logout401(onLogout); throw new Error("401"); } return r.json(); })
         .then((d) => active && setChart(d))
         .catch(() => {});
     load();
@@ -292,8 +306,8 @@ export default function Dashboard() {
   useEffect(() => {
     let active = true;
     const load = () =>
-      fetch(`${API}/api/trades?scope=today`)
-        .then((r) => r.json())
+      fetch(`${API}/api/trades?scope=today`, { headers: authHeaders() })
+        .then((r) => { if (r.status === 401) { logout401(onLogout); throw new Error("401"); } return r.json(); })
         .then((d) => active && setTrades(d))
         .catch(() => {});
     load();
@@ -307,8 +321,8 @@ export default function Dashboard() {
   /* Pattern stats polling */
   useEffect(() => {
     const load = () =>
-      fetch(`${API}/api/pattern-stats`)
-        .then((r) => r.json())
+      fetch(`${API}/api/pattern-stats`, { headers: authHeaders() })
+        .then((r) => { if (r.status === 401) { logout401(onLogout); throw new Error("401"); } return r.json(); })
         .then(setPatternStats)
         .catch(() => {});
     load();
@@ -320,32 +334,43 @@ export default function Dashboard() {
   const remaining = useCountdown(pos?.remaining_seconds);
   const newsCountdown = useCountdown(state?.news?.next_event_countdown_sec);
 
-  const closeNow = () => fetch(`${API}/api/close?symbol=${activeMarket}`, { method: "POST" });
-  const toggleBot = () => fetch(`${API}/api/bot/toggle`, { method: "POST" });
+  const closeNow = () =>
+    fetch(`${API}/api/close?symbol=${activeMarket}`, {
+      method: "POST",
+      headers: authHeaders(),
+    }).then((r) => { if (r.status === 401) logout401(onLogout); });
+
+  const toggleBot = () =>
+    fetch(`${API}/api/bot/toggle`, {
+      method: "POST",
+      headers: authHeaders(),
+    }).then((r) => { if (r.status === 401) logout401(onLogout); });
 
   const sessionFilterOn = state?.settings?.session_filter !== false;
   const toggle247 = () => {
     fetch(`${API}/api/settings`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ session_filter: sessionFilterOn ? false : true }),
-    });
+    }).then((r) => { if (r.status === 401) logout401(onLogout); });
   };
 
   const switchLive = () => {
     if (state?.mode === "live") {
       fetch(`${API}/api/mode`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ mode: "paper" }),
-      });
+      }).then((r) => { if (r.status === 401) logout401(onLogout); });
       return;
     }
     if (!window.confirm("⚠️ Passer en mode LIVE (argent réel) ?")) return;
     if (!window.confirm("CONFIRMATION FINALE : exécuter de vrais ordres ?")) return;
     fetch(`${API}/api/mode`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ mode: "live", confirm: true, confirm_again: true }),
-    });
+    }).then((r) => { if (r.status === 401) logout401(onLogout); });
   };
 
   const statusColor =
@@ -381,6 +406,23 @@ export default function Dashboard() {
               {t === "live" ? "Live" : "Backtest"}
             </button>
           ))}
+          <div style={{ width: 1, background: COLORS.border, margin: "0 4px" }} />
+          <button
+            onClick={() => { localStorage.removeItem("token"); if (onLogout) onLogout(); }}
+            style={{
+              background: "transparent",
+              color: COLORS.sub,
+              border: `1px solid ${COLORS.border}`,
+              borderRadius: 6,
+              padding: "6px 14px",
+              fontSize: 13,
+              cursor: "pointer",
+              fontWeight: 500,
+            }}
+            title="Déconnexion"
+          >
+            Déconnexion
+          </button>
         </div>
       </div>
 
