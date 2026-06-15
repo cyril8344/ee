@@ -134,6 +134,65 @@ def _fetch_twelvedata(start: Optional[str], end: Optional[str], bars: int,
     return _normalise(df)
 
 
+def _fetch_twelvedata_range(start: str, end: str, symbol: str = "XAUUSD") -> pd.DataFrame:
+    """Fetch a multi-year M5 dataset from Twelve Data using paginated requests.
+
+    Each API call returns at most 5000 bars (≈17 days of M5). This function
+    walks backwards in time from *end* to *start*, collecting chunks and
+    concatenating them into a single sorted, deduplicated DataFrame.
+    """
+    import time as _time
+
+    key = os.environ.get("TWELVEDATA_API_KEY")
+    if not key:
+        raise RuntimeError("TWELVEDATA_API_KEY not set")
+
+    td_symbol = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"])["twelvedata"]
+
+    start_dt = pd.Timestamp(start, tz="UTC")
+    end_dt = pd.Timestamp(end, tz="UTC")
+
+    chunks = []
+    cursor = end_dt
+
+    while cursor > start_dt:
+        params = {
+            "symbol": td_symbol, "interval": "5min",
+            "apikey": key, "format": "JSON", "timezone": "UTC",
+            "outputsize": 5000,
+            "end_date": cursor.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        r = requests.get("https://api.twelvedata.com/time_series",
+                         params=params, timeout=REQUEST_TIMEOUT)
+        r.raise_for_status()
+        data = r.json()
+        if data.get("status") == "error" or "values" not in data:
+            break
+        df = pd.DataFrame(data["values"])
+        df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
+        df = df.set_index("datetime")
+        if "volume" not in df.columns:
+            df["volume"] = 0.0
+        chunk = _normalise(df)
+        if len(chunk) == 0:
+            break
+        chunks.append(chunk)
+        earliest = chunk.index.min()
+        if earliest <= start_dt:
+            break
+        cursor = earliest - pd.Timedelta(minutes=5)
+        _time.sleep(0.5)
+
+    if not chunks:
+        raise RuntimeError("No data fetched from Twelve Data")
+
+    result = pd.concat(chunks).sort_index()
+    result = result[~result.index.duplicated(keep="first")]
+    result = result[result.index >= start_dt]
+    result = result[result.index <= end_dt]
+    return result
+
+
 def _fetch_polygon(start: Optional[str], end: Optional[str], bars: int,
                    symbol: str = "XAUUSD") -> pd.DataFrame:
     key = os.environ.get("POLYGON_API_KEY")
@@ -299,6 +358,20 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
                  if _KEY_ENV.get(p) is None or os.environ.get(_KEY_ENV[p])]
         if "synthetic" not in order:
             order.append("synthetic")
+
+    # For long-range requests via twelvedata, use the paginated range fetcher
+    _use_td_range = (
+        start and end
+        and (pd.Timestamp(end, tz="UTC") - pd.Timestamp(start, tz="UTC")).days > 30
+        and (chosen == "twelvedata" or (chosen == "auto" and os.environ.get("TWELVEDATA_API_KEY")))
+    )
+    if _use_td_range and "twelvedata" in order:
+        try:
+            df = _fetch_twelvedata_range(start, end, symbol)
+            if df is not None and len(df) > 0:
+                return df, "twelvedata"
+        except Exception:  # noqa: BLE001 - fall through to normal providers
+            pass
 
     last_err = None
     for name in order:

@@ -26,8 +26,236 @@ function defaultDates() {
   return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
 }
 
+/* ============================================================================
+ * Optimiser panel
+ * ==========================================================================*/
+function OptimizerPanel({ api }) {
+  const d = defaultDates();
+  const [form, setForm] = useState({
+    start: d.start, end: d.end, symbol: "XAUUSD",
+    capital: 10000, risk_pct: 1.0,
+    spread_pips: 0.3, slippage_pips: 0.1,
+    max_trades_per_day: 4, daily_stop_pct: 2.0,
+  });
+  const [loading, setLoading] = useState(false);
+  const [res, setRes] = useState(null);
+  const [err, setErr] = useState(null);
+  const [applyStatus, setApplyStatus] = useState({});
+
+  const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const run = async () => {
+    setLoading(true); setErr(null); setRes(null); setApplyStatus({});
+    try {
+      const r = await fetch(`${api}/api/optimize`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...form,
+          capital: Number(form.capital), risk_pct: Number(form.risk_pct),
+          spread_pips: Number(form.spread_pips), slippage_pips: Number(form.slippage_pips),
+          max_trades_per_day: Number(form.max_trades_per_day),
+          daily_stop_pct: Number(form.daily_stop_pct),
+        }),
+      });
+      const data = await r.json();
+      if (data.detail) setErr(data.detail);
+      else setRes(data);
+    } catch (e) {
+      setErr("Échec de la requête optimisation: " + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const applyParams = async (idx, params) => {
+    setApplyStatus((s) => ({ ...s, [idx]: "loading" }));
+    try {
+      const r = await fetch(`${api}/api/optimize/apply`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adx_min: params.adx_min,
+          rsi_low: params.rsi_low,
+          rsi_high: params.rsi_high,
+          sl_atr_mult: params.sl_atr_mult,
+          sr_proximity: params.sr_proximity,
+        }),
+      });
+      if (r.ok) setApplyStatus((s) => ({ ...s, [idx]: "ok" }));
+      else setApplyStatus((s) => ({ ...s, [idx]: "err" }));
+    } catch {
+      setApplyStatus((s) => ({ ...s, [idx]: "err" }));
+    }
+  };
+
+  return (
+    <div>
+      {/* Parameters */}
+      <div style={panel()}>
+        <h3 style={{ margin: "0 0 12px", fontSize: 14 }}>Paramètres de l'optimisation (Grid Search)</h3>
+        <div style={{ fontSize: 12, color: COLORS.sub, marginBottom: 12 }}>
+          Grille de recherche : ADX_MIN × RSI_LOW × RSI_HIGH × SL_ATR_MULT × SR_PROXIMITY —{" "}
+          <strong style={{ color: COLORS.amber }}>108 combinaisons</strong>, optimise le Sharpe × Profit Factor.
+          Peut prendre 2 à 5 minutes selon la période.
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+          <Field label="Date début"><input type="date" value={form.start}
+            onChange={(e) => update("start", e.target.value)} style={inp} /></Field>
+          <Field label="Date fin"><input type="date" value={form.end}
+            onChange={(e) => update("end", e.target.value)} style={inp} /></Field>
+          <Field label="Capital ($)"><input type="number" value={form.capital}
+            onChange={(e) => update("capital", e.target.value)} style={inp} /></Field>
+          <Field label="Symbole">
+            <select value={form.symbol} onChange={(e) => update("symbol", e.target.value)} style={inp}>
+              <option value="XAUUSD">XAU/USD</option>
+              <option value="EURUSD">EUR/USD</option>
+            </select>
+          </Field>
+          <Field label="Risque / trade (%)"><input type="number" step="0.1" value={form.risk_pct}
+            onChange={(e) => update("risk_pct", e.target.value)} style={inp} /></Field>
+          <Field label="Spread (pips)"><input type="number" step="0.1" value={form.spread_pips}
+            onChange={(e) => update("spread_pips", e.target.value)} style={inp} /></Field>
+          <Field label="Slippage (pips)"><input type="number" step="0.1" value={form.slippage_pips}
+            onChange={(e) => update("slippage_pips", e.target.value)} style={inp} /></Field>
+          <Field label="Max trades / jour"><input type="number" value={form.max_trades_per_day}
+            onChange={(e) => update("max_trades_per_day", e.target.value)} style={inp} /></Field>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 14 }}>
+          <button onClick={run} disabled={loading} style={{
+            background: loading ? COLORS.amber : COLORS.blue, color: "#fff", border: "none",
+            borderRadius: 6, padding: "9px 22px", fontSize: 14, fontWeight: 600,
+            cursor: loading ? "wait" : "pointer", opacity: 1, display: "flex", alignItems: "center", gap: 8,
+          }}>
+            {loading && (
+              <span style={{
+                display: "inline-block", width: 14, height: 14, border: "2px solid #fff3",
+                borderTop: "2px solid #fff", borderRadius: "50%",
+                animation: "spin 0.8s linear infinite",
+              }} />
+            )}
+            {loading ? "Optimisation en cours…" : "Lancer l'optimisation"}
+          </button>
+          {loading && (
+            <span style={{ fontSize: 12, color: COLORS.amber }}>
+              Calcul de 108 combinaisons, veuillez patienter…
+            </span>
+          )}
+        </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+
+      {err && (
+        <div style={{ ...panel(), marginTop: 14, borderColor: COLORS.red, color: COLORS.red }}>
+          {err}
+        </div>
+      )}
+
+      {res && (
+        <>
+          {/* Summary */}
+          <div style={{ ...panel(), marginTop: 14 }}>
+            <div style={{ display: "flex", gap: 24, fontSize: 13 }}>
+              <span>Combinaisons totales : <strong>{res.total_combinations}</strong></span>
+              <span>Testées (min 10 trades) : <strong>{res.tested}</strong></span>
+              {res.best && (
+                <span style={{ color: COLORS.green }}>
+                  Meilleur score : Sharpe {fmt(res.best.sharpe)} × PF {fmt(res.best.profit_factor)}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Top 5 results table */}
+          {res.top_results && res.top_results.length > 0 && (
+            <div style={{ ...panel(), marginTop: 14 }}>
+              <h3 style={{ margin: "0 0 12px", fontSize: 14 }}>Top 5 combinaisons</h3>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ color: COLORS.sub, textAlign: "left" }}>
+                      <th style={th}>#</th>
+                      <th style={th}>ADX min</th>
+                      <th style={th}>RSI low</th>
+                      <th style={th}>RSI high</th>
+                      <th style={th}>SL ATR mult</th>
+                      <th style={th}>SR prox</th>
+                      <th style={th}>Sharpe</th>
+                      <th style={th}>Profit Factor</th>
+                      <th style={th}>Winrate</th>
+                      <th style={th}>Trades</th>
+                      <th style={th}>Net P&L %</th>
+                      <th style={th}>Max DD %</th>
+                      <th style={th}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {res.top_results.map((row, idx) => {
+                      const status = applyStatus[idx];
+                      return (
+                        <tr key={idx} style={{
+                          borderTop: `1px solid ${COLORS.border}`,
+                          background: idx === 0 ? "rgba(59,130,246,0.06)" : "transparent",
+                        }}>
+                          <td style={{ ...td, color: idx === 0 ? COLORS.blue : COLORS.sub }}>
+                            {idx === 0 ? "★" : idx + 1}
+                          </td>
+                          <td style={td}>{fmt(row.params.adx_min, 0)}</td>
+                          <td style={td}>{fmt(row.params.rsi_low, 0)}</td>
+                          <td style={td}>{fmt(row.params.rsi_high, 0)}</td>
+                          <td style={td}>{fmt(row.params.sl_atr_mult, 1)}</td>
+                          <td style={td}>{fmt(row.params.sr_proximity, 1)}</td>
+                          <td style={{ ...td, color: row.sharpe >= 1 ? COLORS.green : row.sharpe >= 0 ? COLORS.amber : COLORS.red, fontWeight: 600 }}>
+                            {fmt(row.sharpe)}
+                          </td>
+                          <td style={{ ...td, color: row.profit_factor >= 1 ? COLORS.green : COLORS.red }}>
+                            {fmt(row.profit_factor)}
+                          </td>
+                          <td style={td}>{fmt(row.winrate, 1)}%</td>
+                          <td style={td}>{row.trades}</td>
+                          <td style={{ ...td, color: row.net_profit_pct >= 0 ? COLORS.green : COLORS.red }}>
+                            {fmt(row.net_profit_pct, 2)}%
+                          </td>
+                          <td style={{ ...td, color: COLORS.red }}>
+                            -{fmt(row.max_drawdown_pct, 1)}%
+                          </td>
+                          <td style={td}>
+                            <button
+                              onClick={() => applyParams(idx, row.params)}
+                              disabled={status === "loading" || status === "ok"}
+                              style={{
+                                background: status === "ok" ? COLORS.green : status === "err" ? COLORS.red : COLORS.blue,
+                                color: "#fff", border: "none", borderRadius: 4,
+                                padding: "4px 10px", fontSize: 11, fontWeight: 600,
+                                cursor: status === "loading" || status === "ok" ? "default" : "pointer",
+                              }}>
+                              {status === "loading" ? "…" : status === "ok" ? "Appliqué ✓" : status === "err" ? "Erreur" : "Appliquer"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ fontSize: 11, color: COLORS.sub, marginTop: 8 }}>
+                Score = Sharpe × Profit Factor · "Appliquer" met à jour les paramètres en mémoire (non persistés, redémarrage les réinitialise)
+              </div>
+            </div>
+          )}
+
+          {res.top_results && res.top_results.length === 0 && (
+            <div style={{ ...panel(), marginTop: 14, color: COLORS.amber }}>
+              Aucune combinaison n'a généré suffisamment de trades (min 10) sur cette période.
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function BacktestPanel({ api }) {
   const d = defaultDates();
+  const [subTab, setSubTab] = useState("backtest");
   const [form, setForm] = useState({
     start: d.start, end: d.end, capital: 10000, risk_pct: 1.0,
     spread_pips: 0.3, slippage_pips: 0.1, max_trades_per_day: 4, daily_stop_pct: 2.0,

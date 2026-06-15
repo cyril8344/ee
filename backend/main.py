@@ -62,6 +62,7 @@ from broker import make_broker, Position
 import strategy
 from strategy import add_indicators, evaluate, snapshot, swing_levels, active_session
 from backtest import BacktestConfig, run_backtest
+from optimizer import OptimizeConfig, run_optimize
 
 
 MARKET_CONFIG = {
@@ -668,6 +669,61 @@ async def backtest(req: BacktestRequest):
     )
     result = await asyncio.to_thread(run_backtest, cfg)
     return result
+
+
+class OptimizeRequest(BaseModel):
+    start: str
+    end: str
+    symbol: str = "XAUUSD"
+    capital: float = 10000.0
+    risk_pct: float = 1.0
+    spread_pips: float = 0.3
+    slippage_pips: float = 0.1
+    max_trades_per_day: int = 4
+    daily_stop_pct: float = 2.0
+
+
+@app.post("/api/optimize")
+async def optimize(req: OptimizeRequest):
+    cfg = OptimizeConfig(
+        start=req.start, end=req.end, symbol=req.symbol,
+        capital=req.capital, risk_pct=req.risk_pct,
+        spread_pips=req.spread_pips, slippage_pips=req.slippage_pips,
+        max_trades_per_day=req.max_trades_per_day,
+        daily_stop_pct=req.daily_stop_pct,
+    )
+    result = await asyncio.to_thread(run_optimize, cfg)
+    return result
+
+
+class ApplyParamsRequest(BaseModel):
+    adx_min: Optional[float] = None
+    rsi_low: Optional[float] = None
+    rsi_high: Optional[float] = None
+    sl_atr_mult: Optional[float] = None
+    sr_proximity: Optional[float] = None
+
+
+@app.post("/api/optimize/apply")
+def optimize_apply(req: ApplyParamsRequest):
+    """Apply optimised strategy parameters in-memory (no DB persistence)."""
+    applied: Dict[str, Any] = {}
+    if req.adx_min is not None:
+        strategy.ADX_MIN = req.adx_min
+        applied["adx_min"] = req.adx_min
+    if req.rsi_low is not None:
+        strategy.RSI_LOW = req.rsi_low
+        applied["rsi_low"] = req.rsi_low
+    if req.rsi_high is not None:
+        strategy.RSI_HIGH = req.rsi_high
+        applied["rsi_high"] = req.rsi_high
+    if req.sl_atr_mult is not None:
+        strategy.SL_ATR_MULT = req.sl_atr_mult
+        applied["sl_atr_mult"] = req.sl_atr_mult
+    if req.sr_proximity is not None:
+        strategy.SR_PROXIMITY_ATR = req.sr_proximity
+        applied["sr_proximity"] = req.sr_proximity
+    return {"applied": applied, "message": "Paramètres appliqués en mémoire (non persistés)"}
 
 
 @app.get("/api/news")
