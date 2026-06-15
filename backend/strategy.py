@@ -389,6 +389,19 @@ def confirm_m15(m15: pd.DataFrame, bias: str) -> bool:
         return (crossed or aligned) and rsi_ok and vol_ok
 
 
+def _body(c) -> float:
+    return abs(c["close"] - c["open"])
+
+def _upper_wick(c) -> float:
+    return c["high"] - max(c["open"], c["close"])
+
+def _lower_wick(c) -> float:
+    return min(c["open"], c["close"]) - c["low"]
+
+def _range(c) -> float:
+    return c["high"] - c["low"]
+
+
 def is_bullish_engulfing(prev, cur, atr_val: float = 0.0) -> bool:
     body = cur["close"] - cur["open"]
     body_ok = atr_val <= 0 or body >= 0.4 * atr_val
@@ -411,6 +424,106 @@ def is_bearish_engulfing(prev, cur, atr_val: float = 0.0) -> bool:
         cur["open"] >= prev["close"] and
         body_ok
     )
+
+
+def is_hammer(cur, atr_val: float = 0.0) -> bool:
+    """Hammer : longue mèche basse >= 2× corps, petite mèche haute."""
+    b = _body(cur)
+    lw = _lower_wick(cur)
+    uw = _upper_wick(cur)
+    if b <= 0:
+        return False
+    return lw >= 2.0 * b and uw <= 0.5 * b and (atr_val <= 0 or _range(cur) >= 0.3 * atr_val)
+
+
+def is_shooting_star(cur, atr_val: float = 0.0) -> bool:
+    """Shooting Star : longue mèche haute >= 2× corps, petite mèche basse."""
+    b = _body(cur)
+    uw = _upper_wick(cur)
+    lw = _lower_wick(cur)
+    if b <= 0:
+        return False
+    return uw >= 2.0 * b and lw <= 0.5 * b and (atr_val <= 0 or _range(cur) >= 0.3 * atr_val)
+
+
+def is_pin_bar_bullish(cur, atr_val: float = 0.0) -> bool:
+    """Pin bar haussier : mèche basse >= 2/3 de la bougie totale."""
+    rng = _range(cur)
+    if rng <= 0:
+        return False
+    lw = _lower_wick(cur)
+    return lw >= 0.66 * rng and (atr_val <= 0 or rng >= 0.5 * atr_val)
+
+
+def is_pin_bar_bearish(cur, atr_val: float = 0.0) -> bool:
+    """Pin bar baissier : mèche haute >= 2/3 de la bougie totale."""
+    rng = _range(cur)
+    if rng <= 0:
+        return False
+    uw = _upper_wick(cur)
+    return uw >= 0.66 * rng and (atr_val <= 0 or rng >= 0.5 * atr_val)
+
+
+def is_doji(cur, atr_val: float = 0.0) -> bool:
+    """Doji : corps < 10% de la range totale (indécision)."""
+    rng = _range(cur)
+    if rng <= 0:
+        return False
+    return _body(cur) <= 0.1 * rng
+
+
+def is_marubozu_bullish(cur, atr_val: float = 0.0) -> bool:
+    """Marubozu haussier : bougie verte sans mèches (momentum fort)."""
+    rng = _range(cur)
+    if rng <= 0 or cur["close"] <= cur["open"]:
+        return False
+    return _upper_wick(cur) <= 0.05 * rng and _lower_wick(cur) <= 0.05 * rng
+
+
+def is_marubozu_bearish(cur, atr_val: float = 0.0) -> bool:
+    """Marubozu baissier : bougie rouge sans mèches (momentum fort)."""
+    rng = _range(cur)
+    if rng <= 0 or cur["close"] >= cur["open"]:
+        return False
+    return _upper_wick(cur) <= 0.05 * rng and _lower_wick(cur) <= 0.05 * rng
+
+
+def is_morning_star(df, atr_val: float = 0.0) -> bool:
+    """Morning Star : bougie baissière + doji + bougie haussière."""
+    if len(df) < 3:
+        return False
+    c1, c2, c3 = df.iloc[-3], df.iloc[-2], df.iloc[-1]
+    return (c1["close"] < c1["open"] and
+            is_doji(c2) and
+            c3["close"] > c3["open"] and
+            c3["close"] > (c1["open"] + c1["close"]) / 2)
+
+
+def is_evening_star(df, atr_val: float = 0.0) -> bool:
+    """Evening Star : bougie haussière + doji + bougie baissière."""
+    if len(df) < 3:
+        return False
+    c1, c2, c3 = df.iloc[-3], df.iloc[-2], df.iloc[-1]
+    return (c1["close"] > c1["open"] and
+            is_doji(c2) and
+            c3["close"] < c3["open"] and
+            c3["close"] < (c1["open"] + c1["close"]) / 2)
+
+
+def is_bullish_harami(prev, cur) -> bool:
+    """Harami haussier : petite bougie verte à l'intérieur d'une grande rouge."""
+    return (prev["close"] < prev["open"] and
+            cur["close"] > cur["open"] and
+            cur["open"] >= prev["close"] and
+            cur["close"] <= prev["open"])
+
+
+def is_bearish_harami(prev, cur) -> bool:
+    """Harami baissier : petite bougie rouge à l'intérieur d'une grande verte."""
+    return (prev["close"] > prev["open"] and
+            cur["close"] < cur["open"] and
+            cur["open"] <= prev["close"] and
+            cur["close"] >= prev["open"])
 
 
 def ema9_pullback_bounce(m5: pd.DataFrame, bias: str) -> bool:
@@ -578,21 +691,45 @@ def evaluate(
     if bias == "LONG":
         if is_bullish_engulfing(prev, cur, atr_val):
             triggers.append("bullish_engulfing")
+        if is_hammer(cur, atr_val):
+            triggers.append("hammer")
+        if is_pin_bar_bullish(cur, atr_val):
+            triggers.append("pin_bar")
+        if is_marubozu_bullish(cur, atr_val):
+            triggers.append("marubozu")
+        if is_morning_star(m5.iloc[-3:], atr_val):
+            triggers.append("morning_star")
+        if is_bullish_harami(prev, cur):
+            triggers.append("harami")
         if ema9_pullback_bounce(m5, bias):
             triggers.append("ema9_pullback")
         if micro_breakout(m5, bias):
             triggers.append("micro_breakout")
         if asian and entry > asian["high"]:
             triggers.append("asian_breakout")
+        if is_doji(prev):
+            triggers.append("doji_reversal")
     else:
         if is_bearish_engulfing(prev, cur, atr_val):
             triggers.append("bearish_engulfing")
+        if is_shooting_star(cur, atr_val):
+            triggers.append("shooting_star")
+        if is_pin_bar_bearish(cur, atr_val):
+            triggers.append("pin_bar")
+        if is_marubozu_bearish(cur, atr_val):
+            triggers.append("marubozu")
+        if is_evening_star(m5.iloc[-3:], atr_val):
+            triggers.append("evening_star")
+        if is_bearish_harami(prev, cur):
+            triggers.append("harami")
         if ema9_pullback_bounce(m5, bias):
             triggers.append("ema9_pullback")
         if micro_breakout(m5, bias):
             triggers.append("micro_breakout")
         if asian and entry < asian["low"]:
             triggers.append("asian_breakout")
+        if is_doji(prev):
+            triggers.append("doji_reversal")
 
     # SMC triggers
     obs_m5 = find_order_blocks(m5, lookback=40)
