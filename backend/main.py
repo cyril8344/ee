@@ -111,7 +111,7 @@ class BotState:
         self.settings = db.get_settings()
         self.risk = RiskManager()
         self.risk.sync_from_settings(self.settings)
-        self.news = NewsFilter(window_minutes=60, currencies=("USD",))
+        self.news = NewsFilter(window_minutes=60, currencies=("USD", "EUR"))
         self.alerts: List[Dict[str, Any]] = []
         self.bot_status = "EN VEILLE"     # ACTIF | EN VEILLE | BLOQUE
         self.lock = threading.Lock()
@@ -653,6 +653,7 @@ class BacktestRequest(BaseModel):
     slippage_pips: float = 0.1
     max_trades_per_day: int = 4
     daily_stop_pct: float = 2.0
+    symbol: str = "XAUUSD"
 
 
 @app.post("/api/backtest")
@@ -663,6 +664,7 @@ async def backtest(req: BacktestRequest):
         slippage_pips=req.slippage_pips,
         max_trades_per_day=req.max_trades_per_day,
         daily_stop_pct=req.daily_stop_pct,
+        symbol=req.symbol,
     )
     result = await asyncio.to_thread(run_backtest, cfg)
     return result

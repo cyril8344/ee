@@ -37,6 +37,8 @@ MAJOR_KEYWORDS = (
     "fomc", "federal funds", "interest rate decision", "rate decision",
     "fed chair", "powell", "press conference",
     "pce", "ppi", "producer price",
+    "ecb", "european central bank", "lagarde", "deposit facility", "refi rate",
+    "eurozone cpi", "euro area cpi", "german cpi", "german gdp",
 )
 
 # Public feed (nfs.faireconomy.media) — ForexFactory-compatible weekly JSON.
@@ -186,6 +188,14 @@ class NewsFilter:
                 "FOMC Statement & Rate Decision",
                 datetime(y, m, third_wed, 18, 0, tzinfo=timezone.utc),
                 "USD", "high",
+            ))
+
+            # ECB rate decision: typically third Thursday 12:15 UTC
+            third_thu = self._nth_weekday(y, m, calendar.THURSDAY, 3)
+            out.append(NewsEvent(
+                "ECB Rate Decision",
+                datetime(y, m, third_thu, 12, 15, tzinfo=timezone.utc),
+                "EUR", "high",
             ))
         return out
 

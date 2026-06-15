@@ -59,7 +59,7 @@ def _normalise_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def load_m5_data(start: str, end: str) -> pd.DataFrame:
+def load_m5_data(start: str, end: str, symbol: str = "XAUUSD") -> pd.DataFrame:
     """Load 5-minute gold data via the unified data provider.
 
     Uses the configured/real provider (Twelve Data, Polygon, Alpha Vantage,
@@ -67,7 +67,7 @@ def load_m5_data(start: str, end: str) -> pd.DataFrame:
     synthetic series so the backtest never hard-fails.
     """
     try:
-        df, _provider = data_provider.get_m5(start=start, end=end, bars=5000)
+        df, _provider = data_provider.get_m5(start=start, end=end, bars=5000, symbol=symbol)
         if df is not None and len(df) > 0:
             return df
     except Exception:
@@ -129,6 +129,7 @@ class BacktestConfig:
     slippage_pips: float = 0.1
     max_trades_per_day: int = 4
     daily_stop_pct: float = 2.0
+    symbol: str = "XAUUSD"
 
 
 @dataclass
@@ -157,13 +158,16 @@ def _round_lot(lot: float) -> float:
 
 
 def run_backtest(cfg: BacktestConfig) -> Dict[str, Any]:
-    m5_raw = load_m5_data(cfg.start, cfg.end)
+    m5_raw = load_m5_data(cfg.start, cfg.end, symbol=cfg.symbol)
     if len(m5_raw) < 250:
         return {"error": "Not enough data for the selected period.",
                 "config": cfg.__dict__}
 
-    spread = cfg.spread_pips * PIP
-    slippage = cfg.slippage_pips * PIP
+    contract_size = 100.0 if cfg.symbol == "XAUUSD" else 100000.0
+    pip_size = 0.1 if cfg.symbol == "XAUUSD" else 0.0001
+
+    spread = cfg.spread_pips * pip_size
+    slippage = cfg.slippage_pips * pip_size
 
     m5 = add_indicators(m5_raw)
 
@@ -208,7 +212,7 @@ def run_backtest(cfg: BacktestConfig) -> Dict[str, Any]:
 
         # ---- Manage open position on this bar ----
         if open_trade is not None:
-            exit_info = _try_exit(open_trade, bar, ts, slippage)
+            exit_info = _try_exit(open_trade, bar, ts, slippage, contract_size)
             if exit_info is not None:
                 pnl, exit_price, reason = exit_info
                 equity += pnl
@@ -249,7 +253,7 @@ def run_backtest(cfg: BacktestConfig) -> Dict[str, Any]:
             if sig is not None:
                 vol = _round_lot(
                     (equity * cfg.risk_pct / 100.0)
-                    / (sig.risk_distance * CONTRACT_SIZE)
+                    / (sig.risk_distance * contract_size)
                 )
                 if vol >= MIN_LOT:
                     # apply spread+slippage to entry (buy at ask / sell at bid)
@@ -276,7 +280,7 @@ def run_backtest(cfg: BacktestConfig) -> Dict[str, Any]:
     return _build_report(cfg, trades, equity_curve)
 
 
-def _try_exit(t: Dict[str, Any], bar, ts, slippage) -> Optional[tuple]:
+def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Optional[tuple]:
     """
     Partial-TP exit model:
       - TP1 hit -> realise 60% of position, move on (remaining 40% runs to TP2/SL/timeout)
@@ -293,7 +297,7 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage) -> Optional[tuple]:
     sign = 1.0 if direction == "long" else -1.0
 
     def pnl_for(price, lots):
-        return (price - t["entry"]) * sign * CONTRACT_SIZE * lots
+        return (price - t["entry"]) * sign * contract_size * lots
 
     # 1) TP1 (partial 60%)
     if not t["tp1_done"]:
@@ -384,6 +388,13 @@ def _build_report(cfg: BacktestConfig, trades: List[BTTrade],
     avg_dur_win = round(float(np.mean([t.duration_min for t in wins])), 1) if wins else 0.0
     avg_dur_loss = round(float(np.mean([t.duration_min for t in losses])), 1) if losses else 0.0
 
+    # Sharpe ratio (annualised, assuming 252 trading days, ~288 M5 bars/day)
+    if n > 1:
+        returns = pnls / cfg.capital  # trade returns as fraction of initial capital
+        sharpe = float(np.mean(returns) / np.std(returns) * np.sqrt(252)) if np.std(returns) > 0 else 0.0
+    else:
+        sharpe = 0.0
+
     return {
         "config": cfg.__dict__,
         "summary": {
@@ -392,6 +403,7 @@ def _build_report(cfg: BacktestConfig, trades: List[BTTrade],
             "losses": len(losses),
             "winrate": _winrate(trades),
             "profit_factor": round(profit_factor, 3) if profit_factor != float("inf") else None,
+            "sharpe_ratio": round(sharpe, 3),
             "gross_profit": round(gross_profit, 2),
             "gross_loss": round(gross_loss, 2),
             "net_profit": round(total_return, 2),
