@@ -31,6 +31,7 @@ export default function BacktestPanel({ api }) {
   const [form, setForm] = useState({
     start: d.start, end: d.end, capital: 10000, risk_pct: 1.0,
     spread_pips: 0.3, slippage_pips: 0.1, max_trades_per_day: 4, daily_stop_pct: 2.0,
+    symbol: "XAUUSD",
   });
   const [loading, setLoading] = useState(false);
   const [res, setRes] = useState(null);
@@ -49,6 +50,7 @@ export default function BacktestPanel({ api }) {
           spread_pips: Number(form.spread_pips), slippage_pips: Number(form.slippage_pips),
           max_trades_per_day: Number(form.max_trades_per_day),
           daily_stop_pct: Number(form.daily_stop_pct),
+          symbol: form.symbol || "XAUUSD",
         }),
       });
       const data = await r.json();
@@ -87,6 +89,13 @@ export default function BacktestPanel({ api }) {
             onChange={(e) => update("max_trades_per_day", e.target.value)} style={inp} /></Field>
           <Field label="Stop journalier (%)"><input type="number" step="0.1" value={form.daily_stop_pct}
             onChange={(e) => update("daily_stop_pct", e.target.value)} style={inp} /></Field>
+          <Field label="Symbole">
+            <select value={form.symbol || "XAUUSD"} onChange={(e) => update("symbol", e.target.value)}
+              style={inp}>
+              <option value="XAUUSD">XAU/USD</option>
+              <option value="EURUSD">EUR/USD</option>
+            </select>
+          </Field>
         </div>
         <button onClick={run} disabled={loading} style={{
           marginTop: 14, background: COLORS.blue, color: "#fff", border: "none",
@@ -109,12 +118,14 @@ export default function BacktestPanel({ api }) {
       {s && (
         <>
           {/* ===== KPI cards ===== */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 12, marginTop: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 12, marginTop: 14 }}>
             <Kpi label="Net P&L" value={money(s.net_profit)} sub={`${fmt(s.net_profit_pct)}%`}
               color={s.net_profit >= 0 ? COLORS.green : COLORS.red} />
             <Kpi label="Winrate" value={`${fmt(s.winrate, 1)}%`} sub={`${s.wins}W / ${s.losses}L`} />
             <Kpi label="Profit Factor" value={s.profit_factor == null ? "∞" : fmt(s.profit_factor, 2)}
               color={(s.profit_factor || 0) >= 1 ? COLORS.green : COLORS.red} />
+            <Kpi label="Sharpe Ratio" value={s.sharpe_ratio !== undefined ? fmt(s.sharpe_ratio, 2) : "—"}
+              color={(s.sharpe_ratio || 0) >= 1 ? COLORS.green : (s.sharpe_ratio || 0) >= 0 ? COLORS.amber : COLORS.red} />
             <Kpi label="Max Drawdown" value={`${fmt(s.max_drawdown_pct, 1)}%`}
               sub={money(s.max_drawdown_usd)} color={COLORS.red} />
             <Kpi label="Trades" value={s.trades} sub={`exp. ${money(s.expectancy)}`} />
