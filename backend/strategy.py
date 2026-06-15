@@ -45,8 +45,8 @@ ATR_PERIOD = 14
 ADX_PERIOD = 14
 VOL_AVG_PERIOD = 20
 
-RSI_LOW = 47.0
-RSI_HIGH = 53.0
+RSI_LOW = 45.0
+RSI_HIGH = 55.0
 ATR_MIN = 0.8
 ADX_MIN = 25.0              # minimum trend strength (0-100)
 SR_PROXIMITY_ATR = 0.5      # block entry if opposing S/R within 0.5×ATR
@@ -315,21 +315,27 @@ def confirm_m15(m15: pd.DataFrame, bias: str) -> bool:
         return (crossed or aligned) and rsi_ok and vol_ok
 
 
-def is_bullish_engulfing(prev, cur) -> bool:
+def is_bullish_engulfing(prev, cur, atr_val: float = 0.0) -> bool:
+    body = cur["close"] - cur["open"]
+    body_ok = atr_val <= 0 or body >= 0.4 * atr_val
     return (
-        prev["close"] < prev["open"] and          # prev bearish
-        cur["close"] > cur["open"] and            # cur bullish
+        prev["close"] < prev["open"] and
+        cur["close"] > cur["open"] and
         cur["close"] >= prev["open"] and
-        cur["open"] <= prev["close"]
+        cur["open"] <= prev["close"] and
+        body_ok
     )
 
 
-def is_bearish_engulfing(prev, cur) -> bool:
+def is_bearish_engulfing(prev, cur, atr_val: float = 0.0) -> bool:
+    body = cur["open"] - cur["close"]
+    body_ok = atr_val <= 0 or body >= 0.4 * atr_val
     return (
         prev["close"] > prev["open"] and
         cur["close"] < cur["open"] and
         cur["close"] <= prev["open"] and
-        cur["open"] >= prev["close"]
+        cur["open"] >= prev["close"] and
+        body_ok
     )
 
 
@@ -483,26 +489,32 @@ def evaluate(
     if implied_spread > SPREAD_MAX_PIPS * 0.1:  # 0.1 = pip size for gold
         pass  # spread check is heuristic; keep as soft filter only
 
-    # 10) M5 entry trigger
+    # 10) M5 EMA alignment — price must be on the right side of EMA9
+    if bias == "LONG" and cur["close"] < cur["ema9"]:
+        return None
+    if bias == "SHORT" and cur["close"] > cur["ema9"]:
+        return None
+
+    # 10b) M5 entry trigger
+    entry = float(cur["close"])
     triggers = []
     if bias == "LONG":
-        if is_bullish_engulfing(prev, cur):
+        if is_bullish_engulfing(prev, cur, atr_val):
             triggers.append("bullish_engulfing")
         if ema9_pullback_bounce(m5, bias):
             triggers.append("ema9_pullback")
         if micro_breakout(m5, bias):
             triggers.append("micro_breakout")
-        # Asian range breakout bonus tag
-        if asian and float(cur["close"]) > asian["high"]:
+        if asian and entry > asian["high"]:
             triggers.append("asian_breakout")
     else:
-        if is_bearish_engulfing(prev, cur):
+        if is_bearish_engulfing(prev, cur, atr_val):
             triggers.append("bearish_engulfing")
         if ema9_pullback_bounce(m5, bias):
             triggers.append("ema9_pullback")
         if micro_breakout(m5, bias):
             triggers.append("micro_breakout")
-        if asian and float(cur["close"]) < asian["low"]:
+        if asian and entry < asian["low"]:
             triggers.append("asian_breakout")
 
     # Keep only non-asian-breakout triggers for the mandatory check
@@ -519,7 +531,7 @@ def evaluate(
     if bias == "LONG":
         swing = last_swing_low(m5, lookback=10)
         raw_sl = min(swing, entry - 1e-6)
-        sl = max(raw_sl, entry - SL_ATR_MULT * atr_val)  # cap at 1.2 ATR
+        sl = max(raw_sl, entry - SL_ATR_MULT * atr_val)
         direction = "long"
     else:
         swing = last_swing_high(m5, lookback=10)
@@ -533,10 +545,10 @@ def evaluate(
 
     if direction == "long":
         tp1 = entry + risk
-        tp2 = entry + 2 * risk
+        tp2 = entry + 2.5 * risk
     else:
         tp1 = entry - risk
-        tp2 = entry - 2 * risk
+        tp2 = entry - 2.5 * risk
 
     return Signal(
         direction=direction,
