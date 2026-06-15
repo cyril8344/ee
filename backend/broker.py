@@ -57,6 +57,12 @@ class MarketData:
             return df.tail(bars).copy()
 
     def _fetch(self) -> pd.DataFrame:
+        import os
+        twelvedata_key = os.environ.get("TWELVEDATA_API_KEY", "")
+        if twelvedata_key:
+            df = self._fetch_twelvedata(twelvedata_key)
+            if df is not None and len(df) > 0:
+                return df
         try:
             import yfinance as yf
             data = yf.download(
@@ -79,6 +85,37 @@ class MarketData:
         except Exception:
             pass
         return self._synthetic()
+
+    def _fetch_twelvedata(self, api_key: str) -> Optional[pd.DataFrame]:
+        try:
+            import urllib.request, json as _json
+            url = (
+                f"https://api.twelvedata.com/time_series"
+                f"?symbol=XAU/USD&interval=5min&outputsize=500"
+                f"&timezone=UTC&apikey={api_key}"
+            )
+            with urllib.request.urlopen(url, timeout=10) as resp:
+                payload = _json.loads(resp.read())
+            if payload.get("status") != "ok":
+                return None
+            values = payload.get("values", [])
+            if not values:
+                return None
+            rows = []
+            for v in reversed(values):
+                rows.append({
+                    "time": pd.Timestamp(v["datetime"], tz="UTC"),
+                    "open": float(v["open"]),
+                    "high": float(v["high"]),
+                    "low": float(v["low"]),
+                    "close": float(v["close"]),
+                    "volume": float(v.get("volume", 0)),
+                })
+            df = pd.DataFrame(rows).set_index("time")
+            df.index.name = "time"
+            return df
+        except Exception:
+            return None
 
     def _synthetic(self) -> pd.DataFrame:
         end = pd.Timestamp.now(tz="UTC").floor("5min")
