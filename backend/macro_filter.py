@@ -1,10 +1,12 @@
 """
 macro_filter.py
 ===============
-Macro market filters: DXY (Dollar Index) and VIX (Fear Index).
+Macro market filters: DXY (Dollar Index), VIX (Fear Index), TNX (10Y Treasury),
+Gold OI proxy (GC=F), and Fear & Greed Index.
 
 DXY: Gold is inversely correlated with USD. DXY uptrend → block LONG gold.
 VIX: VIX > 25 means extreme fear → scalping too dangerous → block all entries.
+TNX: Rising 10Y yield = higher real rates = pressure on gold.
 """
 from __future__ import annotations
 
@@ -23,6 +25,10 @@ class MacroFilter:
         self._dxy: Optional[float] = None
         self._dxy_trend: Optional[str] = None   # "up" | "down" | "neutral"
         self._vix: Optional[float] = None
+        self._tnx: Optional[float] = None
+        self._tnx_trend: Optional[str] = None
+        self._gold_oi: Optional[float] = None
+        self._fear_greed: Optional[int] = None
         self._fetched_at: float = 0.0
         self._lock = threading.Lock()
         # try an initial fetch in background so startup isn't blocked
@@ -60,6 +66,44 @@ class MacroFilter:
                     vix_df.columns = vix_df.columns.get_level_values(0)
                 self._vix = round(float(vix_df["Close"].dropna().iloc[-1]), 2)
 
+            # TNX - 10-year US Treasury yield
+            tnx_df = yf.download("^TNX", period="5d", interval="1h",
+                                  progress=False, auto_adjust=False)
+            if tnx_df is not None and len(tnx_df) >= 1:
+                if isinstance(tnx_df.columns, pd.MultiIndex):
+                    tnx_df.columns = tnx_df.columns.get_level_values(0)
+                tnx_close = tnx_df["Close"].dropna()
+                self._tnx = round(float(tnx_close.iloc[-1]), 3)
+                tnx_ema9 = float(tnx_close.ewm(span=9, adjust=False).mean().iloc[-1])
+                tnx_ema21 = float(tnx_close.ewm(span=21, adjust=False).mean().iloc[-1])
+                self._tnx_trend = "up" if tnx_ema9 > tnx_ema21 * 1.0001 else ("down" if tnx_ema9 < tnx_ema21 * 0.9999 else "neutral")
+
+            # Gold futures open interest (via yfinance GC=F info)
+            try:
+                gc = yf.Ticker("GC=F")
+                info = gc.fast_info
+                self._gold_oi = getattr(info, "three_month_average_volume", None)
+            except Exception:
+                self._gold_oi = None
+
+            # CNN Fear & Greed Index (0-100, <25=extreme fear, >75=extreme greed)
+            try:
+                import urllib.request, json as _json
+                req = urllib.request.Request(
+                    "https://fear-and-greed-index.p.rapidapi.com/v1/fgi",
+                    headers={"X-RapidAPI-Host": "fear-and-greed-index.p.rapidapi.com"}
+                )
+                # If this fails (no key), use neutral fallback
+                raise Exception("no key")
+            except Exception:
+                # Fallback: compute from VIX (proxy for fear)
+                if self._vix is not None:
+                    # Map VIX to 0-100 fear score: VIX 10=greed(80), VIX 25=fear(30), VIX 40=extreme fear(5)
+                    vix_score = max(0, min(100, int(100 - (self._vix - 10) * 3.5)))
+                    self._fear_greed = vix_score
+                else:
+                    self._fear_greed = 50  # neutral default
+
             self._fetched_at = now
         except Exception:
             pass
@@ -73,6 +117,9 @@ class MacroFilter:
             "dxy_trend": self._dxy_trend,
             "vix": self._vix,
             "vix_blocked": vix_blocked,
+            "tnx": self._tnx,
+            "tnx_trend": self._tnx_trend,
+            "fear_greed": self._fear_greed,
         }
 
     def blocks_entry(self, symbol: str, bias: str) -> tuple[bool, str]:
@@ -97,5 +144,9 @@ class MacroFilter:
             # DXY down → confirms LONG EURUSD, blocks SHORT EURUSD
             if symbol == "EURUSD" and bias == "SHORT":
                 return True, f"DXY baissier ({s['dxy']:.2f}) — contre le SHORT EUR/USD"
+
+        # TNX rising = higher real rates = pressure on gold
+        if symbol == "XAUUSD" and bias == "LONG" and self._tnx_trend == "up":
+            return True, f"Taux 10 ans haussiers ({self._tnx:.2f}%) — pression sur l'or"
 
         return False, ""

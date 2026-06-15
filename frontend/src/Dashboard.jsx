@@ -462,6 +462,23 @@ export default function Dashboard() {
                   </span>
                 </div>
               )}
+              {state?.macro?.tnx && (
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 12, color: COLORS.sub }}>TNX 10Y</span>
+                  <span style={{ fontSize: 12, color: state.macro.tnx_trend === "up" ? COLORS.red : state.macro.tnx_trend === "down" ? COLORS.green : COLORS.text }}>
+                    {state.macro.tnx?.toFixed(2)}%
+                    {state.macro.tnx_trend === "up" ? " ▲" : state.macro.tnx_trend === "down" ? " ▼" : ""}
+                  </span>
+                </div>
+              )}
+              {state?.macro?.fear_greed !== undefined && state?.macro?.fear_greed !== null && (
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 12, color: COLORS.sub }}>Peur/Avidité</span>
+                  <span style={{ fontSize: 12, color: state.macro.fear_greed < 25 ? COLORS.red : state.macro.fear_greed > 75 ? COLORS.green : COLORS.amber }}>
+                    {state.macro.fear_greed}/100 {state.macro.fear_greed < 25 ? "😱" : state.macro.fear_greed > 75 ? "🤑" : "😐"}
+                  </span>
+                </div>
+              )}
 
               {/* news */}
               <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 6 }}>
