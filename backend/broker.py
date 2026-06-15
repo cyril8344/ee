@@ -329,17 +329,79 @@ class MT5Broker(BaseBroker):
             session=session, meta=meta or {},
         )
 
+    def _send_partial_close(self, pos: Position, lots: float, price: float) -> None:
+        mt5 = self._mt5
+        order_type = mt5.ORDER_TYPE_SELL if pos.direction == "long" else mt5.ORDER_TYPE_BUY
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": self.symbol,
+            "volume": float(round(lots, 2)),
+            "type": order_type,
+            "position": pos.ticket,
+            "price": price,
+            "deviation": 20,
+            "magic": 770077,
+            "comment": "tp1-partial",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        mt5.order_send(request)
+
+    def _update_sl(self, pos: Position, new_sl: float) -> None:
+        mt5 = self._mt5
+        request = {
+            "action": mt5.TRADE_ACTION_SLTP,
+            "symbol": self.symbol,
+            "position": pos.ticket,
+            "sl": float(new_sl),
+            "tp": float(pos.take_profit2),
+        }
+        mt5.order_send(request)
+
     def update_position(self, pos: Position) -> Optional[Dict[str, Any]]:
-        # MT5 manages SL/TP server-side; we mirror the paper partial logic
-        # for the dashboard but rely on the broker for final fills.
         price = self.get_price()
         sign = 1.0 if pos.direction == "long" else -1.0
+
+        # TP1 partial close (60%) — sent as real MT5 order
         if not pos.tp1_done:
             hit = price >= pos.take_profit1 if pos.direction == "long" else price <= pos.take_profit1
             if hit:
+                lots60 = round(min(pos.volume * 0.6, pos.remaining), 2)
+                tick = self._mt5.symbol_info_tick(self.symbol)
+                fill_price = tick.bid if pos.direction == "long" else tick.ask
+                self._send_partial_close(pos, lots60, fill_price)
+                pnl60 = (fill_price - pos.entry) * sign * CONTRACT_SIZE * lots60
+                pos.realised += pnl60
+                pos.remaining = round(pos.remaining - lots60, 2)
                 pos.tp1_done = True
+                # Move SL to breakeven on MT5 server
+                pos.stop_loss = pos.entry
+                self._update_sl(pos, pos.entry)
+                if pos.remaining < 0.01:
+                    return {"closed": True, "reason": "tp1",
+                            "exit_price": fill_price, "pnl": pos.realised}
                 return {"closed": False, "reason": "tp1_partial",
-                        "exit_price": pos.take_profit1, "pnl": pos.realised}
+                        "exit_price": fill_price, "pnl": pos.realised}
+
+        # Trailing stop after TP1 — update SL on MT5 server
+        if pos.tp1_done:
+            atr_val = pos.meta.get("atr", 0) or 0
+            if atr_val > 0:
+                if pos.direction == "long":
+                    trail_trigger = pos.entry + 0.5 * atr_val
+                    if price >= trail_trigger:
+                        new_sl = price - 0.3 * atr_val
+                        if new_sl > pos.stop_loss:
+                            pos.stop_loss = new_sl
+                            self._update_sl(pos, new_sl)
+                else:
+                    trail_trigger = pos.entry - 0.5 * atr_val
+                    if price <= trail_trigger:
+                        new_sl = price + 0.3 * atr_val
+                        if new_sl < pos.stop_loss:
+                            pos.stop_loss = new_sl
+                            self._update_sl(pos, new_sl)
+
         return None
 
     def close_position(self, pos: Position, reason: str = "manual") -> Dict[str, Any]:
