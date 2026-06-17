@@ -1,0 +1,16 @@
+**/__pycache__/
+**/*.pyc
+**/node_modules/
+frontend/dist/
+.vite/
+venv/
+.venv/
+*.db
+*.db-wal
+*.db-shm
+backend/xau_bot.db*
+.git/
+.gitignore
+.env
+*.log
+.pytest_cache/

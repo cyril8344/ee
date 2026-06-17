@@ -17,8 +17,12 @@ node_modules/
 frontend/dist/
 .vite/
 
+# Secrets
+.env
+
 # Editor / OS
 .DS_Store
 .idea/
 .vscode/
 *.log
+data_cache/

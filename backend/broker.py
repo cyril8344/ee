@@ -38,10 +38,11 @@ PIP = 0.1
 # Data helper shared by paper broker
 # --------------------------------------------------------------------------- #
 class MarketData:
-    """Cached 5-minute XAU/USD data feed (yfinance proxy + synthetic fallback)."""
+    """Cached 5-minute market data feed (data_provider + synthetic fallback)."""
 
-    def __init__(self, ttl_seconds: int = 60):
+    def __init__(self, ttl_seconds: int = 60, symbol: str = "XAUUSD"):
         self.ttl = ttl_seconds
+        self.symbol = symbol
         self._cache: Optional[pd.DataFrame] = None
         self._fetched_at: float = 0.0
         self._lock = threading.Lock()
@@ -58,23 +59,9 @@ class MarketData:
 
     def _fetch(self) -> pd.DataFrame:
         try:
-            import yfinance as yf
-            data = yf.download(
-                "GC=F", period="5d", interval="5m",
-                progress=False, auto_adjust=False,
-            )
-            if data is not None and len(data) > 0:
-                if isinstance(data.columns, pd.MultiIndex):
-                    data.columns = data.columns.get_level_values(0)
-                data = data.rename(columns=str.lower)
-                if "volume" not in data.columns:
-                    data["volume"] = 0.0
-                df = data[["open", "high", "low", "close", "volume"]].dropna()
-                if df.index.tz is None:
-                    df.index = df.index.tz_localize("UTC")
-                else:
-                    df.index = df.index.tz_convert("UTC")
-                df.index.name = "time"
+            import data_provider
+            df, _provider = data_provider.get_m5(bars=500, symbol=self.symbol)
+            if df is not None and len(df) > 0:
                 return df
         except Exception:
             pass
@@ -86,10 +73,17 @@ class MarketData:
         idx = idx[idx.weekday < 5]
         n = len(idx)
         rng = np.random.default_rng(int(end.timestamp()) // 300)
-        price0 = 2000.0
-        rets = rng.normal(0, 0.0008, n)
+        if self.symbol == "EURUSD":
+            price0 = 1.08
+            vol = 0.00012
+            spread_base = 0.00003
+        else:
+            price0 = 2000.0
+            vol = 0.0008
+            spread_base = 0.2
+        rets = rng.normal(0, vol, n)
         close = price0 * np.exp(np.cumsum(rets))
-        spread = np.abs(rng.normal(0, 0.5, n)) + 0.2
+        spread = np.abs(rng.normal(0, spread_base * 2.5, n)) + spread_base
         open_ = np.concatenate([[price0], close[:-1]])
         df = pd.DataFrame({
             "open": open_,
@@ -125,9 +119,9 @@ class Position:
         if self.remaining == 0.0:
             self.remaining = self.volume
 
-    def unrealised_pnl(self, price: float) -> float:
+    def unrealised_pnl(self, price: float, contract_size: float = CONTRACT_SIZE) -> float:
         sign = 1.0 if self.direction == "long" else -1.0
-        return (price - self.entry) * sign * CONTRACT_SIZE * self.remaining + self.realised
+        return (price - self.entry) * sign * contract_size * self.remaining + self.realised
 
 
 # --------------------------------------------------------------------------- #
@@ -165,10 +159,12 @@ class BaseBroker:
 class PaperBroker(BaseBroker):
     name = "paper"
 
-    def __init__(self, spread_pips: float = 0.3, slippage_pips: float = 0.1):
+    def __init__(self, spread_pips: float = 0.3, slippage_pips: float = 0.1,
+                 symbol: str = "XAUUSD", contract_size: float = 100.0):
         self.spread = spread_pips * PIP
         self.slippage = slippage_pips * PIP
-        self.data = MarketData()
+        self.contract_size = contract_size
+        self.data = MarketData(symbol=symbol)
         self._ticket = 1000
 
     def connected(self) -> bool:
@@ -202,7 +198,7 @@ class PaperBroker(BaseBroker):
         sign = 1.0 if direction == "long" else -1.0
 
         def pnl_for(p, lots):
-            return (p - pos.entry) * sign * CONTRACT_SIZE * lots
+            return (p - pos.entry) * sign * self.contract_size * lots
 
         # TP1 partial (60%)
         if not pos.tp1_done:
@@ -212,6 +208,8 @@ class PaperBroker(BaseBroker):
                 pos.realised += pnl_for(pos.take_profit1 - self.slippage * sign, lots60)
                 pos.remaining = round(pos.remaining - lots60, 2)
                 pos.tp1_done = True
+                # Move stop loss to breakeven after TP1
+                pos.stop_loss = pos.entry
                 if pos.remaining < 0.01:
                     return {"closed": True, "reason": "tp1",
                             "exit_price": pos.take_profit1, "pnl": pos.realised}
@@ -226,7 +224,7 @@ class PaperBroker(BaseBroker):
                     "reason": "sl" if not pos.tp1_done else "sl_after_tp1",
                     "exit_price": pos.stop_loss, "pnl": pos.realised}
 
-        # TP2
+        # TP2 + trailing stop after TP1
         if pos.tp1_done:
             hit_tp2 = price >= pos.take_profit2 if direction == "long" else price <= pos.take_profit2
             if hit_tp2:
@@ -234,13 +232,29 @@ class PaperBroker(BaseBroker):
                 return {"closed": True, "reason": "tp2",
                         "exit_price": pos.take_profit2, "pnl": pos.realised}
 
+            # Trailing stop: if price moved 0.5×ATR in our favour, trail SL at 0.3×ATR behind price
+            atr_val = pos.meta.get("atr", 0) or 0
+            if atr_val > 0:
+                if direction == "long":
+                    trail_trigger = pos.entry + 0.5 * atr_val
+                    if price >= trail_trigger:
+                        new_sl = price - 0.3 * atr_val
+                        if new_sl > pos.stop_loss:
+                            pos.stop_loss = new_sl
+                else:
+                    trail_trigger = pos.entry - 0.5 * atr_val
+                    if price <= trail_trigger:
+                        new_sl = price + 0.3 * atr_val
+                        if new_sl < pos.stop_loss:
+                            pos.stop_loss = new_sl
+
         return None
 
     def close_position(self, pos: Position, reason: str = "manual") -> Dict[str, Any]:
         price = self.get_price()
         sign = 1.0 if pos.direction == "long" else -1.0
         fill = price - self.slippage * sign
-        pnl = pos.realised + (fill - pos.entry) * sign * CONTRACT_SIZE * pos.remaining
+        pnl = pos.realised + (fill - pos.entry) * sign * self.contract_size * pos.remaining
         pos.remaining = 0.0
         return {"closed": True, "reason": reason, "exit_price": fill, "pnl": pnl}
 
@@ -315,17 +329,79 @@ class MT5Broker(BaseBroker):
             session=session, meta=meta or {},
         )
 
+    def _send_partial_close(self, pos: Position, lots: float, price: float) -> None:
+        mt5 = self._mt5
+        order_type = mt5.ORDER_TYPE_SELL if pos.direction == "long" else mt5.ORDER_TYPE_BUY
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": self.symbol,
+            "volume": float(round(lots, 2)),
+            "type": order_type,
+            "position": pos.ticket,
+            "price": price,
+            "deviation": 20,
+            "magic": 770077,
+            "comment": "tp1-partial",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        mt5.order_send(request)
+
+    def _update_sl(self, pos: Position, new_sl: float) -> None:
+        mt5 = self._mt5
+        request = {
+            "action": mt5.TRADE_ACTION_SLTP,
+            "symbol": self.symbol,
+            "position": pos.ticket,
+            "sl": float(new_sl),
+            "tp": float(pos.take_profit2),
+        }
+        mt5.order_send(request)
+
     def update_position(self, pos: Position) -> Optional[Dict[str, Any]]:
-        # MT5 manages SL/TP server-side; we mirror the paper partial logic
-        # for the dashboard but rely on the broker for final fills.
         price = self.get_price()
         sign = 1.0 if pos.direction == "long" else -1.0
+
+        # TP1 partial close (60%) — sent as real MT5 order
         if not pos.tp1_done:
             hit = price >= pos.take_profit1 if pos.direction == "long" else price <= pos.take_profit1
             if hit:
+                lots60 = round(min(pos.volume * 0.6, pos.remaining), 2)
+                tick = self._mt5.symbol_info_tick(self.symbol)
+                fill_price = tick.bid if pos.direction == "long" else tick.ask
+                self._send_partial_close(pos, lots60, fill_price)
+                pnl60 = (fill_price - pos.entry) * sign * CONTRACT_SIZE * lots60
+                pos.realised += pnl60
+                pos.remaining = round(pos.remaining - lots60, 2)
                 pos.tp1_done = True
+                # Move SL to breakeven on MT5 server
+                pos.stop_loss = pos.entry
+                self._update_sl(pos, pos.entry)
+                if pos.remaining < 0.01:
+                    return {"closed": True, "reason": "tp1",
+                            "exit_price": fill_price, "pnl": pos.realised}
                 return {"closed": False, "reason": "tp1_partial",
-                        "exit_price": pos.take_profit1, "pnl": pos.realised}
+                        "exit_price": fill_price, "pnl": pos.realised}
+
+        # Trailing stop after TP1 — update SL on MT5 server
+        if pos.tp1_done:
+            atr_val = pos.meta.get("atr", 0) or 0
+            if atr_val > 0:
+                if pos.direction == "long":
+                    trail_trigger = pos.entry + 0.5 * atr_val
+                    if price >= trail_trigger:
+                        new_sl = price - 0.3 * atr_val
+                        if new_sl > pos.stop_loss:
+                            pos.stop_loss = new_sl
+                            self._update_sl(pos, new_sl)
+                else:
+                    trail_trigger = pos.entry - 0.5 * atr_val
+                    if price <= trail_trigger:
+                        new_sl = price + 0.3 * atr_val
+                        if new_sl < pos.stop_loss:
+                            pos.stop_loss = new_sl
+                            self._update_sl(pos, new_sl)
+
         return None
 
     def close_position(self, pos: Position, reason: str = "manual") -> Dict[str, Any]:
@@ -354,11 +430,12 @@ class MT5Broker(BaseBroker):
 
 
 def make_broker(mode: str = "paper", symbol: str = "XAUUSD",
-                spread_pips: float = 0.3, slippage_pips: float = 0.1) -> BaseBroker:
+                spread_pips: float = 0.3, slippage_pips: float = 0.1,
+                contract_size: float = 100.0) -> BaseBroker:
     """Factory: returns an MT5 broker for live mode if available, else paper."""
     if mode == "live":
         mt5 = MT5Broker(symbol)
         if mt5.connected():
             return mt5
         # fall back to paper if MT5 unavailable
-    return PaperBroker(spread_pips, slippage_pips)
+    return PaperBroker(spread_pips, slippage_pips, symbol=symbol, contract_size=contract_size)

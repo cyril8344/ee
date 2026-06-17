@@ -19,3 +19,15 @@ requests==2.32.3
 # Utilities
 python-dateutil==2.9.0.post0
 pytz==2024.1
+
+# HTML scraping (retail sentiment)
+beautifulsoup4==4.12.3
+
+# Real-time WebSocket price feed (Twelve Data)
+websocket-client==1.8.0
+
+# Testing
+pytest==8.2.2
+httpx==0.27.0
+pyarrow>=14.0
+gymnasium>=0.29

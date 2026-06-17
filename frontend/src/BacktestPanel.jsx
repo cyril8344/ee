@@ -8,6 +8,21 @@ import {
  * Backtest panel — XAU/USD M5 scalping
  * ==========================================================================*/
 
+/* ----------------------------- auth helpers ----------------------------- */
+function authHeaders() {
+  const token = localStorage.getItem("token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function logout401(res) {
+  if (res && res.status === 401) {
+    localStorage.removeItem("token");
+    window.location.reload();
+    return true;
+  }
+  return false;
+}
+
 const COLORS = {
   bg: "#0a0e17", panel: "#121826", panel2: "#0f1420", border: "#1f2937",
   text: "#e5e7eb", sub: "#8b95a7", green: "#16c784", red: "#ea3943",
@@ -26,23 +41,30 @@ function defaultDates() {
   return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
 }
 
-export default function BacktestPanel({ api }) {
+/* ============================================================================
+ * Optimiser panel
+ * ==========================================================================*/
+function OptimizerPanel({ api }) {
   const d = defaultDates();
   const [form, setForm] = useState({
-    start: d.start, end: d.end, capital: 10000, risk_pct: 1.0,
-    spread_pips: 0.3, slippage_pips: 0.1, max_trades_per_day: 4, daily_stop_pct: 2.0,
+    start: d.start, end: d.end, symbol: "XAUUSD",
+    capital: 10000, risk_pct: 1.0,
+    spread_pips: 0.3, slippage_pips: 0.1,
+    max_trades_per_day: 4, daily_stop_pct: 2.0,
   });
   const [loading, setLoading] = useState(false);
   const [res, setRes] = useState(null);
   const [err, setErr] = useState(null);
+  const [applyStatus, setApplyStatus] = useState({});
 
   const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const run = async () => {
-    setLoading(true); setErr(null); setRes(null);
+    setLoading(true); setErr(null); setRes(null); setApplyStatus({});
     try {
-      const r = await fetch(`${api}/api/backtest`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+      const r = await fetch(`${api}/api/optimize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           ...form,
           capital: Number(form.capital), risk_pct: Number(form.risk_pct),
@@ -51,6 +73,243 @@ export default function BacktestPanel({ api }) {
           daily_stop_pct: Number(form.daily_stop_pct),
         }),
       });
+      if (logout401(r)) return;
+      const data = await r.json();
+      if (data.detail) setErr(data.detail);
+      else setRes(data);
+    } catch (e) {
+      setErr("Échec de la requête optimisation: " + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const applyParams = async (idx, params) => {
+    setApplyStatus((s) => ({ ...s, [idx]: "loading" }));
+    try {
+      const r = await fetch(`${api}/api/optimize/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({
+          adx_min: params.adx_min,
+          rsi_low: params.rsi_low,
+          rsi_high: params.rsi_high,
+          sl_atr_mult: params.sl_atr_mult,
+          sr_proximity: params.sr_proximity,
+        }),
+      });
+      if (logout401(r)) return;
+      if (r.ok) setApplyStatus((s) => ({ ...s, [idx]: "ok" }));
+      else setApplyStatus((s) => ({ ...s, [idx]: "err" }));
+    } catch {
+      setApplyStatus((s) => ({ ...s, [idx]: "err" }));
+    }
+  };
+
+  return (
+    <div>
+      {/* Parameters */}
+      <div style={panel()}>
+        <h3 style={{ margin: "0 0 12px", fontSize: 14 }}>Paramètres de l'optimisation (Grid Search)</h3>
+        <div style={{ fontSize: 12, color: COLORS.sub, marginBottom: 12 }}>
+          Grille de recherche : ADX_MIN × RSI_LOW × RSI_HIGH × SL_ATR_MULT × SR_PROXIMITY —{" "}
+          <strong style={{ color: COLORS.amber }}>108 combinaisons</strong>, optimise le Sharpe × Profit Factor.
+          Peut prendre 2 à 5 minutes selon la période.
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+          <Field label="Date début"><input type="date" value={form.start}
+            onChange={(e) => update("start", e.target.value)} style={inp} /></Field>
+          <Field label="Date fin"><input type="date" value={form.end}
+            onChange={(e) => update("end", e.target.value)} style={inp} /></Field>
+          <Field label="Capital ($)"><input type="number" value={form.capital}
+            onChange={(e) => update("capital", e.target.value)} style={inp} /></Field>
+          <Field label="Symbole">
+            <select value={form.symbol} onChange={(e) => update("symbol", e.target.value)} style={inp}>
+              <option value="XAUUSD">XAU/USD</option>
+              <option value="EURUSD">EUR/USD</option>
+            </select>
+          </Field>
+          <Field label="Risque / trade (%)"><input type="number" step="0.1" value={form.risk_pct}
+            onChange={(e) => update("risk_pct", e.target.value)} style={inp} /></Field>
+          <Field label="Spread (pips)"><input type="number" step="0.1" value={form.spread_pips}
+            onChange={(e) => update("spread_pips", e.target.value)} style={inp} /></Field>
+          <Field label="Slippage (pips)"><input type="number" step="0.1" value={form.slippage_pips}
+            onChange={(e) => update("slippage_pips", e.target.value)} style={inp} /></Field>
+          <Field label="Max trades / jour"><input type="number" value={form.max_trades_per_day}
+            onChange={(e) => update("max_trades_per_day", e.target.value)} style={inp} /></Field>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 14 }}>
+          <button onClick={run} disabled={loading} style={{
+            background: loading ? COLORS.amber : COLORS.blue, color: "#fff", border: "none",
+            borderRadius: 6, padding: "9px 22px", fontSize: 14, fontWeight: 600,
+            cursor: loading ? "wait" : "pointer", opacity: 1, display: "flex", alignItems: "center", gap: 8,
+          }}>
+            {loading && (
+              <span style={{
+                display: "inline-block", width: 14, height: 14, border: "2px solid #fff3",
+                borderTop: "2px solid #fff", borderRadius: "50%",
+                animation: "spin 0.8s linear infinite",
+              }} />
+            )}
+            {loading ? "Optimisation en cours…" : "Lancer l'optimisation"}
+          </button>
+          {loading && (
+            <span style={{ fontSize: 12, color: COLORS.amber }}>
+              Calcul de 108 combinaisons, veuillez patienter…
+            </span>
+          )}
+        </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+
+      {err && (
+        <div style={{ ...panel(), marginTop: 14, borderColor: COLORS.red, color: COLORS.red }}>
+          {err}
+        </div>
+      )}
+
+      {res && (
+        <>
+          {/* Summary */}
+          <div style={{ ...panel(), marginTop: 14 }}>
+            <div style={{ display: "flex", gap: 24, fontSize: 13 }}>
+              <span>Combinaisons totales : <strong>{res.total_combinations}</strong></span>
+              <span>Testées (min 10 trades) : <strong>{res.tested}</strong></span>
+              {res.best && (
+                <span style={{ color: COLORS.green }}>
+                  Meilleur score : Sharpe {fmt(res.best.sharpe)} × PF {fmt(res.best.profit_factor)}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Top 5 results table */}
+          {res.top_results && res.top_results.length > 0 && (
+            <div style={{ ...panel(), marginTop: 14 }}>
+              <h3 style={{ margin: "0 0 12px", fontSize: 14 }}>Top 5 combinaisons</h3>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ color: COLORS.sub, textAlign: "left" }}>
+                      <th style={th}>#</th>
+                      <th style={th}>ADX min</th>
+                      <th style={th}>RSI low</th>
+                      <th style={th}>RSI high</th>
+                      <th style={th}>SL ATR mult</th>
+                      <th style={th}>SR prox</th>
+                      <th style={th}>Sharpe</th>
+                      <th style={th}>Profit Factor</th>
+                      <th style={th}>Winrate</th>
+                      <th style={th}>Trades</th>
+                      <th style={th}>Net P&L %</th>
+                      <th style={th}>Max DD %</th>
+                      <th style={th}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {res.top_results.map((row, idx) => {
+                      const status = applyStatus[idx];
+                      return (
+                        <tr key={idx} style={{
+                          borderTop: `1px solid ${COLORS.border}`,
+                          background: idx === 0 ? "rgba(59,130,246,0.06)" : "transparent",
+                        }}>
+                          <td style={{ ...td, color: idx === 0 ? COLORS.blue : COLORS.sub }}>
+                            {idx === 0 ? "★" : idx + 1}
+                          </td>
+                          <td style={td}>{fmt(row.params.adx_min, 0)}</td>
+                          <td style={td}>{fmt(row.params.rsi_low, 0)}</td>
+                          <td style={td}>{fmt(row.params.rsi_high, 0)}</td>
+                          <td style={td}>{fmt(row.params.sl_atr_mult, 1)}</td>
+                          <td style={td}>{fmt(row.params.sr_proximity, 1)}</td>
+                          <td style={{ ...td, color: row.sharpe >= 1 ? COLORS.green : row.sharpe >= 0 ? COLORS.amber : COLORS.red, fontWeight: 600 }}>
+                            {fmt(row.sharpe)}
+                          </td>
+                          <td style={{ ...td, color: row.profit_factor >= 1 ? COLORS.green : COLORS.red }}>
+                            {fmt(row.profit_factor)}
+                          </td>
+                          <td style={td}>{fmt(row.winrate, 1)}%</td>
+                          <td style={td}>{row.trades}</td>
+                          <td style={{ ...td, color: row.net_profit_pct >= 0 ? COLORS.green : COLORS.red }}>
+                            {fmt(row.net_profit_pct, 2)}%
+                          </td>
+                          <td style={{ ...td, color: COLORS.red }}>
+                            -{fmt(row.max_drawdown_pct, 1)}%
+                          </td>
+                          <td style={td}>
+                            <button
+                              onClick={() => applyParams(idx, row.params)}
+                              disabled={status === "loading" || status === "ok"}
+                              style={{
+                                background: status === "ok" ? COLORS.green : status === "err" ? COLORS.red : COLORS.blue,
+                                color: "#fff", border: "none", borderRadius: 4,
+                                padding: "4px 10px", fontSize: 11, fontWeight: 600,
+                                cursor: status === "loading" || status === "ok" ? "default" : "pointer",
+                              }}>
+                              {status === "loading" ? "…" : status === "ok" ? "Appliqué ✓" : status === "err" ? "Erreur" : "Appliquer"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ fontSize: 11, color: COLORS.sub, marginTop: 8 }}>
+                Score = Sharpe × Profit Factor · "Appliquer" met à jour les paramètres en mémoire (non persistés, redémarrage les réinitialise)
+              </div>
+            </div>
+          )}
+
+          {res.top_results && res.top_results.length === 0 && (
+            <div style={{ ...panel(), marginTop: 14, color: COLORS.amber }}>
+              Aucune combinaison n'a généré suffisamment de trades (min 10) sur cette période.
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+export default function BacktestPanel({ api }) {
+  const d = defaultDates();
+  const [subTab, setSubTab] = useState("backtest");
+  const [form, setForm] = useState({
+    start: d.start, end: d.end, capital: 10000, risk_pct: 1.0,
+    spread_pips: 0.3, slippage_pips: 0.1, max_trades_per_day: 4, daily_stop_pct: 2.0,
+    symbol: "XAUUSD",
+  });
+  const [loading, setLoading] = useState(false);
+  const [res, setRes] = useState(null);
+  const [err, setErr] = useState(null);
+
+  const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const subTabBtn = (active) => ({
+    background: active ? COLORS.blue : "transparent",
+    color: active ? "#fff" : COLORS.text,
+    border: `1px solid ${active ? COLORS.blue : COLORS.border}`,
+    borderRadius: 6, padding: "6px 16px", fontSize: 13,
+    cursor: "pointer", fontWeight: 500,
+  });
+
+  const run = async () => {
+    setLoading(true); setErr(null); setRes(null);
+    try {
+      const r = await fetch(`${api}/api/backtest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({
+          ...form,
+          capital: Number(form.capital), risk_pct: Number(form.risk_pct),
+          spread_pips: Number(form.spread_pips), slippage_pips: Number(form.slippage_pips),
+          max_trades_per_day: Number(form.max_trades_per_day),
+          daily_stop_pct: Number(form.daily_stop_pct),
+          symbol: form.symbol || "XAUUSD",
+        }),
+      });
+      if (logout401(r)) return;
       const data = await r.json();
       if (data.error) setErr(data.error);
       else setRes(data);
@@ -67,6 +326,19 @@ export default function BacktestPanel({ api }) {
 
   return (
     <div>
+      {/* ===== sub-tab navigation ===== */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <button onClick={() => setSubTab("backtest")} style={subTabBtn(subTab === "backtest")}>
+          Backtest
+        </button>
+        <button onClick={() => setSubTab("optimizer")} style={subTabBtn(subTab === "optimizer")}>
+          Optimiseur
+        </button>
+      </div>
+
+      {subTab === "optimizer" && <OptimizerPanel api={api} />}
+
+      {subTab === "backtest" && <>
       {/* ===== parameters ===== */}
       <div style={panel()}>
         <h3 style={{ margin: "0 0 12px", fontSize: 14 }}>Paramètres du backtest (M5)</h3>
@@ -87,6 +359,13 @@ export default function BacktestPanel({ api }) {
             onChange={(e) => update("max_trades_per_day", e.target.value)} style={inp} /></Field>
           <Field label="Stop journalier (%)"><input type="number" step="0.1" value={form.daily_stop_pct}
             onChange={(e) => update("daily_stop_pct", e.target.value)} style={inp} /></Field>
+          <Field label="Symbole">
+            <select value={form.symbol || "XAUUSD"} onChange={(e) => update("symbol", e.target.value)}
+              style={inp}>
+              <option value="XAUUSD">XAU/USD</option>
+              <option value="EURUSD">EUR/USD</option>
+            </select>
+          </Field>
         </div>
         <button onClick={run} disabled={loading} style={{
           marginTop: 14, background: COLORS.blue, color: "#fff", border: "none",
@@ -109,12 +388,14 @@ export default function BacktestPanel({ api }) {
       {s && (
         <>
           {/* ===== KPI cards ===== */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 12, marginTop: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 12, marginTop: 14 }}>
             <Kpi label="Net P&L" value={money(s.net_profit)} sub={`${fmt(s.net_profit_pct)}%`}
               color={s.net_profit >= 0 ? COLORS.green : COLORS.red} />
             <Kpi label="Winrate" value={`${fmt(s.winrate, 1)}%`} sub={`${s.wins}W / ${s.losses}L`} />
             <Kpi label="Profit Factor" value={s.profit_factor == null ? "∞" : fmt(s.profit_factor, 2)}
               color={(s.profit_factor || 0) >= 1 ? COLORS.green : COLORS.red} />
+            <Kpi label="Sharpe Ratio" value={s.sharpe_ratio !== undefined ? fmt(s.sharpe_ratio, 2) : "—"}
+              color={(s.sharpe_ratio || 0) >= 1 ? COLORS.green : (s.sharpe_ratio || 0) >= 0 ? COLORS.amber : COLORS.red} />
             <Kpi label="Max Drawdown" value={`${fmt(s.max_drawdown_pct, 1)}%`}
               sub={money(s.max_drawdown_usd)} color={COLORS.red} />
             <Kpi label="Trades" value={s.trades} sub={`exp. ${money(s.expectancy)}`} />
@@ -240,6 +521,7 @@ export default function BacktestPanel({ api }) {
           </div>
         </>
       )}
+      </>}
     </div>
   );
 }

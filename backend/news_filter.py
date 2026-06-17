@@ -30,6 +30,11 @@ from typing import List, Optional, Dict, Any
 
 import requests
 
+try:
+    import finnhub_feed as _finnhub
+except ImportError:
+    _finnhub = None  # type: ignore[assignment]
+
 # High-impact keywords used to classify events as "major".
 MAJOR_KEYWORDS = (
     "non-farm", "nonfarm", "non farm", "nfp", "payroll",
@@ -37,6 +42,8 @@ MAJOR_KEYWORDS = (
     "fomc", "federal funds", "interest rate decision", "rate decision",
     "fed chair", "powell", "press conference",
     "pce", "ppi", "producer price",
+    "ecb", "european central bank", "lagarde", "deposit facility", "refi rate",
+    "eurozone cpi", "euro area cpi", "german cpi", "german gdp",
 )
 
 # Public feed (nfs.faireconomy.media) — ForexFactory-compatible weekly JSON.
@@ -80,6 +87,18 @@ class NewsFilter:
                     and now - self._last_refresh < timedelta(hours=1)):
                 return
             events = self._fetch_remote()
+            finnhub_events = self._fetch_finnhub()
+            if finnhub_events:
+                # Merge: prefer Finnhub for events it covers, keep remote for the rest.
+                # Deduplicate by rounding event times to the nearest minute.
+                remote_by_minute = {
+                    e.time_utc.replace(second=0, microsecond=0): e
+                    for e in events
+                }
+                for fe in finnhub_events:
+                    key = fe.time_utc.replace(second=0, microsecond=0)
+                    if key not in remote_by_minute:
+                        events.append(fe)
             if not events:
                 events = self._fallback_events()
             # keep only future-ish (last 1 day .. next 14 days) major events
@@ -125,6 +144,50 @@ class NewsFilter:
                 continue
         # Keep only the ones we consider major.
         return [e for e in events if self._is_major(e.title) or e.impact == "high"]
+
+    def _fetch_finnhub(self) -> List[NewsEvent]:
+        """Fetch high-impact events from Finnhub and convert to NewsEvent objects.
+
+        Returns an empty list when Finnhub is unavailable or the key is not set.
+        Only high-impact events matching the configured currencies are kept.
+        """
+        if _finnhub is None:
+            return []
+        try:
+            feed = _finnhub.get_feed()
+            raw_events = feed.get_upcoming_events(hours_ahead=24 * 14)
+        except Exception:
+            return []
+
+        now = datetime.now(timezone.utc)
+        out: List[NewsEvent] = []
+        for item in raw_events:
+            try:
+                currency = str(item.get("currency", "")).upper()
+                impact = str(item.get("impact", "low")).lower()
+                event_name = str(item.get("event", ""))
+                time_str = item.get("time", "")  # "HH:MM" UTC
+
+                if not event_name or not time_str:
+                    continue
+                if currency not in self.currencies:
+                    continue
+                if impact != "high" and not self._is_major(event_name):
+                    continue
+
+                # Reconstruct a full UTC datetime: Finnhub gives HH:MM only, so
+                # place the event on today's date and look ahead up to 14 days.
+                hour, minute = (int(p) for p in time_str.split(":"))
+                candidate = now.replace(hour=hour, minute=minute,
+                                        second=0, microsecond=0)
+                # If the time already passed today, it belongs to tomorrow onward.
+                if candidate < now - timedelta(minutes=1):
+                    candidate += timedelta(days=1)
+
+                out.append(NewsEvent(event_name, candidate, currency, impact or "high"))
+            except (KeyError, TypeError, ValueError):
+                continue
+        return out
 
     @staticmethod
     def _parse_iso(date_str: str) -> Optional[datetime]:
@@ -186,6 +249,14 @@ class NewsFilter:
                 "FOMC Statement & Rate Decision",
                 datetime(y, m, third_wed, 18, 0, tzinfo=timezone.utc),
                 "USD", "high",
+            ))
+
+            # ECB rate decision: typically third Thursday 12:15 UTC
+            third_thu = self._nth_weekday(y, m, calendar.THURSDAY, 3)
+            out.append(NewsEvent(
+                "ECB Rate Decision",
+                datetime(y, m, third_thu, 12, 15, tzinfo=timezone.utc),
+                "EUR", "high",
             ))
         return out
 
