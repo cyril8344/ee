@@ -58,23 +58,9 @@ class MarketData:
 
     def _fetch(self) -> pd.DataFrame:
         try:
-            import yfinance as yf
-            data = yf.download(
-                "GC=F", period="5d", interval="5m",
-                progress=False, auto_adjust=False,
-            )
-            if data is not None and len(data) > 0:
-                if isinstance(data.columns, pd.MultiIndex):
-                    data.columns = data.columns.get_level_values(0)
-                data = data.rename(columns=str.lower)
-                if "volume" not in data.columns:
-                    data["volume"] = 0.0
-                df = data[["open", "high", "low", "close", "volume"]].dropna()
-                if df.index.tz is None:
-                    df.index = df.index.tz_localize("UTC")
-                else:
-                    df.index = df.index.tz_convert("UTC")
-                df.index.name = "time"
+            import data_provider
+            df, _provider = data_provider.get_m5(bars=500)
+            if df is not None and len(df) > 0:
                 return df
         except Exception:
             pass

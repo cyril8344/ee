@@ -40,15 +40,24 @@ temps réel (dark theme) et moteur de **backtest** complet.
 ```
 .
 ├── requirements.txt
+├── Makefile                # raccourcis : make install / backend / frontend / test / docker-up
+├── docker-compose.yml      # stack complète (backend + frontend nginx)
+├── .env.example            # configuration (clés data providers)
+├── pytest.ini
 ├── backend/
-│   ├── database.py        # SQLite (trades, équité, settings, stats jour)
-│   ├── risk_manager.py    # 1%/trade, 4 trades/j, stop −2%, sizing lots
-│   ├── news_filter.py     # calendrier économique + repli hors-ligne
-│   ├── strategy.py        # indicateurs + logique multi-timeframe
-│   ├── backtest.py        # moteur de backtest M5 + statistiques
-│   ├── broker.py          # PaperBroker + MT5Broker + flux de données
-│   └── main.py            # API FastAPI + WebSocket + boucle de trading
+│   ├── Dockerfile
+│   ├── database.py         # SQLite (trades, équité, settings, stats jour)
+│   ├── risk_manager.py     # 1%/trade, 4 trades/j, stop −2%, sizing lots
+│   ├── news_filter.py      # calendrier économique + repli hors-ligne
+│   ├── strategy.py         # indicateurs + logique multi-timeframe
+│   ├── data_provider.py    # data unifiée (Twelve Data / Polygon / AlphaVantage / yfinance / synthétique)
+│   ├── backtest.py         # moteur de backtest M5 + statistiques
+│   ├── broker.py           # PaperBroker + MT5Broker + flux de données
+│   ├── main.py             # API FastAPI + WebSocket + boucle de trading
+│   └── tests/              # suite pytest (stratégie, risque, backtest, news, data)
 └── frontend/
+    ├── Dockerfile
+    ├── nginx.conf
     ├── package.json
     ├── vite.config.js
     ├── index.html
@@ -56,6 +65,20 @@ temps réel (dark theme) et moteur de **backtest** complet.
         ├── main.jsx
         ├── Dashboard.jsx       # dashboard live
         └── BacktestPanel.jsx   # panneau de backtest
+```
+
+## ⚡ Démarrage rapide (Makefile / Docker)
+
+```bash
+cp .env.example .env       # (optionnel) ajouter vos clés API data
+make install               # deps backend + frontend
+make backend               # terminal 1 : API sur :8000
+make frontend              # terminal 2 : dashboard sur :5173
+make test                  # lance la suite pytest
+
+# — ou tout en conteneurs —
+make docker-up             # http://localhost:5173  (API: :8000/docs)
+make docker-down
 ```
 
 ---
@@ -107,10 +130,22 @@ VITE_API_URL=http://mon-serveur:8000 npm run dev
    (défaut 1 %), le spread (0.3 pip) et le slippage (0.1 pip).
 3. **Lancer le backtest**.
 
-> Les données M5 proviennent de **yfinance** (`GC=F`, proxy de l'or spot).
-> yfinance limite l'historique M5 à ~60 jours ; au-delà, ou sans réseau, un
-> générateur **synthétique déterministe** prend le relais afin que le backtest
-> ne plante jamais.
+> **Sources de données** : le bot utilise un connecteur unifié
+> (`backend/data_provider.py`). Renseignez une clé dans `.env` pour des données
+> réelles longue durée :
+>
+> | Provider | Clé `.env` | Note |
+> |---|---|---|
+> | Twelve Data | `TWELVEDATA_API_KEY` | symbole `XAU/USD` natif |
+> | Polygon.io | `POLYGON_API_KEY` | ticker `X:XAUUSD` |
+> | Alpha Vantage | `ALPHAVANTAGE_API_KEY` | FX intraday |
+> | yfinance | — | sans clé, M5 limité à ~60 j (`GC=F`) |
+> | synthétique | — | repli hors-ligne déterministe |
+>
+> `XAU_DATA_PROVIDER=auto` (défaut) essaie les providers dont la clé est
+> présente, puis yfinance, puis le générateur **synthétique** afin que le
+> backtest et le flux live ne plantent jamais. L'endpoint `GET /api/data-provider`
+> indique quels providers sont actifs.
 
 ---
 
@@ -127,6 +162,7 @@ VITE_API_URL=http://mon-serveur:8000 npm run dev
 | `/api/bot/toggle` | POST | Pause / reprise du bot |
 | `/api/backtest` | POST | Lance un backtest |
 | `/api/news` | GET | Statut du filtre news |
+| `/api/data-provider` | GET | Provider de données configuré / disponibles |
 | `/ws` | WS | Flux d'état temps réel |
 
 Changer le **risque par trade** nécessite `confirm_risk_change=true` ;
@@ -160,11 +196,26 @@ exactement 1 % du capital sur la distance au stop.
 
 ---
 
-## 🧪 Tests rapides
+## 🧪 Tests
+
+Suite automatisée (pytest, données synthétiques hors-ligne — aucun réseau requis) :
+
+```bash
+make test
+# ou
+XAU_DATA_PROVIDER=synthetic python -m pytest backend/tests -q
+```
+
+Couverture : indicateurs & sessions, logique de stratégie, gestion du risque
+(sizing 1 %, max trades/jour, stop journalier), backtest de bout en bout,
+filtre news et connecteur de données.
+
+Vérifications manuelles rapides :
 
 ```bash
 cd backend
 python database.py        # init DB + dump settings
 python news_filter.py     # statut calendrier économique
+python data_provider.py   # provider utilisé + dernières bougies
 python backtest.py        # backtest 45 jours + résumé
 ```

@@ -32,6 +32,7 @@ from strategy import (
     MAX_TRADE_MINUTES,
 )
 from risk_manager import CONTRACT_SIZE, MIN_LOT, LOT_STEP
+import data_provider
 
 PIP = 0.1  # 1 pip for gold = 0.1 price units
 
@@ -59,18 +60,16 @@ def _normalise_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_m5_data(start: str, end: str) -> pd.DataFrame:
-    """Load 5-minute gold data from yfinance, fallback to synthetic."""
+    """Load 5-minute gold data via the unified data provider.
+
+    Uses the configured/real provider (Twelve Data, Polygon, Alpha Vantage,
+    yfinance) when a key is available, otherwise falls back to a deterministic
+    synthetic series so the backtest never hard-fails.
+    """
     try:
-        import yfinance as yf
-        # yfinance caps 5m history to ~60 days; chunk if necessary.
-        data = yf.download(
-            "GC=F", start=start, end=end, interval="5m",
-            progress=False, auto_adjust=False,
-        )
-        if data is not None and len(data) > 0:
-            if isinstance(data.columns, pd.MultiIndex):
-                data.columns = data.columns.get_level_values(0)
-            return _normalise_ohlcv(data)
+        df, _provider = data_provider.get_m5(start=start, end=end, bars=5000)
+        if df is not None and len(df) > 0:
+            return df
     except Exception:
         pass
     return _synthetic_m5(start, end)
@@ -168,6 +167,16 @@ def run_backtest(cfg: BacktestConfig) -> Dict[str, Any]:
 
     m5 = add_indicators(m5_raw)
 
+    # Precompute the higher-timeframe indicator frames ONCE for the whole
+    # period (instead of resampling a trailing window on every M5 bar). At each
+    # step we slice these frames up to the current timestamp via searchsorted,
+    # which is O(log n) and keeps a 6-12 month backtest fast. This also mirrors
+    # the live engine, which feeds the strategy the full resampled history.
+    m15_full = add_indicators(resample(m5_raw, "15min"))
+    h1_full = add_indicators(resample(m5_raw, "60min"))
+    m15_index = m15_full.index
+    h1_index = h1_full.index
+
     equity = cfg.capital
     equity_curve: List[Dict[str, Any]] = [
         {"ts": m5.index[0].isoformat(), "equity": round(equity, 2)}
@@ -224,8 +233,19 @@ def run_backtest(cfg: BacktestConfig) -> Dict[str, Any]:
 
         # ---- Look for a new entry (only if flat & allowed) ----
         if open_trade is None and not day_blocked and trades_today < cfg.max_trades_per_day:
-            window5 = m5.iloc[: i + 1]
-            sig = _evaluate_at(m5, i)
+            # Slice precomputed higher-timeframe frames up to the current time.
+            j15 = m15_index.searchsorted(ts, side="right") - 1
+            j1h = h1_index.searchsorted(ts, side="right") - 1
+            if j15 < 2 or j1h < 0:
+                sig = None
+            else:
+                sig = evaluate(
+                    m5.iloc[: i + 1],
+                    m15_full.iloc[: j15 + 1],
+                    h1_full.iloc[: j1h + 1],
+                    now=ts.to_pydatetime(),
+                    check_session=True,
+                )
             if sig is not None:
                 vol = _round_lot(
                     (equity * cfg.risk_pct / 100.0)
@@ -254,17 +274,6 @@ def run_backtest(cfg: BacktestConfig) -> Dict[str, Any]:
                     trades_today += 1
 
     return _build_report(cfg, trades, equity_curve)
-
-
-def _evaluate_at(m5_full: pd.DataFrame, i: int):
-    """Recreate the M15/H1 context at bar i and evaluate the strategy."""
-    window5 = m5_full.iloc[max(0, i - 400): i + 1]
-    raw5 = window5[["open", "high", "low", "close", "volume"]]
-    m15 = add_indicators(resample(raw5, "15min"))
-    h1 = add_indicators(resample(raw5, "60min"))
-    m5w = window5  # already has indicators
-    return evaluate(m5w, m15, h1, now=m5_full.index[i].to_pydatetime(),
-                    check_session=True)
 
 
 def _try_exit(t: Dict[str, Any], bar, ts, slippage) -> Optional[tuple]:
