@@ -25,3 +25,4 @@ frontend/dist/
 .idea/
 .vscode/
 *.log
+data_cache/

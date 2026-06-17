@@ -22,6 +22,7 @@ Set credentials in a `.env` file (see .env.example) or the real environment.
 
 from __future__ import annotations
 
+import hashlib
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List
@@ -31,6 +32,48 @@ import pandas as pd
 import requests
 
 REQUEST_TIMEOUT = 12
+
+# --------------------------------------------------------------------------- #
+# Disk cache for historical M5 data
+# Avoids re-downloading on every backtest/optimize run.
+# Files stored in backend/data_cache/ as parquet.
+# --------------------------------------------------------------------------- #
+_CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data_cache")
+_CACHE_MAX_AGE_HOURS = 6  # refresh after 6 hours
+
+
+def _cache_key(symbol: str, start: str, end: str) -> str:
+    raw = f"{symbol}_{start}_{end}"
+    return hashlib.md5(raw.encode()).hexdigest()
+
+
+def _cache_path(key: str) -> str:
+    os.makedirs(_CACHE_DIR, exist_ok=True)
+    return os.path.join(_CACHE_DIR, f"{key}.parquet")
+
+
+def _cache_load(symbol: str, start: str, end: str) -> Optional[pd.DataFrame]:
+    try:
+        path = _cache_path(_cache_key(symbol, start, end))
+        if not os.path.exists(path):
+            return None
+        age_hours = (datetime.now().timestamp() - os.path.getmtime(path)) / 3600
+        if age_hours > _CACHE_MAX_AGE_HOURS:
+            return None
+        df = pd.read_parquet(path)
+        if df.index.tz is None:
+            df.index = df.index.tz_localize("UTC")
+        return df
+    except Exception:
+        return None
+
+
+def _cache_save(symbol: str, start: str, end: str, df: pd.DataFrame) -> None:
+    try:
+        path = _cache_path(_cache_key(symbol, start, end))
+        df.to_parquet(path)
+    except Exception:
+        pass
 
 
 # --------------------------------------------------------------------------- #
@@ -359,6 +402,13 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
         if "synthetic" not in order:
             order.append("synthetic")
 
+    # Disk cache for long-range requests (backtest / optimizer)
+    _is_range = bool(start and end)
+    if _is_range:
+        cached = _cache_load(symbol, start, end)
+        if cached is not None and len(cached) > 0:
+            return cached, "cache"
+
     # For long-range requests via twelvedata, use the paginated range fetcher
     _use_td_range = (
         start and end
@@ -369,6 +419,8 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
         try:
             df = _fetch_twelvedata_range(start, end, symbol)
             if df is not None and len(df) > 0:
+                if _is_range:
+                    _cache_save(symbol, start, end, df)
                 return df, "twelvedata"
         except Exception:  # noqa: BLE001 - fall through to normal providers
             pass
@@ -378,6 +430,8 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
         try:
             df = _PROVIDERS[name](start, end, bars, symbol)
             if df is not None and len(df) > 0:
+                if _is_range:
+                    _cache_save(symbol, start, end, df)
                 return df, name
         except Exception as e:  # noqa: BLE001 - intentional fallthrough
             last_err = e
