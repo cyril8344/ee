@@ -749,6 +749,73 @@ const tabBtn = (active, small) => ({
 const th = { padding: "6px 8px", fontWeight: 500 };
 const td = { padding: "6px 8px" };
 
+/* ============================ correlations panel ========================= */
+function CorrelationsPanel({ data }) {
+  const entries = Object.entries(data);
+  return (
+    <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 8, marginTop: 8 }}>
+      <div style={{ fontSize: 11, color: COLORS.sub, textTransform: "uppercase",
+        letterSpacing: 0.5, marginBottom: 6 }}>
+        Corrélations XAU/USD
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5, maxHeight: 180, overflowY: "auto" }}>
+        {entries.map(([name, info]) => {
+          const c = info.correlation;
+          const barColor =
+            c === null ? COLORS.grey
+            : c > 0.3 ? COLORS.green
+            : c < -0.3 ? COLORS.red
+            : COLORS.grey;
+          const valStr =
+            c === null ? "—"
+            : (c >= 0 ? "+" : "") + c.toFixed(2);
+          const trendArrow =
+            info.trend === "strengthening" ? "▲"
+            : info.trend === "weakening" ? "▼"
+            : "";
+          /* bar fills proportionally: c in [-1, 1] mapped to [0%, 100%] from centre */
+          const barWidth = c === null ? 0 : Math.abs(c) * 50; // max 50% of half
+          const barLeft = c === null ? "50%" : c >= 0 ? "50%" : `${50 - Math.abs(c) * 50}%`;
+          return (
+            <div key={name} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
+              {/* Asset name */}
+              <span style={{ width: 64, color: COLORS.sub, flexShrink: 0, overflow: "hidden",
+                textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={name}>
+                {name}
+              </span>
+              {/* Bar track */}
+              <div style={{ flex: 1, height: 6, background: "#1a2233", borderRadius: 3, position: "relative" }}>
+                {/* centre marker */}
+                <div style={{ position: "absolute", left: "50%", top: 0, width: 1, height: "100%",
+                  background: COLORS.border }} />
+                {/* coloured fill */}
+                {c !== null && (
+                  <div style={{
+                    position: "absolute",
+                    left: barLeft,
+                    width: `${barWidth}%`,
+                    height: "100%",
+                    borderRadius: 3,
+                    background: barColor,
+                    transition: "width .4s",
+                  }} />
+                )}
+              </div>
+              {/* Value + trend */}
+              <span style={{ width: 46, textAlign: "right", color: barColor, fontWeight: 600, flexShrink: 0 }}>
+                {valStr}
+                {trendArrow && (
+                  <span style={{ fontSize: 9, marginLeft: 2, color: COLORS.sub }}>{trendArrow}</span>
+                )}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function Stat({ label, value, color, big }) {
   return (
     <div style={panel()}>
