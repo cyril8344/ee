@@ -242,6 +242,8 @@ export default function Dashboard({ onLogout }) {
   const [correlations, setCorrelations] = useState({});
   const [newsFeed, setNewsFeed] = useState(null);
   const [agentStatus, setAgentStatus] = useState(null);
+  const [rlStatus, setRlStatus] = useState(null);
+  const [rlLoading, setRlLoading] = useState(false);
   const beep = useBeep();
   const lastAlertTs = useRef(null);
 
@@ -372,6 +374,31 @@ export default function Dashboard({ onLogout }) {
       clearInterval(id);
     };
   }, []);
+
+  /* RL agent status polling */
+  useEffect(() => {
+    let active = true;
+    const load = () =>
+      fetch(`${API}/api/rl?symbol=${activeMarket}`, { headers: authHeaders() })
+        .then((r) => { if (r.status === 401) { logout401(onLogout); throw new Error(); } return r.json(); })
+        .then((d) => active && setRlStatus(d))
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 15000);
+    return () => { active = false; clearInterval(id); };
+  }, [activeMarket]);
+
+  const trainRL = () => {
+    if (!window.confirm("Lancer l'entraînement RL ? Ça prend 5-15 min en arrière-plan.")) return;
+    setRlLoading(true);
+    fetch(`${API}/api/rl/train?symbol=${activeMarket}`, {
+      method: "POST", headers: authHeaders(),
+    })
+      .then((r) => r.json())
+      .then((d) => alert(d.message || "Entraînement lancé"))
+      .catch(() => alert("Erreur"))
+      .finally(() => setRlLoading(false));
+  };
 
   const pos = mkt.position;
   const remaining = useCountdown(pos?.remaining_seconds);
@@ -672,6 +699,72 @@ export default function Dashboard({ onLogout }) {
                     borderColor: !sessionFilterOn ? COLORS.green : COLORS.border,
                     color: !sessionFilterOn ? "#fff" : COLORS.text }}>
                   {!sessionFilterOn ? "24/7 ON" : "Sessions"}
+                </button>
+              </div>
+
+              {/* RL Agent panel */}
+              <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.sub, marginBottom: 6 }}>
+                  Agent RL (Deep Learning)
+                </div>
+                {rlStatus ? (
+                  <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                      <span>Statut</span>
+                      <span style={{ color: rlStatus.training ? COLORS.amber : rlStatus.paper_running ? COLORS.blue : COLORS.sub }}>
+                        {rlStatus.training ? "⏳ Entraînement…" : rlStatus.paper_running ? "📊 Paper trading" : rlStatus.status}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                      <span>Modèle</span>
+                      <span style={{ color: rlStatus.model_exists ? COLORS.green : COLORS.red }}>
+                        {rlStatus.model_exists ? "✓ Disponible" : "✗ Non entraîné"}
+                      </span>
+                    </div>
+                    {rlStatus.paper_running && (
+                      <>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                          <span>Capital paper</span>
+                          <span>${fmt(rlStatus.paper_capital, 2)}</span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                          <span>P&L paper</span>
+                          <span style={{ color: (rlStatus.paper_pnl||0) >= 0 ? COLORS.green : COLORS.red }}>
+                            {money(rlStatus.paper_pnl)}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                          <span>Trades</span>
+                          <span>{rlStatus.paper_trades}</span>
+                        </div>
+                      </>
+                    )}
+                    {rlStatus.promoted && (
+                      <div style={{ color: COLORS.green, fontSize: 11, marginTop: 4 }}>
+                        🚀 Promu — prêt pour le live
+                      </div>
+                    )}
+                    {rlStatus.val_metrics && (
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                        <span>Sharpe validation</span>
+                        <span style={{ color: rlStatus.val_metrics.sharpe_ratio >= 0.5 ? COLORS.green : COLORS.amber }}>
+                          {fmt(rlStatus.val_metrics.sharpe_ratio, 2)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 8 }}>Non initialisé</div>
+                )}
+                <button
+                  onClick={trainRL}
+                  disabled={rlLoading || rlStatus?.training}
+                  style={{ ...tabBtn(false), width: "100%",
+                    background: rlStatus?.training ? COLORS.amber + "33" : "transparent",
+                    borderColor: rlStatus?.promoted ? COLORS.green : COLORS.blue,
+                    color: rlStatus?.promoted ? COLORS.green : COLORS.blue,
+                    opacity: (rlLoading || rlStatus?.training) ? 0.6 : 1 }}>
+                  {rlStatus?.training ? "⏳ Entraînement en cours…" : rlStatus?.model_exists ? "🔄 Ré-entraîner l'IA" : "🧠 Entraîner l'IA"}
                 </button>
               </div>
             </div>
