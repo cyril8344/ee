@@ -965,6 +965,54 @@ def get_correlations(_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=503, detail=f"Correlation data unavailable: {exc}")
 
 
+# ── RL Agent endpoints ───────────────────────────────────────────────────────
+from rl_trainer import RLTrainer as _RLTrainer
+
+_rl_trainers: Dict[str, _RLTrainer] = {}
+
+
+def _get_rl_trainer(symbol: str = "XAUUSD") -> _RLTrainer:
+    if symbol not in _rl_trainers:
+        _rl_trainers[symbol] = _RLTrainer(symbol=symbol)
+    return _rl_trainers[symbol]
+
+
+@app.get("/api/rl")
+async def get_rl_status(symbol: str = "XAUUSD", user=Depends(get_current_user)):
+    """RL agent status: training state, paper trading metrics, promotion flag."""
+    return _get_rl_trainer(symbol).status()
+
+
+@app.post("/api/rl/train")
+async def start_rl_training(symbol: str = "XAUUSD", user=Depends(get_current_user)):
+    """Launch RL training in the background (non-blocking)."""
+    trainer = _get_rl_trainer(symbol)
+    if trainer._training:
+        raise HTTPException(status_code=409, detail="Training already in progress")
+    trainer.train(blocking=False)
+    return {"message": f"Training started for {symbol} ({trainer.backend()})"}
+
+
+@app.post("/api/rl/paper")
+async def start_rl_paper(symbol: str = "XAUUSD", user=Depends(get_current_user)):
+    """Start live paper-trading loop for the RL agent."""
+    trainer = _get_rl_trainer(symbol)
+    if not trainer._agent:
+        raise HTTPException(status_code=400, detail="No model — train first")
+    trainer.run_paper_loop()
+    return {"message": f"Paper loop started for {symbol}"}
+
+
+@app.post("/api/rl/validate")
+async def validate_rl(symbol: str = "XAUUSD", user=Depends(get_current_user)):
+    """Evaluate current RL model on held-out data and return metrics."""
+    trainer = _get_rl_trainer(symbol)
+    metrics = await asyncio.to_thread(trainer.validate)
+    if metrics is None:
+        raise HTTPException(status_code=400, detail="No model or no validation data")
+    return vars(metrics)
+
+
 # --------------------------------------------------------------------------- #
 # WebSocket endpoint
 # --------------------------------------------------------------------------- #
