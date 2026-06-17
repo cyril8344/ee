@@ -45,11 +45,11 @@ ATR_PERIOD = 14
 ADX_PERIOD = 14
 VOL_AVG_PERIOD = 20
 
-RSI_LOW = 38.0
-RSI_HIGH = 62.0
-ATR_MIN = 0.6
-ADX_MIN = 20.0              # minimum trend strength (0-100)
-SR_PROXIMITY_ATR = 0.7      # block entry if opposing S/R within 0.7×ATR
+RSI_LOW = 30.0
+RSI_HIGH = 70.0
+ATR_MIN = 0.5
+ADX_MIN = 20.0
+SR_PROXIMITY_ATR = 0.7
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
 SL_ATR_MULT = 1.2
 SWING_LOOKBACK = 5          # bars each side for swing detection
@@ -350,43 +350,27 @@ def near_orderblock(price: float, bias: str,
 # Bias / confirmation / entry primitives
 # --------------------------------------------------------------------------- #
 def compute_bias(h1: pd.DataFrame) -> str:
-    """LONG / SHORT / NEUTRE from H1 EMA structure."""
+    """LONG / SHORT from H1 EMA200 only."""
     if len(h1) < 1:
         return "NEUTRE"
     row = h1.iloc[-1]
-    price = row["close"]
-    ema200 = row["ema200"]
-    ema50 = row["ema50"]
-    if any(pd.isna(x) for x in (price, ema200, ema50)):
+    price, ema200 = row["close"], row["ema200"]
+    if pd.isna(ema200):
         return "NEUTRE"
-    lo, hi = min(ema50, ema200), max(ema50, ema200)
-    if lo <= price <= hi:
-        return "NEUTRE"            # confusion zone between EMA50 & EMA200
-    if price > ema200:
-        return "LONG"
-    if price < ema200:
-        return "SHORT"
-    return "NEUTRE"
+    return "LONG" if price > ema200 else "SHORT"
 
 
 def confirm_m15(m15: pd.DataFrame, bias: str) -> bool:
-    if bias not in ("LONG", "SHORT") or len(m15) < 2:
+    if bias not in ("LONG", "SHORT") or len(m15) < 1:
         return False
-    cur, prev = m15.iloc[-1], m15.iloc[-2]
+    cur = m15.iloc[-1]
     if any(pd.isna(cur[c]) for c in ("ema9", "ema21", "rsi")):
         return False
-
     rsi_ok = RSI_LOW <= cur["rsi"] <= RSI_HIGH
-    vol_ok = cur.get("volume", 0) > cur.get("vol_avg", 0) or cur.get("vol_avg", 0) == 0
-
     if bias == "LONG":
-        crossed = prev["ema9"] <= prev["ema21"] and cur["ema9"] > cur["ema21"]
-        aligned = cur["ema9"] > cur["ema21"]
-        return (crossed or aligned) and rsi_ok and vol_ok
-    else:  # SHORT
-        crossed = prev["ema9"] >= prev["ema21"] and cur["ema9"] < cur["ema21"]
-        aligned = cur["ema9"] < cur["ema21"]
-        return (crossed or aligned) and rsi_ok and vol_ok
+        return cur["ema9"] > cur["ema21"] and rsi_ok
+    else:
+        return cur["ema9"] < cur["ema21"] and rsi_ok
 
 
 def _body(c) -> float:
@@ -618,7 +602,7 @@ def evaluate(
 
     DataFrames must already contain indicators (call add_indicators).
     """
-    if len(m5) < max(EMA_SLOW, 30) or len(m15) < 3 or len(h1) < 1:
+    if len(m5) < max(EMA_SLOW, 30) or len(m15) < 1 or len(h1) < 1:
         return None
 
     cur = m5.iloc[-1]
@@ -627,7 +611,7 @@ def evaluate(
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=timezone.utc)
 
-    # 0) Bad timing filter (Monday open / Friday close)
+    # 0) Bad timing (Monday open / Friday close)
     if is_bad_timing(ts):
         return None
 
@@ -637,130 +621,62 @@ def evaluate(
         return None
     session = session or "London"
 
-    # 2) H1 bias
+    # 2) H1 EMA200 bias
     bias = compute_bias(h1)
     if bias == "NEUTRE":
         return None
 
-    # 3) ADX — trend strength filter (no trading in ranging markets)
-    adx_val_h1 = float(h1.iloc[-1].get("adx", 0)) if len(h1) else 0.0
-    if adx_val_h1 < ADX_MIN:
-        return None
-
-    # 4) Market structure — H1 HH/HL or LH/LL confirms bias
-    if not market_structure_ok(h1, bias):
-        return None
-
-    # 5) M15 confirmation
+    # 3) M15 EMA9/21 + RSI confirmation
     if not confirm_m15(m15, bias):
         return None
 
-    # 6) VWAP alignment on M15
-    if len(m15) and "vwap" in m15.columns:
-        m15_cur = m15.iloc[-1]
-        if not pd.isna(m15_cur.get("vwap", float("nan"))):
-            if bias == "LONG" and m15_cur["close"] < m15_cur["vwap"]:
-                return None
-            if bias == "SHORT" and m15_cur["close"] > m15_cur["vwap"]:
-                return None
-
-    # 7) Asian range context — prefer trading in breakout direction
-    asian = asian_session_range(m5)
-
-    # 8) M5 volatility floor
+    # 4) M5 volatility floor
     atr_val = float(cur["atr"]) if not pd.isna(cur["atr"]) else 0.0
     if atr_val < atr_min:
         return None
 
-    # 9) Spread check (bid-ask approximated from bar range vs ATR)
-    bar_range = float(cur["high"] - cur["low"])
-    implied_spread = max(0.0, bar_range - atr_val * 0.5)
-    if implied_spread > SPREAD_MAX_PIPS * 0.1:  # 0.1 = pip size for gold
-        pass  # spread check is heuristic; keep as soft filter only
-
-    # 10) M5 EMA alignment — price must be on the right side of EMA9
+    # 5) M5 EMA9 alignment
     if bias == "LONG" and cur["close"] < cur["ema9"]:
         return None
     if bias == "SHORT" and cur["close"] > cur["ema9"]:
         return None
 
-    # 10b) M5 entry trigger + SMC confluence
+    # 6) Candlestick pattern trigger (any single pattern is enough)
     entry = float(cur["close"])
     triggers = []
 
-    # Classic triggers
     if bias == "LONG":
-        if is_bullish_engulfing(prev, cur, atr_val):
-            triggers.append("bullish_engulfing")
-        if is_hammer(cur, atr_val):
-            triggers.append("hammer")
-        if is_pin_bar_bullish(cur, atr_val):
-            triggers.append("pin_bar")
-        if is_marubozu_bullish(cur, atr_val):
-            triggers.append("marubozu")
-        if is_morning_star(m5.iloc[-3:], atr_val):
-            triggers.append("morning_star")
-        if is_bullish_harami(prev, cur):
-            triggers.append("harami")
-        if ema9_pullback_bounce(m5, bias):
-            triggers.append("ema9_pullback")
-        if micro_breakout(m5, bias):
-            triggers.append("micro_breakout")
-        if asian and entry > asian["high"]:
-            triggers.append("asian_breakout")
-        if is_doji(prev):
-            triggers.append("doji_reversal")
+        if is_bullish_engulfing(prev, cur, atr_val):  triggers.append("bullish_engulfing")
+        if is_hammer(cur, atr_val):                   triggers.append("hammer")
+        if is_pin_bar_bullish(cur, atr_val):          triggers.append("pin_bar")
+        if is_marubozu_bullish(cur, atr_val):         triggers.append("marubozu")
+        if is_morning_star(m5.iloc[-3:], atr_val):    triggers.append("morning_star")
+        if is_bullish_harami(prev, cur):              triggers.append("harami")
+        if ema9_pullback_bounce(m5, bias):            triggers.append("ema9_pullback")
+        if micro_breakout(m5, bias):                  triggers.append("micro_breakout")
+        if is_doji(prev):                             triggers.append("doji_reversal")
     else:
-        if is_bearish_engulfing(prev, cur, atr_val):
-            triggers.append("bearish_engulfing")
-        if is_shooting_star(cur, atr_val):
-            triggers.append("shooting_star")
-        if is_pin_bar_bearish(cur, atr_val):
-            triggers.append("pin_bar")
-        if is_marubozu_bearish(cur, atr_val):
-            triggers.append("marubozu")
-        if is_evening_star(m5.iloc[-3:], atr_val):
-            triggers.append("evening_star")
-        if is_bearish_harami(prev, cur):
-            triggers.append("harami")
-        if ema9_pullback_bounce(m5, bias):
-            triggers.append("ema9_pullback")
-        if micro_breakout(m5, bias):
-            triggers.append("micro_breakout")
-        if asian and entry < asian["low"]:
-            triggers.append("asian_breakout")
-        if is_doji(prev):
-            triggers.append("doji_reversal")
+        if is_bearish_engulfing(prev, cur, atr_val):  triggers.append("bearish_engulfing")
+        if is_shooting_star(cur, atr_val):            triggers.append("shooting_star")
+        if is_pin_bar_bearish(cur, atr_val):          triggers.append("pin_bar")
+        if is_marubozu_bearish(cur, atr_val):         triggers.append("marubozu")
+        if is_evening_star(m5.iloc[-3:], atr_val):   triggers.append("evening_star")
+        if is_bearish_harami(prev, cur):              triggers.append("bearish_harami")
+        if ema9_pullback_bounce(m5, bias):            triggers.append("ema9_pullback")
+        if micro_breakout(m5, bias):                  triggers.append("micro_breakout")
+        if is_doji(prev):                             triggers.append("doji_reversal")
 
-    # SMC triggers
-    obs_m5 = find_order_blocks(m5, lookback=40)
-    fvgs_m5 = find_fair_value_gaps(m5, lookback=40)
-    if near_orderblock(entry, bias, obs_m5, atr_val):
-        triggers.append("orderblock")
-    if any((f["low"] <= entry <= f["high"])
-           for f in fvgs_m5 if f["type"] == ("bullish" if bias == "LONG" else "bearish")):
-        triggers.append("fvg")
-    if liquidity_swept(m5, bias):
-        triggers.append("liquidity_sweep")
-
-    # Weighted scoring: each trigger gets its dynamic weight (default 1.0)
+    # Any single pattern is sufficient (weighted score ≥ 1.0)
     def _w(t: str) -> float:
         if pattern_weights is None:
             return 1.0
         info = pattern_weights.get(t)
         return info["weight"] if isinstance(info, dict) else float(info) if info else 1.0
 
-    core_triggers = [t for t in triggers if t != "asian_breakout"]
-    weighted_score = sum(_w(t) for t in core_triggers)
-    if weighted_score < 1.5:
+    if sum(_w(t) for t in triggers) < 1.0:
         return None
 
-    # 11) S/R proximity — don't enter into a wall
-    sr = swing_levels(m5, lookback=60)
-    if near_opposing_sr(entry, bias, sr, atr_val):
-        return None
-
-    # 12) Build trade levels
+    # 7) Build trade levels
     if bias == "LONG":
         swing = last_swing_low(m5, lookback=10)
         raw_sl = min(swing, entry - 1e-6)
@@ -847,8 +763,7 @@ def batch_signals(
         bias_long  = pd.Series(False, index=m5.index)
         bias_short = pd.Series(False, index=m5.index)
 
-    # ── H1 ADX filter ────────────────────────────────────────────────────────
-    adx_ok = (h1_adx >= ADX_MIN) if h1_adx is not None else pd.Series(True, index=m5.index)
+    adx_ok = pd.Series(True, index=m5.index)  # ADX filter removed
 
     # ── M15 confirmation (forward-filled) ────────────────────────────────────
     m15_ema9  = m15["ema9"].reindex(m5.index,  method="ffill") if "ema9"  in m15.columns else None
