@@ -242,7 +242,9 @@ export default function Dashboard({ onLogout }) {
   const [correlations, setCorrelations] = useState({});
   const [newsFeed, setNewsFeed] = useState(null);
   const [agentStatus, setAgentStatus] = useState(null);
+  const [agentHistory, setAgentHistory] = useState([]);
   const [rlStatus, setRlStatus] = useState(null);
+  const [rlHistory, setRlHistory] = useState([]);
   const [rlLoading, setRlLoading] = useState(false);
   const beep = useBeep();
   const lastAlertTs = useRef(null);
@@ -335,13 +337,18 @@ export default function Dashboard({ onLogout }) {
     return () => clearInterval(id);
   }, []);
 
-  /* Agent IA status polling — every 30 seconds */
+  /* Agent IA status + history polling — every 30 seconds */
   useEffect(() => {
-    const load = () =>
+    const load = () => {
       fetch(`${API}/api/agent`, { headers: authHeaders() })
         .then((r) => { if (r.status === 401) { logout401(onLogout); throw new Error("401"); } return r.json(); })
         .then(setAgentStatus)
         .catch(() => {});
+      fetch(`${API}/api/agent/history`, { headers: authHeaders() })
+        .then((r) => r.ok ? r.json() : [])
+        .then(setAgentHistory)
+        .catch(() => {});
+    };
     load();
     const id = setInterval(load, 30000);
     return () => clearInterval(id);
@@ -375,14 +382,19 @@ export default function Dashboard({ onLogout }) {
     };
   }, []);
 
-  /* RL agent status polling */
+  /* RL agent status + history polling */
   useEffect(() => {
     let active = true;
-    const load = () =>
+    const load = () => {
       fetch(`${API}/api/rl?symbol=${activeMarket}`, { headers: authHeaders() })
         .then((r) => { if (r.status === 401) { logout401(onLogout); throw new Error(); } return r.json(); })
         .then((d) => active && setRlStatus(d))
         .catch(() => {});
+      fetch(`${API}/api/rl/history?symbol=${activeMarket}`, { headers: authHeaders() })
+        .then((r) => r.ok ? r.json() : [])
+        .then((d) => active && setRlHistory(d))
+        .catch(() => {});
+    };
     load();
     const id = setInterval(load, 15000);
     return () => { active = false; clearInterval(id); };
@@ -680,6 +692,33 @@ export default function Dashboard({ onLogout }) {
                       ✓ Params mis à jour automatiquement
                     </div>
                   )}
+                  {agentHistory.length > 0 && (
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 4, fontWeight: 600 }}>
+                        Historique des runs ({agentHistory.length})
+                      </div>
+                      <div style={{ maxHeight: 140, overflowY: "auto", fontSize: 10 }}>
+                        {agentHistory.slice(0, 20).map((r, i) => (
+                          <div key={i} style={{
+                            display: "flex", justifyContent: "space-between",
+                            padding: "3px 0", borderBottom: `1px solid ${COLORS.border}`,
+                            color: r.applied ? COLORS.green : COLORS.sub
+                          }}>
+                            <span style={{ color: COLORS.sub }}>
+                              {new Date(r.timestamp).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                            <span>{r.symbol}</span>
+                            <span style={{ color: r.improvement_pct >= 10 ? COLORS.green : COLORS.amber }}>
+                              {r.improvement_pct >= 0 ? "+" : ""}{r.improvement_pct?.toFixed(1)}%
+                            </span>
+                            <span style={{ color: r.applied ? COLORS.green : COLORS.red }}>
+                              {r.applied ? "✓" : "—"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -766,6 +805,31 @@ export default function Dashboard({ onLogout }) {
                     opacity: (rlLoading || rlStatus?.training) ? 0.6 : 1 }}>
                   {rlStatus?.training ? "⏳ Entraînement en cours…" : rlStatus?.model_exists ? "🔄 Ré-entraîner l'IA" : "🧠 Entraîner l'IA"}
                 </button>
+                {rlHistory.length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 4, fontWeight: 600 }}>
+                      Historique entraînements ({rlHistory.length})
+                    </div>
+                    <div style={{ maxHeight: 120, overflowY: "auto", fontSize: 10 }}>
+                      {rlHistory.slice(0, 10).map((r, i) => (
+                        <div key={i} style={{
+                          display: "flex", justifyContent: "space-between",
+                          padding: "3px 0", borderBottom: `1px solid ${COLORS.border}`,
+                        }}>
+                          <span style={{ color: COLORS.sub }}>
+                            {new Date(r.timestamp).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                          <span style={{ color: r.passed_gate ? COLORS.green : COLORS.amber }}>
+                            Sharpe {r.val_sharpe?.toFixed(2) ?? "—"}
+                          </span>
+                          <span style={{ color: r.passed_gate ? COLORS.green : COLORS.red }}>
+                            {r.passed_gate ? "✓ OK" : "✗ Rejeté"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

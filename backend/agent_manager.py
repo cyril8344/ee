@@ -27,7 +27,9 @@ from backtest_worker import BacktestWorker, WorkerResult
 
 logger = logging.getLogger(__name__)
 
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent_config.json")
+CONFIG_PATH   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent_config.json")
+HISTORY_PATH  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent_history.json")
+MAX_HISTORY   = 200
 
 # Minimum improvement to accept new params (10 %)
 IMPROVEMENT_THRESHOLD_PCT = 10.0
@@ -74,9 +76,12 @@ class AgentManager:
         self._last_improvement: Optional[float] = None
         self._params_applied = False
         self._applied_at: Optional[str] = None
+        self._run_history: List[Dict[str, Any]] = []
 
         self._monitor_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+
+        self._load_history()
 
     # ------------------------------------------------------------------ #
     # Lifecycle
@@ -144,6 +149,11 @@ class AgentManager:
                 "workers": list(self._workers.keys()),
             }
 
+    def history(self) -> List[Dict[str, Any]]:
+        """Return the list of past optimization runs (newest first)."""
+        with self._lock:
+            return list(reversed(self._run_history))
+
     # ------------------------------------------------------------------ #
     # Monitor loop
     # ------------------------------------------------------------------ #
@@ -165,16 +175,33 @@ class AgentManager:
                 break
 
             now_iso = datetime.now(timezone.utc).isoformat()
+            applied = self._should_apply(result)
+
             with self._lock:
                 self._last_run = now_iso
                 self._current_sharpe = result.current_sharpe
+                entry: Dict[str, Any] = {
+                    "timestamp": now_iso,
+                    "symbol": result.symbol,
+                    "current_sharpe": round(result.current_sharpe, 4),
+                    "new_sharpe": round(result.new_sharpe, 4),
+                    "improvement_pct": round(result.improvement_pct, 2),
+                    "trades": result.trades,
+                    "applied": applied,
+                    "params": result.params,
+                }
+                self._run_history.append(entry)
+                if len(self._run_history) > MAX_HISTORY:
+                    self._run_history = self._run_history[-MAX_HISTORY:]
+
+            self._save_history()
 
             logger.info(
                 "[AgentManager] result received symbol=%s  improvement=%.1f%%  trades=%d",
                 result.symbol, result.improvement_pct, result.trades,
             )
 
-            if self._should_apply(result):
+            if applied:
                 self._apply_params(result)
             else:
                 logger.info(
@@ -301,3 +328,25 @@ class AgentManager:
             "[AgentManager] loaded saved config from %s (applied_at=%s)",
             CONFIG_PATH, data.get("applied_at"),
         )
+
+    # ------------------------------------------------------------------ #
+    # History persistence
+    # ------------------------------------------------------------------ #
+
+    def _load_history(self) -> None:
+        if not os.path.isfile(HISTORY_PATH):
+            return
+        try:
+            with open(HISTORY_PATH, "r", encoding="utf-8") as fh:
+                self._run_history = json.load(fh)
+        except Exception:
+            self._run_history = []
+
+    def _save_history(self) -> None:
+        try:
+            with self._lock:
+                data = list(self._run_history)
+            with open(HISTORY_PATH, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2)
+        except Exception:
+            pass

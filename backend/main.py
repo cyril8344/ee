@@ -841,6 +841,12 @@ async def get_agent_status(user=Depends(get_current_user)):
     return state.agent.status()
 
 
+@app.get("/api/agent/history")
+async def get_agent_history(user=Depends(get_current_user)):
+    """Return the list of past Agent IA optimization runs (newest first)."""
+    return state.agent.history()
+
+
 # ── Portfolio index ─────────────────────────────────────────────────────────
 from portfolio_index import (
     PortfolioIndexEngine, TargetAllocation, PaperAdapter, ScheduledRebalancer
@@ -1011,6 +1017,12 @@ async def validate_rl(symbol: str = "XAUUSD", user=Depends(get_current_user)):
     if metrics is None:
         raise HTTPException(status_code=400, detail="No model or no validation data")
     return vars(metrics)
+
+
+@app.get("/api/rl/history")
+async def get_rl_history(symbol: str = "XAUUSD", user=Depends(get_current_user)):
+    """Return the list of past RL training sessions (newest first)."""
+    return _get_rl_trainer(symbol).history()
 
 
 # --------------------------------------------------------------------------- #

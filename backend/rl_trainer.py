@@ -27,7 +27,7 @@ import logging
 import os
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
 
@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 # Config
 # ─────────────────────────────────────────────────────────────────────────────
 MODELS_DIR     = os.path.join(os.path.dirname(__file__), "rl_models")
+HISTORY_DIR    = os.path.join(os.path.dirname(__file__), "rl_models")
 TRAIN_DAYS     = 365 * 2   # 2 years of training data
 VALIDATE_DAYS  = 90        # 3-month hold-out
 TRAIN_STEPS    = 200_000   # PPO timesteps (≈ 3-10 min on CPU)
@@ -145,9 +146,11 @@ class RLTrainer:
         self._paper_lots: float = 0.0
         self._promoted: bool = False
         self._status_msg: str = "idle"
+        self._training_history: list = []
 
-        # try loading existing model
+        # try loading existing model and history
         self._try_load()
+        self._load_history()
 
     # ── Public API ──────────────────────────────────────────────────────────
 
@@ -209,6 +212,10 @@ class RLTrainer:
             ),
         }
 
+    def history(self) -> list:
+        """Return training sessions history (newest first)."""
+        return list(reversed(self._training_history))
+
     # ── Internal ────────────────────────────────────────────────────────────
 
     def _train_loop(self) -> None:
@@ -248,6 +255,24 @@ class RLTrainer:
                 if passed
                 else f"gated (Sharpe={val.sharpe_ratio:.2f} < {MIN_SHARPE})"
             )
+
+            # record in history
+            entry = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "symbol": self.symbol,
+                "backend": RLAgent.backend(),
+                "train_sharpe": round(self._train_metrics.sharpe_ratio, 3) if self._train_metrics else None,
+                "val_sharpe": round(val.sharpe_ratio, 3),
+                "val_return_pct": round(val.total_return_pct, 2),
+                "val_win_rate": round(val.win_rate, 3),
+                "val_trades": val.trade_count,
+                "passed_gate": passed,
+            }
+            self._training_history.append(entry)
+            if len(self._training_history) > 50:
+                self._training_history = self._training_history[-50:]
+            self._save_history()
+
             if passed:
                 logger.info("RLTrainer [%s]: ✓ passed validation gate", self.symbol)
                 self.run_paper_loop()
@@ -364,6 +389,27 @@ class RLTrainer:
         except Exception as e:
             logger.error("RLTrainer: data load failed: %s", e)
             return None
+
+    def _history_path(self) -> str:
+        return os.path.join(HISTORY_DIR, f"rl_history_{self.symbol.lower()}.json")
+
+    def _load_history(self) -> None:
+        path = self._history_path()
+        if not os.path.isfile(path):
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                self._training_history = json.load(fh)
+        except Exception:
+            self._training_history = []
+
+    def _save_history(self) -> None:
+        try:
+            os.makedirs(HISTORY_DIR, exist_ok=True)
+            with open(self._history_path(), "w", encoding="utf-8") as fh:
+                json.dump(self._training_history, fh, indent=2)
+        except Exception:
+            pass
 
     def _try_load(self) -> None:
         zip_path = self.model_path + ".zip"
