@@ -250,7 +250,7 @@ def trading_tick() -> Dict[str, Any]:
         for ms in state.market_states.values():
             try:
                 m5, m15, h1 = build_context(ms.broker)
-                snap = snapshot(m5, m15, h1)
+                snap = snapshot(m5, m15, h1, atr_min_override=ms.config["atr_min"])
                 ms.last_snapshot = snap
 
                 # ---- Manage open position ----
@@ -480,6 +480,7 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
             },
             "position": _position_payload(ms),
             "last_signal": ms.last_signal,
+            "conditions": snap.get("conditions"),
         }
 
     return {

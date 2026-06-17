@@ -616,6 +616,35 @@ export default function Dashboard({ onLogout }) {
                   min={mkt.indicators?.atr_min} />
               </div>
 
+              {/* ---- trading conditions checklist ---- */}
+              {mkt.conditions && (
+                <div style={{ background: "#0a1020", borderRadius: 6, padding: "8px 10px", marginBottom: 10, fontSize: 11 }}>
+                  <div style={{ color: COLORS.sub, fontWeight: 600, marginBottom: 6, fontSize: 11 }}>
+                    Conditions d'entrée
+                    {mkt.conditions.blocking_reason ? (
+                      <span style={{ marginLeft: 6, color: COLORS.amber, fontWeight: 400 }}>
+                        — bloqué: {mkt.conditions.blocking_reason.replace(/_/g, " ")}
+                      </span>
+                    ) : (
+                      <span style={{ marginLeft: 6, color: COLORS.green, fontWeight: 400 }}>✓ prêt</span>
+                    )}
+                  </div>
+                  {[
+                    { label: "Biais H1 EMA200", ok: mkt.conditions.h1_bias !== "NEUTRE", val: mkt.conditions.h1_bias },
+                    { label: "M15 EMA9/RSI", ok: mkt.conditions.m15_confirmed, val: mkt.conditions.m15_confirmed ? "✓" : "✗" },
+                    { label: "ATR M5", ok: mkt.conditions.atr_ok, val: mkt.conditions.atr_ok ? "✓" : "✗" },
+                    { label: "EMA9 aligné M5", ok: mkt.conditions.ema9_aligned, val: mkt.conditions.ema9_aligned ? "✓" : "✗" },
+                    { label: "Pattern", ok: mkt.conditions.patterns?.length > 0,
+                      val: mkt.conditions.patterns?.length > 0 ? mkt.conditions.patterns.join(", ").replace(/_/g, " ") : "aucun" },
+                  ].map(({ label, ok, val }) => (
+                    <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                      <span style={{ color: COLORS.sub }}>{label}</span>
+                      <span style={{ color: ok ? COLORS.green : COLORS.red, fontWeight: 500 }}>{val}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {/* macro indicators: 4-in-a-row on desktop, 2x2 on mobile */}
               <div className="macro-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginBottom: 4 }}>
                 {state?.macro?.dxy && (
