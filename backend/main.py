@@ -979,8 +979,18 @@ _rl_trainers: Dict[str, _RLTrainer] = {}
 
 def _get_rl_trainer(symbol: str = "XAUUSD") -> _RLTrainer:
     if symbol not in _rl_trainers:
-        _rl_trainers[symbol] = _RLTrainer(symbol=symbol)
+        trainer = _RLTrainer(symbol=symbol)
+        trainer.start_auto()
+        _rl_trainers[symbol] = trainer
     return _rl_trainers[symbol]
+
+
+# Pre-warm RL trainers for active markets on startup
+def _init_rl_trainers():
+    for sym in state.market_states:
+        _get_rl_trainer(sym)
+
+threading.Thread(target=_init_rl_trainers, daemon=True, name="rl-init").start()
 
 
 @app.get("/api/rl")

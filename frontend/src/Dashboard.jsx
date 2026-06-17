@@ -246,6 +246,9 @@ export default function Dashboard({ onLogout }) {
   const [rlStatus, setRlStatus] = useState(null);
   const [rlHistory, setRlHistory] = useState([]);
   const [rlLoading, setRlLoading] = useState(false);
+  const [settingsEdit, setSettingsEdit] = useState(false);
+  const [settingsDraft, setSettingsDraft] = useState({});
+  const [settingsSaving, setSettingsSaving] = useState(false);
   const beep = useBeep();
   const lastAlertTs = useRef(null);
 
@@ -410,6 +413,35 @@ export default function Dashboard({ onLogout }) {
       .then((d) => alert(d.message || "Entraînement lancé"))
       .catch(() => alert("Erreur"))
       .finally(() => setRlLoading(false));
+  };
+
+  const openSettingsEdit = () => {
+    setSettingsDraft({
+      capital: state?.risk?.capital ?? "",
+      risk_per_trade_pct: state?.risk?.risk_per_trade_pct ?? "",
+      daily_stop_pct: state?.risk?.daily_stop_pct ?? "",
+    });
+    setSettingsEdit(true);
+  };
+
+  const saveSettings = () => {
+    const payload = {
+      capital: parseFloat(settingsDraft.capital),
+      risk_per_trade_pct: parseFloat(settingsDraft.risk_per_trade_pct),
+      daily_stop_pct: parseFloat(settingsDraft.daily_stop_pct),
+      confirm_risk_change: true,
+    };
+    if (Object.values(payload).some(v => isNaN(v))) { alert("Valeurs invalides"); return; }
+    setSettingsSaving(true);
+    fetch(`${API}/api/settings`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+      .then((r) => r.json())
+      .then(() => { setSettingsEdit(false); })
+      .catch(() => alert("Erreur lors de la sauvegarde"))
+      .finally(() => setSettingsSaving(false));
   };
 
   const pos = mkt.position;
@@ -641,11 +673,51 @@ export default function Dashboard({ onLogout }) {
                 )}
               </div>
 
-              {/* risk summary */}
+              {/* risk summary — editable */}
               <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 10, fontSize: 12 }}>
-                <Row k="Capital" v={`$${fmt(state?.risk?.capital, 2)}`} />
-                <Row k="Risque / trade" v={`${fmt(state?.risk?.risk_per_trade_pct, 1)}% · $${fmt(state?.risk?.risk_amount_usd, 0)}`} />
-                <Row k="Stop journalier" v={`-$${fmt(state?.risk?.daily_loss_limit_usd, 0)}`} />
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: COLORS.sub }}>Paramètres de risque</span>
+                  {!settingsEdit && (
+                    <button onClick={openSettingsEdit} style={{ background: "none", border: `1px solid ${COLORS.border}`, borderRadius: 4, padding: "1px 7px", color: COLORS.sub, cursor: "pointer", fontSize: 10 }}>
+                      ✏ Modifier
+                    </button>
+                  )}
+                </div>
+                {settingsEdit ? (
+                  <div style={{ fontSize: 11 }}>
+                    {[
+                      { label: "Capital ($)", key: "capital", min: 100, max: 1000000 },
+                      { label: "Risque / trade (%)", key: "risk_per_trade_pct", min: 0.1, max: 5 },
+                      { label: "Stop journalier (%)", key: "daily_stop_pct", min: 0.5, max: 10 },
+                    ].map(({ label, key, min, max }) => (
+                      <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <span style={{ color: COLORS.sub, flex: 1 }}>{label}</span>
+                        <input
+                          type="number" min={min} max={max} step="any"
+                          value={settingsDraft[key] ?? ""}
+                          onChange={(e) => setSettingsDraft(d => ({ ...d, [key]: e.target.value }))}
+                          style={{ width: 70, background: COLORS.panelbg, border: `1px solid ${COLORS.border}`, borderRadius: 4, color: COLORS.text, padding: "2px 5px", fontSize: 11, textAlign: "right" }}
+                        />
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                      <button onClick={saveSettings} disabled={settingsSaving}
+                        style={{ flex: 1, background: COLORS.green, border: "none", borderRadius: 4, color: "#fff", padding: "4px 0", cursor: "pointer", fontSize: 11, opacity: settingsSaving ? 0.6 : 1 }}>
+                        {settingsSaving ? "…" : "Sauvegarder"}
+                      </button>
+                      <button onClick={() => setSettingsEdit(false)}
+                        style={{ flex: 1, background: "none", border: `1px solid ${COLORS.border}`, borderRadius: 4, color: COLORS.sub, padding: "4px 0", cursor: "pointer", fontSize: 11 }}>
+                        Annuler
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <Row k="Capital" v={`$${fmt(state?.risk?.capital, 2)}`} />
+                    <Row k="Risque / trade" v={`${fmt(state?.risk?.risk_per_trade_pct, 1)}% · $${fmt(state?.risk?.risk_amount_usd, 0)}`} />
+                    <Row k="Stop journalier" v={`-$${fmt(state?.risk?.daily_loss_limit_usd, 0)}`} />
+                  </>
+                )}
               </div>
 
               {/* pattern weights */}

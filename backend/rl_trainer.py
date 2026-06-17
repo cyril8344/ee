@@ -47,10 +47,11 @@ MODELS_DIR     = os.path.join(os.path.dirname(__file__), "rl_models")
 HISTORY_DIR    = os.path.join(os.path.dirname(__file__), "rl_models")
 TRAIN_DAYS     = 365 * 2   # 2 years of training data
 VALIDATE_DAYS  = 90        # 3-month hold-out
-TRAIN_STEPS    = 200_000   # PPO timesteps (≈ 3-10 min on CPU)
+TRAIN_STEPS    = 500_000   # PPO timesteps (≈ 10-25 min on CPU)
 MIN_SHARPE     = 0.5       # gate: must beat this on validation
 MIN_WINRATE    = 0.40      # gate: minimum 40% win rate
 PAPER_INTERVAL = 300       # seconds between paper-trading ticks (5 min M5)
+RETRAIN_DAYS   = 7         # auto-retrain every 7 days
 
 CONTRACT_SPECS = {
     "XAUUSD": {"contract_size": 100.0,     "initial_capital": 10_000.0},
@@ -153,6 +154,25 @@ class RLTrainer:
         self._load_history()
 
     # ── Public API ──────────────────────────────────────────────────────────
+
+    def start_auto(self) -> None:
+        """Called once on startup: train now if no model, then schedule weekly retrains."""
+        if not (os.path.exists(self.model_path + ".zip") or os.path.exists(self.model_path + ".pt")):
+            logger.info("RLTrainer [%s]: no model found — starting auto-training", self.symbol)
+            self.train(blocking=False)
+        else:
+            self._schedule_next_retrain()
+
+    def _schedule_next_retrain(self) -> None:
+        """Schedule a retrain RETRAIN_DAYS from now (daemon thread with sleep)."""
+        def _retrain_loop():
+            while True:
+                time.sleep(RETRAIN_DAYS * 86400)
+                if not self._training:
+                    logger.info("RLTrainer [%s]: scheduled weekly retrain starting", self.symbol)
+                    self._train_loop()
+        t = threading.Thread(target=_retrain_loop, daemon=True, name=f"rl-auto-{self.symbol}")
+        t.start()
 
     def train(self, blocking: bool = False) -> None:
         """Launch training. blocking=True waits for completion."""
@@ -286,6 +306,7 @@ class RLTrainer:
             self._status_msg = "error (check logs)"
         finally:
             self._training = False
+            self._schedule_next_retrain()
 
     def _paper_loop(self) -> None:
         """Live paper-trading: fetch real prices every 5 min, agent decides."""
