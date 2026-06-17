@@ -2,11 +2,12 @@
 macro_filter.py
 ===============
 Macro market filters: DXY (Dollar Index), VIX (Fear Index), TNX (10Y Treasury),
-Gold OI proxy (GC=F), and Fear & Greed Index.
+Gold OI proxy (GC=F), Fear & Greed Index, and Fed/Central Bank bias (FRED).
 
 DXY: Gold is inversely correlated with USD. DXY uptrend → block LONG gold.
 VIX: VIX > 25 means extreme fear → scalping too dangerous → block all entries.
 TNX: Rising 10Y yield = higher real rates = pressure on gold.
+Fed: Hiking cycle + high positive real rates → additional headwind for gold longs.
 """
 from __future__ import annotations
 
@@ -112,14 +113,24 @@ class MacroFilter:
         with self._lock:
             self._refresh()
         vix_blocked = self._vix is not None and self._vix > VIX_BLOCK_THRESHOLD
+
+        # Fed/CB bias (imported lazily to avoid circular imports)
+        fed_bias: Optional[Dict[str, Any]] = None
+        try:
+            from fred_feed import get_gold_macro_bias
+            fed_bias = get_gold_macro_bias()
+        except Exception:
+            pass
+
         return {
-            "dxy": self._dxy,
+            "dxy":       self._dxy,
             "dxy_trend": self._dxy_trend,
-            "vix": self._vix,
+            "vix":       self._vix,
             "vix_blocked": vix_blocked,
-            "tnx": self._tnx,
+            "tnx":       self._tnx,
             "tnx_trend": self._tnx_trend,
             "fear_greed": self._fear_greed,
+            "fed_bias":  fed_bias,
         }
 
     def blocks_entry(self, symbol: str, bias: str) -> tuple[bool, str]:
@@ -148,5 +159,16 @@ class MacroFilter:
         # TNX rising = higher real rates = pressure on gold
         if symbol == "XAUUSD" and bias == "LONG" and self._tnx_trend == "up":
             return True, f"Taux 10 ans haussiers ({self._tnx:.2f}%) — pression sur l'or"
+
+        # Fed hiking + bearish real rates = double headwind on gold longs
+        if symbol == "XAUUSD" and bias == "LONG":
+            try:
+                from fred_feed import get_fed_data
+                fed = get_fed_data()
+                if (fed["fed_direction"] == "hiking"
+                        and fed["real_rate_bias"] == "bearish"):
+                    return True, "Fed en hausse + taux réels élevés — contexte défavorable or"
+            except Exception:
+                pass
 
         return False, ""

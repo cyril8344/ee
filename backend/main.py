@@ -958,6 +958,16 @@ def get_sentiment(_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=503, detail=f"Sentiment data unavailable: {exc}")
 
 
+@app.get("/api/fed")
+def get_fed(_user: dict = Depends(get_current_user)):
+    """Fed rate direction, real interest rates, and central bank gold positioning."""
+    try:
+        from fred_feed import get_gold_macro_bias
+        return get_gold_macro_bias()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"FRED data unavailable: {exc}")
+
+
 @app.get("/api/correlations")
 def get_correlations(_user: dict = Depends(get_current_user)):
     """

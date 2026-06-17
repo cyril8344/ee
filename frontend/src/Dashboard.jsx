@@ -249,6 +249,7 @@ export default function Dashboard({ onLogout }) {
   const [settingsEdit, setSettingsEdit] = useState(false);
   const [settingsDraft, setSettingsDraft] = useState({});
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [fedData, setFedData] = useState(null);
   const beep = useBeep();
   const lastAlertTs = useRef(null);
 
@@ -366,6 +367,18 @@ export default function Dashboard({ onLogout }) {
         .catch(() => {});
     load();
     const id = setInterval(load, 300000);
+    return () => clearInterval(id);
+  }, []);
+
+  /* Fed / Central bank polling — every 1 hour (FRED updates daily) */
+  useEffect(() => {
+    const load = () =>
+      fetch(`${API}/api/fed`, { headers: authHeaders() })
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => d && setFedData(d))
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 3600000);
     return () => clearInterval(id);
   }, []);
 
@@ -646,6 +659,67 @@ export default function Dashboard({ onLogout }) {
               {/* correlations */}
               {Object.keys(correlations).length > 0 && (
                 <CorrelationsPanel data={correlations} />
+              )}
+
+              {/* Fed & Banques Centrales */}
+              {fedData && (
+                <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 6 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: COLORS.sub }}>Fed & Banques Centrales</span>
+                    <span style={{
+                      fontSize: 10, padding: "1px 6px", borderRadius: 3,
+                      background: fedData.bias === "bullish" ? COLORS.green + "33" : fedData.bias === "bearish" ? COLORS.red + "33" : COLORS.border,
+                      color: fedData.bias === "bullish" ? COLORS.green : fedData.bias === "bearish" ? COLORS.red : COLORS.sub,
+                      fontWeight: 600,
+                    }}>
+                      {fedData.bias === "bullish" ? "Haussier or" : fedData.bias === "bearish" ? "Baissier or" : "Neutre"}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 8px" }}>
+                    <span style={{ color: COLORS.sub }}>Taux Fed</span>
+                    <span style={{ textAlign: "right" }}>
+                      {fedData.fed?.fed_rate != null ? `${fedData.fed.fed_rate.toFixed(2)}%` : "—"}
+                      <span style={{
+                        marginLeft: 4,
+                        color: fedData.fed?.fed_direction === "cutting" ? COLORS.green : fedData.fed?.fed_direction === "hiking" ? COLORS.red : COLORS.sub
+                      }}>
+                        {fedData.fed?.fed_direction === "cutting" ? "▼ Baisse" : fedData.fed?.fed_direction === "hiking" ? "▲ Hausse" : "— Stable"}
+                      </span>
+                    </span>
+                    <span style={{ color: COLORS.sub }}>Taux réels</span>
+                    <span style={{
+                      textAlign: "right",
+                      color: fedData.fed?.real_rate != null
+                        ? (fedData.fed.real_rate < 0 ? COLORS.green : fedData.fed.real_rate > 1.5 ? COLORS.red : COLORS.text)
+                        : COLORS.sub
+                    }}>
+                      {fedData.fed?.real_rate != null ? `${fedData.fed.real_rate.toFixed(2)}%` : "—"}
+                    </span>
+                    <span style={{ color: COLORS.sub }}>TNX 10Y</span>
+                    <span style={{ textAlign: "right" }}>
+                      {fedData.fed?.dgs10 != null ? `${fedData.fed.dgs10.toFixed(2)}%` : "—"}
+                    </span>
+                    <span style={{ color: COLORS.sub }}>Banques centrales</span>
+                    <span style={{
+                      textAlign: "right",
+                      color: fedData.central_banks?.trend === "buying" ? COLORS.green : fedData.central_banks?.trend === "selling" ? COLORS.red : COLORS.sub
+                    }}>
+                      {fedData.central_banks?.trend === "buying" ? "Acheteuses" : fedData.central_banks?.trend === "selling" ? "Vendeuses" : "Neutre"}
+                    </span>
+                  </div>
+                  {fedData.signals?.length > 0 && (
+                    <div style={{ marginTop: 6 }}>
+                      {fedData.signals.map((s, i) => (
+                        <div key={i} style={{ fontSize: 10, color: COLORS.sub, marginBottom: 2 }}>· {s}</div>
+                      ))}
+                    </div>
+                  )}
+                  {fedData.fed?.source === "unavailable" && (
+                    <div style={{ fontSize: 10, color: COLORS.amber, marginTop: 4 }}>
+                      ⚠ Clé FRED_API_KEY manquante — ajouter dans Railway Variables
+                    </div>
+                  )}
+                </div>
               )}
 
               {/* news */}
