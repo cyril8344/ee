@@ -679,7 +679,6 @@ export default function Dashboard({ onLogout }) {
                   </div>
                 </div>
               )}
-
               {/* macro indicators: 4-in-a-row on desktop, 2x2 on mobile */}
               <div className="macro-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginBottom: 4 }}>
                 {state?.macro?.dxy && (
