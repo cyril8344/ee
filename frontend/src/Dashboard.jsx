@@ -240,6 +240,7 @@ export default function Dashboard({ onLogout }) {
   const [connected, setConnected] = useState(false);
   const [patternStats, setPatternStats] = useState({});
   const [correlations, setCorrelations] = useState({});
+  const [newsFeed, setNewsFeed] = useState(null);
   const beep = useBeep();
   const lastAlertTs = useRef(null);
 
@@ -341,6 +342,22 @@ export default function Dashboard({ onLogout }) {
     load();
     const id = setInterval(load, 300000);
     return () => clearInterval(id);
+  }, []);
+
+  /* Finnhub news-feed polling — every 2 minutes */
+  useEffect(() => {
+    let active = true;
+    const load = () =>
+      fetch(`${API}/api/news-feed`, { headers: authHeaders() })
+        .then((r) => { if (r.status === 401) { logout401(onLogout); throw new Error("401"); } return r.json(); })
+        .then((d) => active && setNewsFeed(d))
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 120000);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
   }, []);
 
   const pos = mkt.position;
@@ -557,6 +574,16 @@ export default function Dashboard({ onLogout }) {
                       ⏱ dans {hms(newsCountdown)} {state.news.blocked ? "· 🛑 BLOQUÉ" : ""}
                     </div>
                   </div>
+                ) : newsFeed?.upcoming_events?.length > 0 ? (
+                  <div>
+                    <div style={{ fontSize: 13 }}>{newsFeed.upcoming_events[0].event}</div>
+                    <div style={{ fontSize: 11, color: COLORS.sub }}>
+                      {newsFeed.upcoming_events[0].time} UTC · {newsFeed.upcoming_events[0].currency}
+                      {newsFeed.upcoming_events[0].impact === "high" && (
+                        <span style={{ color: COLORS.red, marginLeft: 4 }}>● fort impact</span>
+                      )}
+                    </div>
+                  </div>
                 ) : (
                   <div style={{ fontSize: 13, color: COLORS.sub }}>Aucune news imminente</div>
                 )}
@@ -724,6 +751,38 @@ export default function Dashboard({ onLogout }) {
               )}
             </div>
           </div>
+
+          {/* ===== actualités forex (Finnhub) ===== */}
+          {newsFeed?.latest_news?.length > 0 && (
+            <div className="dashboard-panel" style={{ ...panel(), marginTop: 14 }}>
+              <h3 style={{ margin: "0 0 8px", fontSize: 14 }}>Actualités</h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {newsFeed.latest_news.slice(0, 5).map((item, i) => {
+                  const ts = item.datetime
+                    ? new Date(item.datetime * 1000).toISOString().slice(11, 16) + " UTC"
+                    : "";
+                  const headline = item.headline.length > 80
+                    ? item.headline.slice(0, 79) + "…"
+                    : item.headline;
+                  return (
+                    <div key={i} style={{ fontSize: 11, lineHeight: 1.4 }}>
+                      <span style={{ color: COLORS.sub, marginRight: 6 }}>{ts}</span>
+                      {item.url ? (
+                        <a href={item.url} target="_blank" rel="noopener noreferrer"
+                          style={{ color: COLORS.text, textDecoration: "none" }}
+                          onMouseEnter={(e) => e.target.style.color = COLORS.blue}
+                          onMouseLeave={(e) => e.target.style.color = COLORS.text}>
+                          {headline}
+                        </a>
+                      ) : (
+                        <span style={{ color: COLORS.text }}>{headline}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
