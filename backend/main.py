@@ -70,6 +70,8 @@ import retail_sentiment
 import realtime_feed
 import correlations as corr_engine
 import finnhub_feed as _fh_module
+from agent_manager import AgentManager
+import agent_memory
 
 
 MARKET_CONFIG = {
@@ -140,6 +142,11 @@ class BotState:
 
         self.pattern_weights: Dict = db.get_pattern_stats()
         self._hydrate_today()
+
+        # Agent IA — perpetual optimisation
+        self.agent = AgentManager(self)
+        self.agent.load_saved_config()
+        self.agent.start()
 
     def _hydrate_today(self):
         today = db.today_utc()
@@ -370,6 +377,22 @@ def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], 
         "blocked": 1 if state.risk.blocked else 0,
     })
     db.add_equity_point(state.risk.capital, source="live")
+
+    # Record trade context for agent learning
+    if trade_id:
+        try:
+            agent_memory.record_trade_context(trade_id, {
+                "adx":     ms.last_snapshot.get("adx"),
+                "atr":     ms.last_snapshot.get("atr_m5"),
+                "atr_avg": ms.last_snapshot.get("atr_avg"),
+                "rsi_m5":  ms.last_snapshot.get("rsi_m5"),
+                "rsi_m15": ms.last_snapshot.get("rsi_m15"),
+                "session": ms.last_snapshot.get("session"),
+                "bias":    ms.last_signal.get("direction") if isinstance(ms.last_signal, dict) else ms.last_signal,
+                "won":     pnl > 0,
+            })
+        except Exception:
+            pass
 
     result = "✅ GAGNANT" if pnl >= 0 else "❌ PERDANT"
     state.push_alert("exit", f"[{ms.symbol}] {result} {pnl:+.2f}$ ({close_info['reason']})")
@@ -810,6 +833,12 @@ def macro_status():
 @app.get("/api/pattern-stats")
 def pattern_stats():
     return db.get_pattern_stats()
+
+
+@app.get("/api/agent")
+async def get_agent_status(user=Depends(get_current_user)):
+    """Return current Agent IA status (running, last/next run, sharpe, params)."""
+    return state.agent.status()
 
 
 @app.get("/api/data-provider")
