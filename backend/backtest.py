@@ -29,7 +29,8 @@ import pandas as pd
 
 from strategy import (
     add_indicators, evaluate, active_session,
-    MAX_TRADE_MINUTES,
+    MAX_TRADE_MINUTES, batch_signals,
+    SL_ATR_MULT, last_swing_low, last_swing_high,
 )
 from risk_manager import CONTRACT_SIZE, MIN_LOT, LOT_STEP
 import data_provider
@@ -171,15 +172,19 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
 
     m5 = add_indicators(m5_raw)
 
-    # Precompute the higher-timeframe indicator frames ONCE for the whole
-    # period (instead of resampling a trailing window on every M5 bar). At each
-    # step we slice these frames up to the current timestamp via searchsorted,
-    # which is O(log n) and keeps a 6-12 month backtest fast. This also mirrors
-    # the live engine, which feeds the strategy the full resampled history.
+    # Pre-compute higher-TF frames ONCE
     m15_full = add_indicators(resample(m5_raw, "15min"))
-    h1_full = add_indicators(resample(m5_raw, "60min"))
+    h1_full  = add_indicators(resample(m5_raw, "60min"))
     m15_index = m15_full.index
-    h1_index = h1_full.index
+    h1_index  = h1_full.index
+
+    # ── Vectorised signal pre-computation (O(n) instead of O(n²)) ────────────
+    # batch_signals() returns a Series: "long" | "short" | None for every bar.
+    # The inner loop simply looks up precomputed_signals[ts] instead of calling
+    # evaluate() (which is O(n) per call).
+    precomputed_signals = batch_signals(
+        m5, m15_full, h1_full, check_session=True
+    )
 
     equity = cfg.capital
     equity_curve: List[Dict[str, Any]] = [
@@ -237,19 +242,36 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
 
         # ---- Look for a new entry (only if flat & allowed) ----
         if open_trade is None and not day_blocked and trades_today < cfg.max_trades_per_day:
-            # Slice precomputed higher-timeframe frames up to the current time.
-            j15 = m15_index.searchsorted(ts, side="right") - 1
-            j1h = h1_index.searchsorted(ts, side="right") - 1
-            if j15 < 2 or j1h < 0:
+            # O(1) lookup into the pre-computed signal array
+            direction = precomputed_signals.get(ts)
+            if direction is None:
                 sig = None
             else:
-                sig = evaluate(
-                    m5.iloc[: i + 1],
-                    m15_full.iloc[: j15 + 1],
-                    h1_full.iloc[: j1h + 1],
-                    now=ts.to_pydatetime(),
-                    check_session=True,
-                )
+                # Build a lightweight Signal-like dict from current bar
+                bar_atr = float(bar.get("atr", pip_size * 10))
+                entry_p = float(bar["close"])
+                if direction == "long":
+                    swing  = last_swing_low(m5.iloc[:i+1], lookback=10)
+                    raw_sl = min(swing, entry_p - 1e-6)
+                    sl     = max(raw_sl, entry_p - SL_ATR_MULT * bar_atr)
+                else:
+                    swing  = last_swing_high(m5.iloc[:i+1], lookback=10)
+                    raw_sl = max(swing, entry_p + 1e-6)
+                    sl     = min(raw_sl, entry_p + SL_ATR_MULT * bar_atr)
+                risk = abs(entry_p - sl)
+                if risk <= 0:
+                    sig = None
+                else:
+                    from types import SimpleNamespace
+                    sig = SimpleNamespace(
+                        direction=direction,
+                        entry=entry_p,
+                        stop_loss=sl,
+                        take_profit1=entry_p + risk   if direction == "long" else entry_p - risk,
+                        take_profit2=entry_p + 2.5*risk if direction == "long" else entry_p - 2.5*risk,
+                        risk_distance=risk,
+                        session=active_session(ts.to_pydatetime()) or "London",
+                    )
             if sig is not None:
                 vol = _round_lot(
                     (equity * cfg.risk_pct / 100.0)

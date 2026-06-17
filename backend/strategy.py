@@ -803,6 +803,136 @@ def evaluate(
     )
 
 
+def batch_signals(
+    m5: pd.DataFrame,
+    m15: pd.DataFrame,
+    h1: pd.DataFrame,
+    check_session: bool = True,
+    atr_min: float = ATR_MIN,
+) -> pd.Series:
+    """
+    Vectorised signal generation for the full backtest period.
+
+    Instead of calling evaluate() O(n) times (each O(n) → O(n²) total),
+    this function computes ALL conditions as pandas column operations in
+    a single forward pass → O(n).
+
+    Returns a Series indexed like m5 with values:
+        "long"  — enter long at this bar
+        "short" — enter short at this bar
+        None    — no signal
+
+    Covers ~90% of evaluate()'s logic. Complex per-bar checks (SMC order
+    blocks, FVG, S/R proximity) are deliberately omitted here to keep
+    vectorisation clean; they are still applied in the live engine via
+    evaluate().
+    """
+    if len(m5) < EMA_SLOW + 10:
+        return pd.Series(None, index=m5.index, dtype=object)
+
+    c = m5["close"]
+    o = m5["open"]
+    h = m5["high"]
+    lo = m5["low"]
+
+    # ── H1 bias (forward-filled onto M5 timestamps) ──────────────────────────
+    h1_close  = h1["close"].reindex(m5.index, method="ffill")
+    h1_ema200 = h1["ema200"].reindex(m5.index, method="ffill") if "ema200" in h1.columns else None
+    h1_adx    = h1["adx"].reindex(m5.index, method="ffill")   if "adx"    in h1.columns else None
+
+    if h1_ema200 is not None:
+        bias_long  = h1_close > h1_ema200
+        bias_short = h1_close < h1_ema200
+    else:
+        bias_long  = pd.Series(False, index=m5.index)
+        bias_short = pd.Series(False, index=m5.index)
+
+    # ── H1 ADX filter ────────────────────────────────────────────────────────
+    adx_ok = (h1_adx >= ADX_MIN) if h1_adx is not None else pd.Series(True, index=m5.index)
+
+    # ── M15 confirmation (forward-filled) ────────────────────────────────────
+    m15_ema9  = m15["ema9"].reindex(m5.index,  method="ffill") if "ema9"  in m15.columns else None
+    m15_ema21 = m15["ema21"].reindex(m5.index, method="ffill") if "ema21" in m15.columns else None
+    m15_rsi   = m15["rsi"].reindex(m5.index,   method="ffill") if "rsi"   in m15.columns else None
+
+    if m15_ema9 is not None and m15_ema21 is not None:
+        m15_bull = m15_ema9 > m15_ema21
+        m15_bear = m15_ema9 < m15_ema21
+    else:
+        m15_bull = pd.Series(True, index=m5.index)
+        m15_bear = pd.Series(True, index=m5.index)
+
+    rsi_ok = pd.Series(True, index=m5.index)
+    if m15_rsi is not None:
+        rsi_ok = (m15_rsi >= RSI_LOW) & (m15_rsi <= RSI_HIGH)
+
+    # ── M5 indicators ────────────────────────────────────────────────────────
+    atr   = m5["atr"]   if "atr"   in m5.columns else pd.Series(1.0, index=m5.index)
+    ema9  = m5["ema9"]  if "ema9"  in m5.columns else c
+    ema21 = m5["ema21"] if "ema21" in m5.columns else c
+
+    atr_ok    = atr >= atr_min
+    ema9_long = c > ema9
+    ema9_sht  = c < ema9
+
+    # ── Session gate ─────────────────────────────────────────────────────────
+    if check_session:
+        cet_idx = m5.index.tz_convert(CET)
+        hour    = pd.Series(cet_idx.hour, index=m5.index)
+        in_london  = (hour >= 8)  & (hour < 12)
+        in_newyork = (hour >= 14) & (hour < 18)
+        session_ok = in_london | in_newyork
+    else:
+        session_ok = pd.Series(True, index=m5.index)
+
+    # ── Candlestick patterns (vectorised) ────────────────────────────────────
+    body      = (c - o).abs()
+    rng       = (h - lo).clip(lower=1e-9)
+    prev_c    = c.shift(1)
+    prev_o    = o.shift(1)
+    prev_body = (prev_c - prev_o).abs()
+
+    # Bullish engulfing
+    bull_eng = (prev_c < prev_o) & (c > o) & (c > prev_o) & (o < prev_c) & (body >= 0.4 * atr)
+    # Bearish engulfing
+    bear_eng = (prev_c > prev_o) & (c < o) & (c < prev_o) & (o > prev_c) & (body >= 0.4 * atr)
+    # Hammer
+    lower_wick = (o.where(c >= o, c) - lo)
+    hammer     = (lower_wick >= 2 * body) & (body >= 0.1 * rng) & (c >= o)
+    # Shooting star
+    upper_wick = (h - c.where(c >= o, o))
+    shooting   = (upper_wick >= 2 * body) & (body >= 0.1 * rng) & (c < o)
+    # Pin bar bullish
+    pin_bull   = (lower_wick >= 0.6 * rng) & (body <= 0.3 * rng)
+    # Pin bar bearish
+    pin_bear   = (upper_wick >= 0.6 * rng) & (body <= 0.3 * rng)
+
+    # Any bullish / bearish pattern
+    bull_pattern = bull_eng | hammer | pin_bull
+    bear_pattern = bear_eng | shooting | pin_bear
+
+    # ── Warmup mask ───────────────────────────────────────────────────────────
+    warmup = pd.Series(False, index=m5.index)
+    warmup.iloc[:EMA_SLOW + 10] = True
+
+    # ── Combine ───────────────────────────────────────────────────────────────
+    long_signal  = (
+        ~warmup & bias_long & adx_ok & m15_bull & rsi_ok
+        & atr_ok & ema9_long & session_ok & bull_pattern
+    )
+    short_signal = (
+        ~warmup & bias_short & adx_ok & m15_bear & rsi_ok
+        & atr_ok & ema9_sht  & session_ok & bear_pattern
+    )
+
+    out = pd.Series(None, index=m5.index, dtype=object)
+    out[long_signal]  = "long"
+    out[short_signal] = "short"
+    # resolve conflicts: skip if both fire on same bar
+    out[long_signal & short_signal] = None
+    return out
+
+
 def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
              now: Optional[datetime] = None) -> Dict[str, Any]:
     """Lightweight market snapshot for the dashboard."""
