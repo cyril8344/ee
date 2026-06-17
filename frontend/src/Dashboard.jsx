@@ -331,6 +331,18 @@ export default function Dashboard({ onLogout }) {
     return () => clearInterval(id);
   }, []);
 
+  /* Correlations polling — every 5 minutes (daily data, slow-moving) */
+  useEffect(() => {
+    const load = () =>
+      fetch(`${API}/api/correlations`, { headers: authHeaders() })
+        .then((r) => { if (r.status === 401) { logout401(onLogout); throw new Error("401"); } return r.json(); })
+        .then(setCorrelations)
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 300000);
+    return () => clearInterval(id);
+  }, []);
+
   const pos = mkt.position;
   const remaining = useCountdown(pos?.remaining_seconds);
   const newsCountdown = useCountdown(state?.news?.next_event_countdown_sec);
@@ -529,6 +541,11 @@ export default function Dashboard({ onLogout }) {
                   </div>
                 )}
               </div>
+
+              {/* correlations */}
+              {Object.keys(correlations).length > 0 && (
+                <CorrelationsPanel data={correlations} />
+              )}
 
               {/* news */}
               <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 6 }}>
