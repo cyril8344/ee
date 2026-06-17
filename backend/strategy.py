@@ -45,11 +45,11 @@ ATR_PERIOD = 14
 ADX_PERIOD = 14
 VOL_AVG_PERIOD = 20
 
-RSI_LOW = 45.0
-RSI_HIGH = 55.0
-ATR_MIN = 0.8
-ADX_MIN = 25.0              # minimum trend strength (0-100)
-SR_PROXIMITY_ATR = 0.5      # block entry if opposing S/R within 0.5×ATR
+RSI_LOW = 38.0
+RSI_HIGH = 62.0
+ATR_MIN = 0.6
+ADX_MIN = 20.0              # minimum trend strength (0-100)
+SR_PROXIMITY_ATR = 0.7      # block entry if opposing S/R within 0.7×ATR
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
 SL_ATR_MULT = 1.2
 SWING_LOOKBACK = 5          # bars each side for swing detection
