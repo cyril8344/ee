@@ -67,6 +67,9 @@ from optimizer import OptimizeConfig, run_optimize
 from auth import create_access_token, get_current_user, verify_credentials
 import cot_report
 import retail_sentiment
+import realtime_feed
+import correlations as corr_engine
+import finnhub_feed as _fh_module
 
 
 MARKET_CONFIG = {
@@ -473,6 +476,11 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
             "active_markets": state.settings.get("active_markets", ["XAUUSD", "EURUSD"]),
         },
         "markets": markets,
+        "realtime": {
+            "connected": realtime_feed.is_connected(),
+            "xauusd_tick": realtime_feed.get_latest("XAU/USD"),
+            "eurusd_tick": realtime_feed.get_latest("EUR/USD"),
+        },
     }
 
 
@@ -481,6 +489,7 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 @app.on_event("startup")
 async def _startup():
+    realtime_feed.start_feed()
     asyncio.create_task(_loop())
 
 
@@ -770,6 +779,29 @@ def news():
     return state.news.status()
 
 
+@app.get("/api/news-feed")
+def news_feed(_user: dict = Depends(get_current_user)):
+    """Return upcoming economic events and latest forex news from Finnhub.
+
+    Response shape:
+        {
+            "upcoming_events": [{"time": "HH:MM", "event": "...",
+                                  "currency": "USD", "impact": "high"}, ...],
+            "latest_news":     [{"headline": "...", "datetime": <epoch>,
+                                  "url": "..."}, ...10 items...]
+        }
+    Falls back to empty lists when Finnhub is not configured.
+    """
+    try:
+        feed = _fh_module.get_feed()
+        upcoming = feed.get_upcoming_events(hours_ahead=24)
+        latest = feed.get_forex_news(limit=10)
+    except Exception:
+        upcoming = []
+        latest = []
+    return {"upcoming_events": upcoming, "latest_news": latest}
+
+
 @app.get("/api/macro")
 def macro_status():
     return state.macro.status()
@@ -815,6 +847,19 @@ def get_sentiment(_user: dict = Depends(get_current_user)):
         return retail_sentiment.get_sentiment()
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Sentiment data unavailable: {exc}")
+
+
+@app.get("/api/correlations")
+def get_correlations(_user: dict = Depends(get_current_user)):
+    """
+    Return 20-period rolling Pearson correlation of XAU/USD daily returns
+    against key correlated/anti-correlated assets.
+    Cached for 30 minutes — data updates slowly (daily close prices).
+    """
+    try:
+        return corr_engine.get_correlations()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Correlation data unavailable: {exc}")
 
 
 # --------------------------------------------------------------------------- #

@@ -239,6 +239,7 @@ export default function Dashboard({ onLogout }) {
   const [trades, setTrades] = useState({ trades: [], equity_curve: [] });
   const [connected, setConnected] = useState(false);
   const [patternStats, setPatternStats] = useState({});
+  const [correlations, setCorrelations] = useState({});
   const beep = useBeep();
   const lastAlertTs = useRef(null);
 
@@ -387,6 +388,9 @@ export default function Dashboard({ onLogout }) {
         </h1>
         <span style={{ fontSize: 12, color: connected ? COLORS.green : COLORS.red }}>
           ● {connected ? "connecté" : "déconnecté"}
+        </span>
+        <span style={{ fontSize: 12, color: state?.realtime?.connected ? COLORS.green : COLORS.grey }}>
+          {state?.realtime?.connected ? "⚡ Temps réel" : "○ Polling"}
         </span>
         <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 4,
           background: state?.mode === "live" ? COLORS.red : COLORS.border,
