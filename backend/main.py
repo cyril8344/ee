@@ -841,6 +841,80 @@ async def get_agent_status(user=Depends(get_current_user)):
     return state.agent.status()
 
 
+# ── Portfolio index ─────────────────────────────────────────────────────────
+from portfolio_index import (
+    PortfolioIndexEngine, TargetAllocation, PaperAdapter, ScheduledRebalancer
+)
+
+_portfolio_engine: Optional[PortfolioIndexEngine] = None
+_portfolio_rebalancer: Optional[ScheduledRebalancer] = None
+
+
+def _get_portfolio_engine() -> PortfolioIndexEngine:
+    global _portfolio_engine
+    if _portfolio_engine is None:
+        # Default equal-weight across active markets
+        symbols = list(MARKET_CONFIG.keys())
+        w = 1.0 / len(symbols)
+        target = TargetAllocation({s: w for s in symbols})
+        broker = PaperAdapter()
+        _portfolio_engine = PortfolioIndexEngine(
+            target, broker, total_capital=10_000.0
+        )
+    return _portfolio_engine
+
+
+class PortfolioTargetRequest(BaseModel):
+    weights: dict
+    dry_run: bool = False
+
+
+@app.get("/api/portfolio")
+async def get_portfolio_status(user=Depends(get_current_user)):
+    """Current portfolio drift vs target allocation."""
+    return _get_portfolio_engine().status()
+
+
+@app.post("/api/portfolio/target")
+async def set_portfolio_target(req: PortfolioTargetRequest, user=Depends(get_current_user)):
+    """Update target allocation and optionally trigger immediate rebalance."""
+    engine = _get_portfolio_engine()
+    engine.update_target(req.weights)
+    if not req.dry_run:
+        result = engine.rebalance(dry_run=False)
+        return {
+            "message": "Target updated and rebalanced",
+            "executed": len(result.executed),
+            "total_usd_traded": result.total_usd_traded,
+        }
+    result = engine.rebalance(dry_run=True)
+    return {
+        "message": "Target updated (dry run — no orders sent)",
+        "would_execute": len(result.executed),
+        "preview": [
+            {"symbol": o.symbol, "action": o.action,
+             "lots": o.lots, "usd_amount": round(o.usd_amount, 2)}
+            for o in result.executed
+        ],
+    }
+
+
+@app.post("/api/portfolio/rebalance")
+async def trigger_rebalance(user=Depends(get_current_user)):
+    """Manually trigger a rebalance cycle."""
+    result = _get_portfolio_engine().rebalance(dry_run=False)
+    return {
+        "executed": len(result.executed),
+        "skipped": len(result.skipped),
+        "total_usd_traded": round(result.total_usd_traded, 2),
+        "orders": [
+            {"symbol": o.symbol, "action": o.action,
+             "lots": o.lots, "usd": round(o.usd_amount, 2), "reason": o.reason}
+            for o in result.executed
+        ],
+    }
+
+
 @app.get("/api/data-provider")
 def data_provider_status():
     """Which market-data providers are configured / currently usable."""
