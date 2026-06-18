@@ -879,6 +879,8 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
         if not pd.isna(ema9_v):
             ema9_aligned = (cur5["close"] >= ema9_v) if bias == "LONG" else (cur5["close"] <= ema9_v)
 
+    # NOTE: cette liste doit rester alignée avec les triggers de evaluate()
+    # pour que l'affichage du dashboard reflète exactement la logique d'entrée.
     patterns_detected: List[str] = []
     if bias != "NEUTRE" and cur5 is not None and len(m5) >= 2:
         prev5 = m5.iloc[-2]
@@ -887,15 +889,21 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
             if is_hammer(cur5, atr_val): patterns_detected.append("hammer")
             if is_pin_bar_bullish(cur5, atr_val): patterns_detected.append("pin_bar")
             if is_marubozu_bullish(cur5, atr_val): patterns_detected.append("marubozu")
+            if is_morning_star(m5.iloc[-3:], atr_val): patterns_detected.append("morning_star")
+            if is_bullish_harami(prev5, cur5): patterns_detected.append("harami")
             if ema9_pullback_bounce(m5, bias): patterns_detected.append("ema9_pullback")
             if micro_breakout(m5, bias): patterns_detected.append("micro_breakout")
+            if is_doji(prev5): patterns_detected.append("doji_reversal")
         else:
             if is_bearish_engulfing(prev5, cur5, atr_val): patterns_detected.append("bearish_engulfing")
             if is_shooting_star(cur5, atr_val): patterns_detected.append("shooting_star")
             if is_pin_bar_bearish(cur5, atr_val): patterns_detected.append("pin_bar")
             if is_marubozu_bearish(cur5, atr_val): patterns_detected.append("marubozu")
+            if is_evening_star(m5.iloc[-3:], atr_val): patterns_detected.append("evening_star")
+            if is_bearish_harami(prev5, cur5): patterns_detected.append("bearish_harami")
             if ema9_pullback_bounce(m5, bias): patterns_detected.append("ema9_pullback")
             if micro_breakout(m5, bias): patterns_detected.append("micro_breakout")
+            if is_doji(prev5): patterns_detected.append("doji_reversal")
 
     # first failing condition for quick diagnosis
     blocking_reason = None
