@@ -88,6 +88,7 @@ MARKET_CONFIG = {
         "contract_size": 100.0,
         "spread_pips": 0.3,
         "slippage_pips": 0.1,
+        "pip_size": 0.1,       # 1 pip XAU/USD = $0.10
     },
     "EURUSD": {
         "name": "EUR/USD",
@@ -95,6 +96,7 @@ MARKET_CONFIG = {
         "contract_size": 100000.0,
         "spread_pips": 0.2,
         "slippage_pips": 0.05,
+        "pip_size": 0.0001,    # 1 pip EUR/USD = 0.0001
     },
 }
 
@@ -150,6 +152,7 @@ class BotState:
                 self.settings.get("spread_pips", cfg["spread_pips"]),
                 self.settings.get("slippage_pips", cfg["slippage_pips"]),
                 cfg["contract_size"],
+                cfg.get("pip_size", 0.1),
             )
             self.market_states[sym] = MarketState(symbol=sym, config=cfg, broker=broker)
 
@@ -264,7 +267,7 @@ def current_equity() -> float:
     for ms in state.market_states.values():
         if ms.position is not None:
             try:
-                eq += ms.position.unrealised_pnl(ms.broker.get_price())
+                eq += ms.position.unrealised_pnl(ms.broker.get_price(), ms.broker.contract_size)
             except Exception:
                 pass
     return eq
@@ -464,7 +467,7 @@ def _position_payload(ms: MarketState) -> Optional[Dict[str, Any]]:
         price = ms.broker.get_price()
     except Exception:
         price = pos.entry
-    upnl = pos.unrealised_pnl(price)
+    upnl = pos.unrealised_pnl(price, ms.broker.contract_size)
     age = (datetime.now(timezone.utc) - pos.open_time).total_seconds()
     remaining_sec = max(0, strategy.MAX_TRADE_MINUTES * 60 - int(age))
 
@@ -770,6 +773,7 @@ def switch_mode(req: ModeSwitch, _user: dict = Depends(get_current_user)):
                 state.settings.get("spread_pips", cfg["spread_pips"]),
                 state.settings.get("slippage_pips", cfg["slippage_pips"]),
                 cfg["contract_size"],
+                cfg.get("pip_size", 0.1),
             )
         state.push_alert("info", f"Mode basculé sur {req.mode.upper()}")
     first_ms = next(iter(state.market_states.values()))

@@ -31,8 +31,6 @@ import pandas as pd
 
 from risk_manager import CONTRACT_SIZE
 
-PIP = 0.1
-
 
 # --------------------------------------------------------------------------- #
 # Data helper shared by paper broker
@@ -164,9 +162,11 @@ class PaperBroker(BaseBroker):
     name = "paper"
 
     def __init__(self, spread_pips: float = 0.3, slippage_pips: float = 0.1,
-                 symbol: str = "XAUUSD", contract_size: float = 100.0):
-        self.spread = spread_pips * PIP
-        self.slippage = slippage_pips * PIP
+                 symbol: str = "XAUUSD", contract_size: float = 100.0,
+                 pip_size: float = 0.1):
+        # pip_size is the price value of 1 pip (XAU: 0.1, EUR/USD: 0.0001)
+        self.spread = spread_pips * pip_size
+        self.slippage = slippage_pips * pip_size
         self.contract_size = contract_size
         self.data = MarketData(symbol=symbol)
         self._ticket = 1000
@@ -447,11 +447,12 @@ class MT5Broker(BaseBroker):
 
 def make_broker(mode: str = "paper", symbol: str = "XAUUSD",
                 spread_pips: float = 0.3, slippage_pips: float = 0.1,
-                contract_size: float = 100.0) -> BaseBroker:
+                contract_size: float = 100.0, pip_size: float = 0.1) -> BaseBroker:
     """Factory: returns an MT5 broker for live mode if available, else paper."""
     if mode == "live":
         mt5 = MT5Broker(symbol)
         if mt5.connected():
             return mt5
         # fall back to paper if MT5 unavailable
-    return PaperBroker(spread_pips, slippage_pips, symbol=symbol, contract_size=contract_size)
+    return PaperBroker(spread_pips, slippage_pips, symbol=symbol,
+                       contract_size=contract_size, pip_size=pip_size)
