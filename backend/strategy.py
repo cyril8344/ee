@@ -849,7 +849,8 @@ def batch_signals(
 
 
 def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
-             now: Optional[datetime] = None) -> Dict[str, Any]:
+             now: Optional[datetime] = None,
+             atr_min_override: float = ATR_MIN) -> Dict[str, Any]:
     """Lightweight market snapshot for the dashboard."""
     ts = now or datetime.now(timezone.utc)
     bias = compute_bias(h1) if len(h1) else "NEUTRE"
@@ -864,6 +865,49 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
 
     asian = asian_session_range(m5) if len(m5) else None
 
+    # --- condition diagnostics ---
+    m15_confirmed = confirm_m15(m15, bias) if (len(m15) >= 1 and bias != "NEUTRE") else False
+
+    atr_val = float(cur5["atr"]) if (cur5 is not None and not pd.isna(cur5.get("atr", float("nan")))) else 0.0
+    atr_ok = atr_val >= atr_min_override
+
+    ema9_aligned = False
+    if bias != "NEUTRE" and cur5 is not None:
+        ema9_v = cur5.get("ema9", float("nan"))
+        if not pd.isna(ema9_v):
+            ema9_aligned = (cur5["close"] >= ema9_v) if bias == "LONG" else (cur5["close"] <= ema9_v)
+
+    patterns_detected: List[str] = []
+    if bias != "NEUTRE" and cur5 is not None and len(m5) >= 2:
+        prev5 = m5.iloc[-2]
+        if bias == "LONG":
+            if is_bullish_engulfing(prev5, cur5, atr_val): patterns_detected.append("bullish_engulfing")
+            if is_hammer(cur5, atr_val): patterns_detected.append("hammer")
+            if is_pin_bar_bullish(cur5, atr_val): patterns_detected.append("pin_bar")
+            if is_marubozu_bullish(cur5, atr_val): patterns_detected.append("marubozu")
+            if ema9_pullback_bounce(m5, bias): patterns_detected.append("ema9_pullback")
+            if micro_breakout(m5, bias): patterns_detected.append("micro_breakout")
+        else:
+            if is_bearish_engulfing(prev5, cur5, atr_val): patterns_detected.append("bearish_engulfing")
+            if is_shooting_star(cur5, atr_val): patterns_detected.append("shooting_star")
+            if is_pin_bar_bearish(cur5, atr_val): patterns_detected.append("pin_bar")
+            if is_marubozu_bearish(cur5, atr_val): patterns_detected.append("marubozu")
+            if ema9_pullback_bounce(m5, bias): patterns_detected.append("ema9_pullback")
+            if micro_breakout(m5, bias): patterns_detected.append("micro_breakout")
+
+    # first failing condition for quick diagnosis
+    blocking_reason = None
+    if bias == "NEUTRE":
+        blocking_reason = "bias_neutre"
+    elif not m15_confirmed:
+        blocking_reason = "m15_non_confirmé"
+    elif not atr_ok:
+        blocking_reason = "atr_trop_bas"
+    elif not ema9_aligned:
+        blocking_reason = "ema9_non_aligné"
+    elif not patterns_detected:
+        blocking_reason = "aucun_pattern"
+
     return {
         "bias": bias,
         "session": session or "Hors session",
@@ -874,8 +918,16 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
         "adx_h1": _f(cur_h1, "adx", 1),
         "vwap_m15": _f(cur15, "vwap", 3),
         "price": _f(cur5, "close", 3),
-        "atr_min": ATR_MIN,
+        "atr_min": atr_min_override,
         "adx_min": ADX_MIN,
         "asian_range": asian,
         "structure_ok": market_structure_ok(h1, bias) if len(h1) >= 6 else None,
+        "conditions": {
+            "h1_bias": bias,
+            "m15_confirmed": m15_confirmed,
+            "atr_ok": atr_ok,
+            "ema9_aligned": ema9_aligned,
+            "patterns": patterns_detected,
+            "blocking_reason": blocking_reason,
+        },
     }

@@ -500,6 +500,20 @@ export default function Dashboard({ onLogout }) {
     }).then((r) => { if (r.status === 401) logout401(onLogout); });
   };
 
+  const [testSignalLoading, setTestSignalLoading] = useState(false);
+  const sendTestSignal = (direction) => {
+    if (state?.mode !== "paper") { alert("Signal test disponible en paper mode uniquement."); return; }
+    if (mkt.position) { alert("Une position est déjà ouverte."); return; }
+    setTestSignalLoading(true);
+    fetch(`${API}/api/test/signal?symbol=${activeMarket}&direction=${direction}`, {
+      method: "POST", headers: authHeaders(),
+    })
+      .then((r) => r.json())
+      .then((d) => alert(d.message || d.detail || JSON.stringify(d)))
+      .catch(() => alert("Erreur"))
+      .finally(() => setTestSignalLoading(false));
+  };
+
   const statusColor =
     state?.bot_status === "ACTIF" ? COLORS.green
       : state?.bot_status === "BLOQUE" ? COLORS.red : COLORS.amber;
@@ -615,6 +629,56 @@ export default function Dashboard({ onLogout }) {
                 <AtrGauge atr={mkt.indicators?.atr_m5} avg={mkt.indicators?.atr_avg}
                   min={mkt.indicators?.atr_min} />
               </div>
+
+              {/* ---- trading conditions checklist ---- */}
+              {mkt.conditions && (
+                <div style={{ background: "#0a1020", borderRadius: 6, padding: "8px 10px", marginBottom: 10, fontSize: 11 }}>
+                  <div style={{ color: COLORS.sub, fontWeight: 600, marginBottom: 6, fontSize: 11 }}>
+                    Conditions d'entrée
+                    {mkt.conditions.blocking_reason ? (
+                      <span style={{ marginLeft: 6, color: COLORS.amber, fontWeight: 400 }}>
+                        — bloqué: {mkt.conditions.blocking_reason.replace(/_/g, " ")}
+                      </span>
+                    ) : (
+                      <span style={{ marginLeft: 6, color: COLORS.green, fontWeight: 400 }}>✓ prêt</span>
+                    )}
+                  </div>
+                  {[
+                    { label: "Biais H1 EMA200", ok: mkt.conditions.h1_bias !== "NEUTRE", val: mkt.conditions.h1_bias },
+                    { label: "M15 EMA9/RSI", ok: mkt.conditions.m15_confirmed, val: mkt.conditions.m15_confirmed ? "✓" : "✗" },
+                    { label: "ATR M5", ok: mkt.conditions.atr_ok, val: mkt.conditions.atr_ok ? "✓" : "✗" },
+                    { label: "EMA9 aligné M5", ok: mkt.conditions.ema9_aligned, val: mkt.conditions.ema9_aligned ? "✓" : "✗" },
+                    { label: "Pattern", ok: mkt.conditions.patterns?.length > 0,
+                      val: mkt.conditions.patterns?.length > 0 ? mkt.conditions.patterns.join(", ").replace(/_/g, " ") : "aucun" },
+                  ].map(({ label, ok, val }) => (
+                    <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                      <span style={{ color: COLORS.sub }}>{label}</span>
+                      <span style={{ color: ok ? COLORS.green : COLORS.red, fontWeight: 500 }}>{val}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ---- test signal buttons (paper mode only) ---- */}
+              {state?.mode === "paper" && !mkt.position && (
+                <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 2, marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 6 }}>
+                    Test pipeline (paper uniquement)
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => sendTestSignal("long")} disabled={testSignalLoading}
+                      style={{ flex: 1, background: COLORS.green + "22", border: `1px solid ${COLORS.green}`, borderRadius: 4,
+                        color: COLORS.green, padding: "5px 0", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
+                      ▲ Test LONG
+                    </button>
+                    <button onClick={() => sendTestSignal("short")} disabled={testSignalLoading}
+                      style={{ flex: 1, background: COLORS.red + "22", border: `1px solid ${COLORS.red}`, borderRadius: 4,
+                        color: COLORS.red, padding: "5px 0", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
+                      ▼ Test SHORT
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* macro indicators: 4-in-a-row on desktop, 2x2 on mobile */}
               <div className="macro-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginBottom: 4 }}>
