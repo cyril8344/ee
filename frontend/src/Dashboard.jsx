@@ -639,7 +639,7 @@ export default function Dashboard({ onLogout }) {
           {Object.keys(state?.markets || { XAUUSD: 1 }).map((sym) => (
             <button key={sym} onClick={() => setActiveMarket(sym)}
               style={tabBtn(activeMarket === sym)}>
-              {sym === "XAUUSD" ? "XAU/USD" : sym === "EURUSD" ? "EUR/USD" : sym}
+              {sym === "XAUUSD" ? "XAU/USD" : sym === "EURUSD" ? "EUR/USD" : sym === "XAGUSD" ? "XAG/USD" : sym}
             </button>
           ))}
           <div style={{ width: 1, background: COLORS.border, margin: "0 4px" }} />

@@ -64,7 +64,7 @@ DEFAULT_SETTINGS = {
     "daily_stop_pct": 100.0,       # -100% = -1000€ (pratiquement désactivé)
     "mode": "paper",               # 'paper' | 'live'
     "symbol": "XAUUSD",
-    "active_markets": ["XAUUSD", "EURUSD"],
+    "active_markets": ["XAUUSD", "EURUSD", "XAGUSD"],
     "spread_pips": 0.3,
     "slippage_pips": 0.1,
     "bot_enabled": True,
@@ -139,12 +139,20 @@ def init_db() -> None:
                 (json.dumps(DEFAULT_SETTINGS), _utcnow_iso()),
             )
         else:
-            # One-time: réactiver EURUSD si la base l'avait désactivé seul.
+            # One-time migrations sur active_markets pour les bases existantes.
             data_row = c.execute("SELECT data FROM settings WHERE id = 1").fetchone()
             existing = json.loads(data_row[0]) if data_row else {}
             am = existing.get("active_markets")
+            changed = False
             if am == ["XAUUSD"]:
-                existing["active_markets"] = ["XAUUSD", "EURUSD"]
+                am = ["XAUUSD", "EURUSD"]
+                changed = True
+            # Ajoute l'argent (XAG/USD) s'il manque.
+            if isinstance(am, list) and "XAGUSD" not in am:
+                am = am + ["XAGUSD"]
+                changed = True
+            if changed:
+                existing["active_markets"] = am
                 c.execute(
                     "UPDATE settings SET data = ?, updated_at = ? WHERE id = 1",
                     (json.dumps(existing), _utcnow_iso()),
