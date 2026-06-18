@@ -186,6 +186,7 @@ class RiskManager:
         return {
             "capital": round(self.capital, 2),
             "risk_per_trade_pct": self.risk_per_trade_pct,
+            "daily_stop_pct": self.daily_stop_pct,
             "risk_amount_usd": round(
                 self.capital * (self.risk_per_trade_pct / 100.0), 2
             ),
