@@ -985,6 +985,15 @@ def pattern_stats():
     return db.get_pattern_stats()
 
 
+@app.post("/api/pattern-stats/reset")
+def reset_pattern_stats(_user: dict = Depends(get_current_user)):
+    """Remet tous les poids de patterns à zéro (apprentissage neutre)."""
+    db.reset_pattern_stats()
+    state.pattern_weights = {}
+    state.push_alert("info", "Statistiques des patterns réinitialisées — poids remis à neutre")
+    return {"ok": True, "message": "Pattern stats réinitialisées"}
+
+
 @app.get("/api/agent")
 async def get_agent_status(user=Depends(get_current_user)):
     """Return current Agent IA status (running, last/next run, sharpe, params)."""

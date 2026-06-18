@@ -131,6 +131,7 @@ def get_fed_data() -> Dict[str, Any]:
 
     result = _cached("fed_data", _fetch)
     if result is None:
+        has_key = bool(os.environ.get("FRED_API_KEY", "").strip())
         return {
             "fed_rate":       None,
             "fed_direction":  "unknown",
@@ -138,7 +139,7 @@ def get_fed_data() -> Dict[str, Any]:
             "real_rate_bias": "neutral",
             "dgs10":          None,
             "t10yie":         None,
-            "source":         "unavailable",
+            "source":         "no_key" if not has_key else "error",
         }
     return result
 

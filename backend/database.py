@@ -376,6 +376,12 @@ def get_pattern_stats() -> Dict[str, Dict]:
     return result
 
 
+def reset_pattern_stats() -> None:
+    """Delete all pattern statistics (reset learning to neutral weights)."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM pattern_stats")
+
+
 def update_pattern_stats(patterns: List[str], won: bool) -> None:
     """Increment trades (+1) and optionally wins (+1) for each pattern."""
     if not patterns:

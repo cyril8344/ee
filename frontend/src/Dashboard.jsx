@@ -905,9 +905,14 @@ export default function Dashboard({ onLogout }) {
                       ))}
                     </div>
                   )}
-                  {fedData.fed?.source === "unavailable" && (
+                  {fedData.fed?.source === "no_key" && (
                     <div style={{ fontSize: 10, color: COLORS.amber, marginTop: 4 }}>
-                      ⚠ Clé FRED_API_KEY manquante — ajouter dans Railway Variables
+                      ⚠ FRED_API_KEY manquante — à ajouter dans Railway Variables
+                    </div>
+                  )}
+                  {fedData.fed?.source === "error" && (
+                    <div style={{ fontSize: 10, color: COLORS.sub, marginTop: 4 }}>
+                      ○ FRED indisponible (clé présente, erreur réseau temporaire)
                     </div>
                   )}
                 </div>
@@ -990,14 +995,28 @@ export default function Dashboard({ onLogout }) {
               {/* pattern weights */}
               {Object.keys(patternStats).length > 0 && (
                 <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 10 }}>
-                  <button
-                    onClick={() => setWeightsOpen((o) => !o)}
-                    style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
-                      fontSize: 12, color: COLORS.sub, marginBottom: 6, textAlign: "left",
-                      width: "100%", display: "flex", justifyContent: "space-between" }}>
-                    <span>Poids des patterns</span>
-                    <span>{weightsOpen ? "▲" : "▼"}</span>
-                  </button>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <button
+                      onClick={() => setWeightsOpen((o) => !o)}
+                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
+                        fontSize: 12, color: COLORS.sub, display: "flex", gap: 6, alignItems: "center" }}>
+                      <span>Poids des patterns</span>
+                      <span>{weightsOpen ? "▲" : "▼"}</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (!window.confirm("Réinitialiser l'apprentissage des patterns ? Les poids reviennent à neutre (×1.0).")) return;
+                        fetch(`${API}/api/pattern-stats/reset`, { method: "POST", headers: authHeaders() })
+                          .then(r => r.json())
+                          .then(() => setPatternStats({}))
+                          .catch(() => alert("Erreur"));
+                      }}
+                      style={{ fontSize: 10, padding: "2px 7px", borderRadius: 3,
+                        border: `1px solid ${COLORS.border}`, background: "none",
+                        color: COLORS.sub, cursor: "pointer" }}>
+                      ↺ Reset
+                    </button>
+                  </div>
                   {weightsOpen && Object.entries(patternStats)
                     .filter(([, s]) => s.trades >= 1)
                     .sort((a, b) => b[1].weight - a[1].weight)
