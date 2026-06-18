@@ -738,6 +738,11 @@ def evaluate(
         if micro_breakout(m5, bias):                  triggers.append("micro_breakout")
         if is_doji(prev):                             triggers.append("doji_reversal")
 
+    # Order block proximity — confluence only, never a standalone trigger
+    obs = find_order_blocks(m5)
+    if triggers and near_orderblock(entry, bias, obs, atr_val):
+        triggers.append("near_order_block")
+
     # Any single pattern is sufficient (weighted score ≥ 1.0)
     def _w(t: str) -> float:
         if pattern_weights is None:
@@ -980,6 +985,12 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
             if ema9_pullback_bounce(m5, bias): patterns_detected.append("ema9_pullback")
             if micro_breakout(m5, bias): patterns_detected.append("micro_breakout")
             if is_doji(prev5): patterns_detected.append("doji_reversal")
+
+    # Order block proximity for dashboard display
+    if bias != "NEUTRE" and cur5 is not None:
+        obs_snap = find_order_blocks(m5)
+        if near_orderblock(float(cur5["close"]), bias, obs_snap, atr_val):
+            patterns_detected.append("near_order_block")
 
     # first failing condition for quick diagnosis
     blocking_reason = None
