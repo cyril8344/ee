@@ -205,16 +205,17 @@ function TvChart({ candles, markers, levels, position, symbol }) {
     }
   }, [position]);
 
-  if (!candles?.length) {
-    return (
-      <div style={{ height: 420, display: "flex", alignItems: "center", justifyContent: "center",
-        color: COLORS.sub, fontSize: 14, background: "#0d1421", borderRadius: 8 }}>
-        Chargement du graphique…
-      </div>
-    );
-  }
-
-  return <div ref={containerRef} style={{ height: 420, borderRadius: 8, overflow: "hidden" }} />;
+  return (
+    <div style={{ position: "relative", height: 420, borderRadius: 8, overflow: "hidden" }}>
+      <div ref={containerRef} style={{ height: "100%", background: "#0d1421" }} />
+      {!candles?.length && (
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center",
+          justifyContent: "center", color: COLORS.sub, fontSize: 14, background: "#0d1421" }}>
+          Chargement du graphique…
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* ============================== gauges =================================== */
