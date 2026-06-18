@@ -5,4 +5,4 @@ nixPkgs = ["python312"]
 cmds = ["pip install -r backend/requirements.txt"]
 
 [start]
-cmd = "cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT"
+cmd = "uvicorn --app-dir backend main:app --host 0.0.0.0 --port $PORT"
