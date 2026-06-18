@@ -34,6 +34,29 @@ import requests
 REQUEST_TIMEOUT = 12
 
 # --------------------------------------------------------------------------- #
+# Throttle global des appels TwelveData
+# Le plan gratuit autorise ~8 requêtes/min. On espace TOUS les appels (live +
+# workers d'arrière-plan) d'un intervalle minimum pour ne jamais dépasser le
+# quota et éviter les replis en données synthétiques.
+# --------------------------------------------------------------------------- #
+import threading as _threading
+import time as _time_mod
+
+_TD_MIN_INTERVAL = float(os.environ.get("TWELVEDATA_MIN_INTERVAL", "8.0"))  # secondes
+_td_throttle_lock = _threading.Lock()
+_td_last_call = [0.0]
+
+
+def _td_throttle() -> None:
+    """Bloque jusqu'à ce que l'intervalle minimum depuis le dernier appel soit écoulé."""
+    with _td_throttle_lock:
+        now = _time_mod.monotonic()
+        wait = _TD_MIN_INTERVAL - (now - _td_last_call[0])
+        if wait > 0:
+            _time_mod.sleep(wait)
+        _td_last_call[0] = _time_mod.monotonic()
+
+# --------------------------------------------------------------------------- #
 # Disk cache for historical M5 data
 # Avoids re-downloading on every backtest/optimize run.
 # Files stored in backend/data_cache/ as parquet.
@@ -172,6 +195,7 @@ def _fetch_twelvedata(start: Optional[str], end: Optional[str], bars: int,
         params["start_date"] = start
     if end:
         params["end_date"] = end
+    _td_throttle()
     r = requests.get("https://api.twelvedata.com/time_series",
                      params=params, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
@@ -214,6 +238,7 @@ def _fetch_twelvedata_range(start: str, end: str, symbol: str = "XAUUSD") -> pd.
             "outputsize": 5000,
             "end_date": cursor.strftime("%Y-%m-%d %H:%M:%S"),
         }
+        _td_throttle()
         r = requests.get("https://api.twelvedata.com/time_series",
                          params=params, timeout=REQUEST_TIMEOUT)
         r.raise_for_status()

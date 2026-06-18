@@ -40,7 +40,7 @@ PIP = 0.1
 class MarketData:
     """Cached 5-minute market data feed (data_provider + synthetic fallback)."""
 
-    def __init__(self, ttl_seconds: int = 60, symbol: str = "XAUUSD"):
+    def __init__(self, ttl_seconds: int = 120, symbol: str = "XAUUSD"):
         self.ttl = ttl_seconds
         self.symbol = symbol
         self._cache: Optional[pd.DataFrame] = None
