@@ -716,6 +716,67 @@ def toggle_bot(_user: dict = Depends(get_current_user)):
     return {"bot_enabled": new_val}
 
 
+@app.post("/api/test/signal")
+def test_signal(symbol: str = "XAUUSD", direction: str = "long",
+                _user: dict = Depends(get_current_user)):
+    """Force a test trade in PAPER mode only. Verifies the full execution pipeline."""
+    with state.lock:
+        if state.settings.get("mode", "paper") != "paper":
+            raise HTTPException(status_code=400, detail="Test signal only available in paper mode")
+        ms = state.market_states.get(symbol)
+        if ms is None:
+            raise HTTPException(status_code=404, detail=f"Unknown market: {symbol}")
+        if ms.position is not None:
+            raise HTTPException(status_code=409, detail="Position already open — close it first")
+        if direction not in ("long", "short"):
+            raise HTTPException(status_code=400, detail="direction must be 'long' or 'short'")
+
+        try:
+            m5, m15, h1 = build_context(ms.broker)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Could not load market data: {e}")
+
+        cur = m5.iloc[-1]
+        entry = float(cur["close"])
+        atr_val = float(cur["atr"]) if not pd.isna(cur.get("atr", float("nan"))) else ms.config["atr_min"] * 2
+        risk = atr_val * 1.2
+
+        if direction == "long":
+            sl = entry - risk
+            tp1 = entry + risk
+            tp2 = entry + 2.5 * risk
+        else:
+            sl = entry + risk
+            tp1 = entry - risk
+            tp2 = entry - 2.5 * risk
+
+        from strategy import Signal
+        now = datetime.now(timezone.utc)
+        sig = Signal(
+            direction=direction, bias="LONG" if direction == "long" else "SHORT",
+            session="Test", entry=entry, stop_loss=sl,
+            take_profit1=tp1, take_profit2=tp2,
+            atr=atr_val, reason="test_signal",
+            risk_distance=risk, timestamp=now,
+            meta={"triggers": ["test_signal"], "rsi_m5": 50.0, "rsi_m15": 50.0},
+        )
+        decision = state.risk.can_open_trade(entry, sl, ms.config["contract_size"])
+        if not decision.allowed:
+            raise HTTPException(status_code=400, detail=f"Risk manager refused: {decision.reason}")
+
+        _open_trade(ms, sig, decision, now)
+
+    return {
+        "status": "ok",
+        "symbol": symbol,
+        "direction": direction,
+        "entry": round(entry, 3),
+        "stop_loss": round(sl, 3),
+        "take_profit1": round(tp1, 3),
+        "message": f"Position TEST ouverte en paper @ {entry:.3f}",
+    }
+
+
 class BacktestRequest(BaseModel):
     start: str
     end: str

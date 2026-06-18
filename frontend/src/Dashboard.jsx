@@ -500,6 +500,20 @@ export default function Dashboard({ onLogout }) {
     }).then((r) => { if (r.status === 401) logout401(onLogout); });
   };
 
+  const [testSignalLoading, setTestSignalLoading] = useState(false);
+  const sendTestSignal = (direction) => {
+    if (state?.mode !== "paper") { alert("Signal test disponible en paper mode uniquement."); return; }
+    if (mkt.position) { alert("Une position est déjà ouverte."); return; }
+    setTestSignalLoading(true);
+    fetch(`${API}/api/test/signal?symbol=${activeMarket}&direction=${direction}`, {
+      method: "POST", headers: authHeaders(),
+    })
+      .then((r) => r.json())
+      .then((d) => alert(d.message || d.detail || JSON.stringify(d)))
+      .catch(() => alert("Erreur"))
+      .finally(() => setTestSignalLoading(false));
+  };
+
   const statusColor =
     state?.bot_status === "ACTIF" ? COLORS.green
       : state?.bot_status === "BLOQUE" ? COLORS.red : COLORS.amber;
@@ -642,6 +656,27 @@ export default function Dashboard({ onLogout }) {
                       <span style={{ color: ok ? COLORS.green : COLORS.red, fontWeight: 500 }}>{val}</span>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* ---- test signal buttons (paper mode only) ---- */}
+              {state?.mode === "paper" && !mkt.position && (
+                <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 2, marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 6 }}>
+                    Test pipeline (paper uniquement)
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => sendTestSignal("long")} disabled={testSignalLoading}
+                      style={{ flex: 1, background: COLORS.green + "22", border: `1px solid ${COLORS.green}`, borderRadius: 4,
+                        color: COLORS.green, padding: "5px 0", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
+                      ▲ Test LONG
+                    </button>
+                    <button onClick={() => sendTestSignal("short")} disabled={testSignalLoading}
+                      style={{ flex: 1, background: COLORS.red + "22", border: `1px solid ${COLORS.red}`, borderRadius: 4,
+                        color: COLORS.red, padding: "5px 0", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
+                      ▼ Test SHORT
+                    </button>
+                  </div>
                 </div>
               )}
 
