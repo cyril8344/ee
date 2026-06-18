@@ -376,6 +376,40 @@ def get_pattern_stats() -> Dict[str, Dict]:
     return result
 
 
+def reset_pattern_stats(rebuild_from_symbol: Optional[str] = None) -> int:
+    """
+    Efface toutes les statistiques de patterns.
+    Si rebuild_from_symbol est fourni (ex: 'XAUUSD'), rejoue les trades fermés
+    de ce symbole pour reconstruire les stats — le reste reste à neutre.
+    Retourne le nombre de trades rejoués.
+    """
+    with get_conn() as conn:
+        conn.execute("DELETE FROM pattern_stats")
+
+    if not rebuild_from_symbol:
+        return 0
+
+    # Rejouer les trades fermés du symbole voulu
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT meta, pnl FROM trades WHERE symbol = ? AND status = 'closed'",
+            (rebuild_from_symbol,)
+        ).fetchall()
+
+    replayed = 0
+    for row in rows:
+        try:
+            meta = json.loads(row["meta"]) if isinstance(row["meta"], str) else (row["meta"] or {})
+            triggers = meta.get("triggers", [])
+            pnl = row["pnl"] or 0.0
+            if triggers:
+                update_pattern_stats(triggers, won=pnl > 0)
+                replayed += 1
+        except Exception:
+            pass
+    return replayed
+
+
 def update_pattern_stats(patterns: List[str], won: bool) -> None:
     """Increment trades (+1) and optionally wins (+1) for each pattern."""
     if not patterns:
