@@ -96,13 +96,6 @@ MARKET_CONFIG = {
         "spread_pips": 0.2,
         "slippage_pips": 0.05,
     },
-    "XAGUSD": {
-        "name": "XAG/USD",
-        "atr_min": 0.015,
-        "contract_size": 5000.0,
-        "spread_pips": 0.02,
-        "slippage_pips": 0.01,
-    },
 }
 
 

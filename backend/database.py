@@ -64,7 +64,7 @@ DEFAULT_SETTINGS = {
     "daily_stop_pct": 100.0,       # -100% = -1000€ (pratiquement désactivé)
     "mode": "paper",               # 'paper' | 'live'
     "symbol": "XAUUSD",
-    "active_markets": ["XAUUSD", "EURUSD", "XAGUSD"],
+    "active_markets": ["XAUUSD", "EURUSD"],
     "spread_pips": 0.3,
     "slippage_pips": 0.1,
     "bot_enabled": True,
@@ -147,9 +147,9 @@ def init_db() -> None:
             if am == ["XAUUSD"]:
                 am = ["XAUUSD", "EURUSD"]
                 changed = True
-            # Ajoute l'argent (XAG/USD) s'il manque.
-            if isinstance(am, list) and "XAGUSD" not in am:
-                am = am + ["XAGUSD"]
+            # Retire l'argent (XAG/USD) : on se concentre d'abord sur or + euro/dollar.
+            if isinstance(am, list) and "XAGUSD" in am:
+                am = [m for m in am if m != "XAGUSD"]
                 changed = True
             if changed:
                 existing["active_markets"] = am

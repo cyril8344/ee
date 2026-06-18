@@ -143,15 +143,6 @@ MARKET_SYMBOLS = {
         "synthetic_vol": 0.00015,
         "synthetic_spread": 0.00004,
     },
-    "XAGUSD": {
-        "twelvedata": "XAG/USD",
-        "polygon": "X:XAGUSD",
-        "alphavantage": ("XAG", "USD"),
-        "yfinance": "SI=F",
-        "synthetic_price": 30.0,
-        "synthetic_vol": 0.0012,
-        "synthetic_spread": 0.02,
-    },
 }
 
 # Keep backward-compatible alias
