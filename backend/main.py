@@ -1110,9 +1110,28 @@ def data_provider_status():
     """Which market-data providers are configured / currently usable."""
     import data_provider
     import os
+
+    # Current provider per market (from cached broker state)
+    current = {}
+    for sym, ms in state.market_states.items():
+        p = getattr(getattr(ms.broker, "data", None), "provider", None)
+        current[sym] = p
+
+    # Test a live fetch for each market to see what actually works
+    test_results = {}
+    for sym in state.market_states:
+        try:
+            _, prov = data_provider.get_m5(bars=10, symbol=sym)
+            test_results[sym] = {"provider": prov, "ok": True}
+        except Exception as e:
+            test_results[sym] = {"provider": "error", "ok": False, "error": str(e)}
+
     return {
         "configured": os.environ.get("XAU_DATA_PROVIDER", "auto"),
         "available": data_provider.available_providers(),
+        "current_per_market": current,
+        "live_test": test_results,
+        "twelvedata_key_set": bool(os.environ.get("TWELVEDATA_API_KEY", "").strip()),
     }
 
 
