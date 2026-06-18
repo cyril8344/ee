@@ -544,6 +544,8 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
             "last_signal": ms.last_signal,
             "conditions": snap.get("conditions"),
             "data_provider": getattr(getattr(ms.broker, "data", None), "provider", None),
+            "data_errors": {k: v for k, v in __import__("data_provider").get_last_errors().items()
+                            if k.startswith(sym + ":")},
         }
 
     return {
@@ -1132,6 +1134,7 @@ def data_provider_status():
         "current_per_market": current,
         "live_test": test_results,
         "twelvedata_key_set": bool(os.environ.get("TWELVEDATA_API_KEY", "").strip()),
+        "last_errors": data_provider.get_last_errors(),
     }
 
 
