@@ -40,10 +40,10 @@ class RiskDecision:
 
 @dataclass
 class RiskManager:
-    capital: float = 10000.0
-    risk_per_trade_pct: float = 1.0
+    capital: float = 1000.0
+    risk_per_trade_pct: float = 5.0
     max_trades_per_day: int = 4
-    daily_stop_pct: float = 2.0
+    daily_stop_pct: float = 100.0
 
     # mutable daily state
     trades_today: int = 0

@@ -490,7 +490,7 @@ def _position_payload(ms: MarketState) -> Optional[Dict[str, Any]]:
         "open_time": pos.open_time.isoformat(),
         "age_seconds": int(age),
         "remaining_seconds": remaining_sec,
-        "progress_tp1": round(max(-1.0, min(prog1, 1.5)), 3),
+        "progress_tp1": 1.0 if pos.tp1_done else round(max(-1.0, min(prog1, 1.5)), 3),
         "progress_tp2": round(max(-1.0, min(prog2, 1.5)), 3),
     }
 
@@ -848,12 +848,12 @@ def test_signal(symbol: str = "XAUUSD", direction: str = "long",
 class BacktestRequest(BaseModel):
     start: str
     end: str
-    capital: float = 10000.0
-    risk_pct: float = 1.0
+    capital: float = 1000.0
+    risk_pct: float = 5.0
     spread_pips: float = 0.3
     slippage_pips: float = 0.1
     max_trades_per_day: int = 4
-    daily_stop_pct: float = 2.0
+    daily_stop_pct: float = 100.0
     symbol: str = "XAUUSD"
 
 
@@ -875,12 +875,12 @@ class OptimizeRequest(BaseModel):
     start: str
     end: str
     symbol: str = "XAUUSD"
-    capital: float = 10000.0
-    risk_pct: float = 1.0
+    capital: float = 1000.0
+    risk_pct: float = 5.0
     spread_pips: float = 0.3
     slippage_pips: float = 0.1
     max_trades_per_day: int = 4
-    daily_stop_pct: float = 2.0
+    daily_stop_pct: float = 100.0
 
 
 @app.post("/api/optimize")

@@ -58,10 +58,10 @@ def _utcnow_iso() -> str:
 # Schema
 # --------------------------------------------------------------------------- #
 DEFAULT_SETTINGS = {
-    "capital": 10000.0,
-    "risk_per_trade_pct": 1.0,     # fixed 1% (changing requires confirmation)
+    "capital": 1000.0,
+    "risk_per_trade_pct": 5.0,     # 5% = 50€ sur 1000€ de capital
     "max_trades_per_day": 4,
-    "daily_stop_pct": 2.0,         # -2% daily loss -> bot blocked
+    "daily_stop_pct": 100.0,       # -100% = -1000€ (pratiquement désactivé)
     "mode": "paper",               # 'paper' | 'live'
     "symbol": "XAUUSD",
     "spread_pips": 0.3,
