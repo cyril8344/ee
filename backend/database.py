@@ -64,6 +64,7 @@ DEFAULT_SETTINGS = {
     "daily_stop_pct": 100.0,       # -100% = -1000€ (pratiquement désactivé)
     "mode": "paper",               # 'paper' | 'live'
     "symbol": "XAUUSD",
+    "active_markets": ["XAUUSD"],  # EURUSD désactivé par défaut (données non fiables)
     "spread_pips": 0.3,
     "slippage_pips": 0.1,
     "bot_enabled": True,
