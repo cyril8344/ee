@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { createChart, CandlestickSeries, LineSeries } from "lightweight-charts";
+import { createChart, CandlestickSeries, LineSeries, createSeriesMarkers } from "lightweight-charts";
 import {
   ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
   ReferenceLine, CartesianGrid, Area, AreaChart, Bar, BarChart, Cell,
@@ -95,6 +95,7 @@ function TvChart({ candles, markers, levels, position, symbol }) {
   const seriesRef = useRef({});
   const srLinesRef = useRef([]);
   const posLinesRef = useRef([]);
+  const markersPluginRef = useRef(null);
   const isForex = symbol === "EURUSD";
 
   const toUnix = (iso) => Math.floor(new Date(iso).getTime() / 1000);
@@ -138,6 +139,7 @@ function TvChart({ candles, markers, levels, position, symbol }) {
 
     return () => {
       obs.disconnect();
+      if (markersPluginRef.current) { markersPluginRef.current.detach(); markersPluginRef.current = null; }
       chart.remove();
       chartRef.current = null;
       seriesRef.current = {};
@@ -172,7 +174,12 @@ function TvChart({ candles, markers, levels, position, symbol }) {
         marks.push({ time: t, position: "aboveBar", color: "#9598a1", shape: "circle", text: "X" });
       }
     });
-    s.candle.setMarkers(marks.sort((a, b) => a.time - b.time));
+    const sorted = marks.sort((a, b) => a.time - b.time);
+    if (markersPluginRef.current) {
+      markersPluginRef.current.setMarkers(sorted);
+    } else {
+      markersPluginRef.current = createSeriesMarkers(s.candle, sorted);
+    }
 
     // S/R levels
     srLinesRef.current.forEach((pl) => s.candle.removePriceLine(pl));
@@ -709,10 +716,25 @@ export default function Dashboard({ onLogout }) {
             <div className="dashboard-panel" style={panel()}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <h3 style={{ margin: 0, fontSize: 14 }}>Statut bot</h3>
-                <span style={{ padding: "3px 10px", borderRadius: 4, fontWeight: 600, fontSize: 12,
-                  background: statusColor + "22", color: statusColor }}>
-                  {state?.bot_status || "—"}
-                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ padding: "3px 10px", borderRadius: 4, fontWeight: 600, fontSize: 12,
+                    background: statusColor + "22", color: statusColor }}>
+                    {state?.bot_status || "—"}
+                  </span>
+                  {state?.bot_status === "BLOQUE" && (
+                    <button onClick={() => {
+                      if (!window.confirm("Réinitialiser la journée ? Les compteurs sont remis à zéro mais l'historique est conservé.")) return;
+                      fetch(`${API}/api/reset-day`, { method: "POST", headers: authHeaders() })
+                        .then(r => r.json())
+                        .then(() => {})
+                        .catch(() => alert("Erreur lors de la réinitialisation"));
+                    }} style={{ padding: "3px 10px", borderRadius: 4, fontSize: 11, fontWeight: 600,
+                      background: "#f59e0b22", color: COLORS.amber, border: `1px solid ${COLORS.amber}`,
+                      cursor: "pointer" }}>
+                      ↺ Restart
+                    </button>
+                  )}
+                </div>
               </div>
 
               <RsiBar label="RSI M5" value={mkt.indicators?.rsi_m5} />
