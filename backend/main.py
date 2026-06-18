@@ -297,6 +297,17 @@ def trading_tick() -> Dict[str, Any]:
                 snap = snapshot(m5, m15, h1, atr_min_override=ms.config["atr_min"])
                 ms.last_snapshot = snap
 
+                # Vérifier la fiabilité des données AVANT toute gestion de position.
+                # Sur données synthétiques, ni les entrées ni la gestion TP/SL ne doivent
+                # s'exécuter — les prix simulés sont aléatoires et fermeraient les positions
+                # à des niveaux irréels.
+                data_synthetic = hasattr(ms.broker, "is_synthetic") and ms.broker.is_synthetic()
+                if data_synthetic:
+                    state.push_alert("warn", f"[{ms.symbol}] Données synthétiques — gestion suspendue")
+                    if ms.position is not None:
+                        any_active = True
+                    continue
+
                 # ---- Manage open position ----
                 if ms.position is not None:
                     pos = ms.position
@@ -315,12 +326,7 @@ def trading_tick() -> Dict[str, Any]:
                 macro_blocked, macro_reason = state.macro.blocks_entry(ms.symbol, snap.get("bias", "NEUTRE"))
                 if macro_blocked:
                     state.push_alert("warn", f"[{ms.symbol}] Macro bloqué: {macro_reason}")
-                # Ne jamais trader sur des données synthétiques (non fiables, sauts irréalistes).
-                data_synthetic = hasattr(ms.broker, "is_synthetic") and ms.broker.is_synthetic()
-                if data_synthetic and ms.position is None:
-                    state.push_alert("warn", f"[{ms.symbol}] Données synthétiques — entrées bloquées")
                 if (ms.position is None and can_enter_session
-                        and not data_synthetic
                         and not state.risk.blocked and not news_status["blocked"]
                         and not macro_blocked
                         and state.settings.get("bot_enabled", True)):
