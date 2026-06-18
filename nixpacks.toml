@@ -3,7 +3,8 @@ nixPkgs = ["python312", "nodejs", "nodePackages.npm"]
 
 [phases.install]
 cmds = [
-  "pip install -r backend/requirements.txt",
+  "python -m venv --copies /opt/venv",
+  ". /opt/venv/bin/activate && pip install --upgrade pip && pip install -r backend/requirements.txt",
   "npm --prefix frontend install"
 ]
 
@@ -11,4 +12,4 @@ cmds = [
 cmds = ["npm --prefix frontend run build"]
 
 [start]
-cmd = "uvicorn --app-dir backend main:app --host 0.0.0.0 --port $PORT"
+cmd = ". /opt/venv/bin/activate && uvicorn --app-dir backend main:app --host 0.0.0.0 --port $PORT"
