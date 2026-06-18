@@ -490,7 +490,7 @@ def _position_payload(ms: MarketState) -> Optional[Dict[str, Any]]:
         "open_time": pos.open_time.isoformat(),
         "age_seconds": int(age),
         "remaining_seconds": remaining_sec,
-        "progress_tp1": round(max(-1.0, min(prog1, 1.5)), 3),
+        "progress_tp1": 1.0 if pos.tp1_done else round(max(-1.0, min(prog1, 1.5)), 3),
         "progress_tp2": round(max(-1.0, min(prog2, 1.5)), 3),
     }
 

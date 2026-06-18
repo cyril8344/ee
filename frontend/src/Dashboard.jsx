@@ -1406,7 +1406,7 @@ function Legend({ c, t }) {
   );
 }
 function ProgressBar({ label, value, done }) {
-  const v = Math.max(0, Math.min(value ?? 0, 1));
+  const v = done ? 1 : Math.max(0, Math.min(value ?? 0, 1));
   return (
     <div style={{ marginBottom: 6 }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: COLORS.sub }}>
