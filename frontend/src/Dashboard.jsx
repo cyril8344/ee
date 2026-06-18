@@ -521,6 +521,23 @@ export default function Dashboard({ onLogout }) {
   return (
     <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.text,
       fontFamily: "'Inter', system-ui, sans-serif", padding: 16 }}>
+
+      {/* ===== loading screen when no data yet ===== */}
+      {!state && (
+        <div style={{ position: "fixed", inset: 0, background: COLORS.bg,
+          display: "flex", flexDirection: "column", alignItems: "center",
+          justifyContent: "center", gap: 16, zIndex: 10 }}>
+          <div style={{ fontSize: 36 }}>🟡</div>
+          <div style={{ fontSize: 18, color: COLORS.text }}>Scalping Bot</div>
+          <div style={{ fontSize: 13, color: connected ? COLORS.amber : COLORS.red }}>
+            {connected ? "⏳ Connexion établie, chargement des données…" : "⏳ Connexion au serveur…"}
+          </div>
+          <div style={{ fontSize: 11, color: COLORS.sub }}>
+            {connected ? "Le backend calcule les indicateurs (peut prendre 10-20 s)" : "Reconnexion dans 3 s…"}
+          </div>
+        </div>
+      )}
+
       {/* ===== header / tabs ===== */}
       <div className="header-bar" style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
         <h1 style={{ fontSize: 20, margin: 0, letterSpacing: 0.5 }}>
