@@ -161,8 +161,10 @@ def verify_credentials(username: str, password: str) -> bool:
     """Return True if username + password match the configured admin account.
 
     Credentials are read at call time (not import time) so they always reflect
-    the loaded .env, regardless of module import order.
+    the loaded .env, regardless of module import order. Both sides are stripped
+    of surrounding whitespace so a stray space/newline in a Railway variable
+    (a very common copy-paste mistake) does not silently break login.
     """
-    admin_user = os.environ.get("ADMIN_USERNAME", "admin")
-    admin_pass = os.environ.get("ADMIN_PASSWORD", "changeme")
-    return username == admin_user and password == admin_pass
+    admin_user = os.environ.get("ADMIN_USERNAME", "admin").strip()
+    admin_pass = os.environ.get("ADMIN_PASSWORD", "changeme").strip()
+    return username.strip() == admin_user and password.strip() == admin_pass
