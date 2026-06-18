@@ -444,6 +444,7 @@ export default function Dashboard({ onLogout }) {
       capital: state?.risk?.capital ?? "",
       risk_per_trade_pct: state?.risk?.risk_per_trade_pct ?? "",
       daily_stop_pct: state?.risk?.daily_stop_pct ?? "",
+      max_trades_per_day: state?.risk?.max_trades_per_day ?? "",
     });
     setSettingsEdit(true);
   };
@@ -452,7 +453,8 @@ export default function Dashboard({ onLogout }) {
     const capital = parseFloat(settingsDraft.capital);
     const riskPct = parseFloat(settingsDraft.risk_per_trade_pct);
     const stopPct = parseFloat(settingsDraft.daily_stop_pct);
-    if ([capital, riskPct, stopPct].some(v => isNaN(v) || v <= 0)) {
+    const maxTrades = parseInt(settingsDraft.max_trades_per_day, 10);
+    if ([capital, riskPct, stopPct].some(v => isNaN(v) || v <= 0) || isNaN(maxTrades) || maxTrades < 1) {
       alert("Valeurs invalides — vérifie que tous les champs sont remplis avec des nombres positifs.");
       return;
     }
@@ -460,6 +462,7 @@ export default function Dashboard({ onLogout }) {
       capital,
       risk_per_trade_pct: riskPct,
       daily_stop_pct: stopPct,
+      max_trades_per_day: maxTrades,
       confirm_risk_change: true,
     };
     setSettingsSaving(true);
@@ -860,6 +863,7 @@ export default function Dashboard({ onLogout }) {
                       { label: "Capital ($)", key: "capital", min: 100, max: 1000000 },
                       { label: "Risque / trade (%)", key: "risk_per_trade_pct", min: 0.1, max: 5 },
                       { label: "Stop journalier (%)", key: "daily_stop_pct", min: 0.5, max: 10 },
+                      { label: "Trades max / jour", key: "max_trades_per_day", min: 1, max: 20 },
                     ].map(({ label, key, min, max }) => (
                       <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                         <span style={{ color: COLORS.sub, flex: 1 }}>{label}</span>
@@ -887,6 +891,7 @@ export default function Dashboard({ onLogout }) {
                     <Row k="Capital" v={`$${fmt(state?.risk?.capital, 2)}`} />
                     <Row k="Risque / trade" v={`${fmt(state?.risk?.risk_per_trade_pct, 1)}% · $${fmt(state?.risk?.risk_amount_usd, 0)}`} />
                     <Row k="Stop journalier" v={`-$${fmt(state?.risk?.daily_loss_limit_usd, 0)}`} />
+                    <Row k="Trades max / jour" v={`${state?.risk?.max_trades_per_day ?? "—"}`} />
                   </>
                 )}
               </div>
