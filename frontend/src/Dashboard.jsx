@@ -248,6 +248,7 @@ export default function Dashboard({ onLogout }) {
   const [chart, setChart] = useState(null);
   const [tf, setTf] = useState("M5");
   const [trades, setTrades] = useState({ trades: [], equity_curve: [] });
+  const [tradesScope, setTradesScope] = useState("today");
   const [connected, setConnected] = useState(false);
   const [patternStats, setPatternStats] = useState({});
   const [correlations, setCorrelations] = useState({});
@@ -328,7 +329,7 @@ export default function Dashboard({ onLogout }) {
   useEffect(() => {
     let active = true;
     const load = () =>
-      fetch(`${API}/api/trades?scope=today`, { headers: authHeaders() })
+      fetch(`${API}/api/trades?scope=${tradesScope}`, { headers: authHeaders() })
         .then((r) => { if (r.status === 401) { logout401(onLogout); throw new Error("401"); } return r.json(); })
         .then((d) => active && setTrades(d))
         .catch(() => {});
@@ -338,7 +339,7 @@ export default function Dashboard({ onLogout }) {
       active = false;
       clearInterval(id);
     };
-  }, []);
+  }, [tradesScope]);
 
   /* Pattern stats polling */
   useEffect(() => {
@@ -1116,7 +1117,15 @@ export default function Dashboard({ onLogout }) {
           {/* ===== history + equity ===== */}
           <div className="history-layout" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14, marginTop: 14 }}>
             <div className="dashboard-panel" style={panel()}>
-              <h3 style={{ margin: "0 0 10px", fontSize: 14 }}>Historique du jour</h3>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <h3 style={{ margin: 0, fontSize: 14 }}>
+                  {tradesScope === "today" ? "Historique du jour" : "Tout l'historique"}
+                </h3>
+                <div style={{ display: "flex", gap: 4 }}>
+                  <button onClick={() => setTradesScope("today")} style={{ ...tabBtn(tradesScope === "today"), fontSize: 11, padding: "3px 8px" }}>Aujourd'hui</button>
+                  <button onClick={() => setTradesScope("all")} style={{ ...tabBtn(tradesScope === "all"), fontSize: 11, padding: "3px 8px" }}>Tout</button>
+                </div>
+              </div>
               <div style={{ maxHeight: 240, overflowY: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead>

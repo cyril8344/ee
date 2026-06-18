@@ -242,6 +242,15 @@ def get_trades_for_day(day: str, mode: Optional[str] = None) -> List[Dict[str, A
         return [_row_to_dict(r) for r in rows]
 
 
+def get_open_trades() -> List[Dict[str, Any]]:
+    """Return all trades currently marked as open (for position recovery on restart)."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM trades WHERE status = 'open' ORDER BY id ASC"
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+
 def get_recent_trades(limit: int = 100, mode: Optional[str] = None) -> List[Dict[str, Any]]:
     q = "SELECT * FROM trades"
     params: List[Any] = []
