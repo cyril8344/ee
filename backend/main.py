@@ -725,6 +725,16 @@ def write_settings(patch: SettingsPatch, _user: dict = Depends(get_current_user)
     return state.settings
 
 
+@app.post("/api/reset-day")
+def reset_day(_user: dict = Depends(get_current_user)):
+    """Remet les compteurs journaliers à zéro et débloque le bot sans effacer l'historique."""
+    with state.lock:
+        state.risk.start_new_day(state.risk.capital)
+        state.bot_status = "ACTIF"
+    state.push_alert("info", "Journée réinitialisée — bot débloqué, compteurs remis à zéro")
+    return {"ok": True, "message": "Journée réinitialisée"}
+
+
 class ModeSwitch(BaseModel):
     mode: str                 # 'paper' | 'live'
     confirm: bool = False

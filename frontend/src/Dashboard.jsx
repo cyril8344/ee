@@ -709,10 +709,25 @@ export default function Dashboard({ onLogout }) {
             <div className="dashboard-panel" style={panel()}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <h3 style={{ margin: 0, fontSize: 14 }}>Statut bot</h3>
-                <span style={{ padding: "3px 10px", borderRadius: 4, fontWeight: 600, fontSize: 12,
-                  background: statusColor + "22", color: statusColor }}>
-                  {state?.bot_status || "—"}
-                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ padding: "3px 10px", borderRadius: 4, fontWeight: 600, fontSize: 12,
+                    background: statusColor + "22", color: statusColor }}>
+                    {state?.bot_status || "—"}
+                  </span>
+                  {state?.bot_status === "BLOQUE" && (
+                    <button onClick={() => {
+                      if (!window.confirm("Réinitialiser la journée ? Les compteurs sont remis à zéro mais l'historique est conservé.")) return;
+                      fetch(`${API}/api/reset-day`, { method: "POST", headers: authHeaders() })
+                        .then(r => r.json())
+                        .then(() => {})
+                        .catch(() => alert("Erreur lors de la réinitialisation"));
+                    }} style={{ padding: "3px 10px", borderRadius: 4, fontSize: 11, fontWeight: 600,
+                      background: "#f59e0b22", color: COLORS.amber, border: `1px solid ${COLORS.amber}`,
+                      cursor: "pointer" }}>
+                      ↺ Restart
+                    </button>
+                  )}
+                </div>
               </div>
 
               <RsiBar label="RSI M5" value={mkt.indicators?.rsi_m5} />
