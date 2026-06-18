@@ -319,7 +319,12 @@ def trading_tick() -> Dict[str, Any]:
                 macro_blocked, macro_reason = state.macro.blocks_entry(ms.symbol, snap.get("bias", "NEUTRE"))
                 if macro_blocked:
                     state.push_alert("warn", f"[{ms.symbol}] Macro bloqué: {macro_reason}")
+                # Ne jamais trader sur des données synthétiques (non fiables, sauts irréalistes).
+                data_synthetic = hasattr(ms.broker, "is_synthetic") and ms.broker.is_synthetic()
+                if data_synthetic and ms.position is None:
+                    state.push_alert("warn", f"[{ms.symbol}] Données synthétiques — entrées bloquées")
                 if (ms.position is None and can_enter_session
+                        and not data_synthetic
                         and not state.risk.blocked and not news_status["blocked"]
                         and not macro_blocked
                         and state.settings.get("bot_enabled", True)):
@@ -529,6 +534,7 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
             "position": _position_payload(ms),
             "last_signal": ms.last_signal,
             "conditions": snap.get("conditions"),
+            "data_provider": getattr(getattr(ms.broker, "data", None), "provider", None),
         }
 
     return {
