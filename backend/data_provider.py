@@ -65,7 +65,16 @@ _CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data_cach
 _CACHE_MAX_AGE_HOURS = 6  # refresh after 6 hours
 
 
-def _cache_key(symbol: str, start: str, end: str) -> str:
+# Global error tracker — dernière erreur par (symbol, provider) pour diagnostic
+_last_errors: dict = {}
+
+
+def get_last_errors() -> dict:
+    """Return the last fetch error per (symbol, provider) for diagnostics."""
+    return dict(_last_errors)
+
+
+
     raw = f"{symbol}_{start}_{end}"
     return hashlib.md5(raw.encode()).hexdigest()
 
@@ -457,8 +466,11 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
             if df is not None and len(df) > 0:
                 if _is_range:
                     _cache_save(symbol, start, end, df)
+                # Clear error on success
+                _last_errors.pop(f"{symbol}:{name}", None)
                 return df, name
         except Exception as e:  # noqa: BLE001 - intentional fallthrough
+            _last_errors[f"{symbol}:{name}"] = str(e)
             last_err = e
             continue
     # absolute last resort

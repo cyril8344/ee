@@ -697,9 +697,10 @@ export default function Dashboard({ onLogout }) {
                   {fmt(mkt.price, activeMarket === "EURUSD" ? 5 : 2)} {activeMarket === "EURUSD" ? "" : "$"}
                 </span>
                 {mkt.data_provider === "synthetic" && (
-                  <span title="Données simulées — le bot ne trade pas ce marché"
+                  <span
+                    title={mkt.data_errors ? Object.entries(mkt.data_errors).map(([k,v]) => `${k}: ${v}`).join(" | ") : "Données simulées — le bot ne trade pas ce marché"}
                     style={{ marginLeft: 10, padding: "2px 8px", borderRadius: 4, fontSize: 10,
-                      fontWeight: 600, background: COLORS.red + "22", color: COLORS.red }}>
+                      fontWeight: 600, background: COLORS.red + "22", color: COLORS.red, cursor: "help" }}>
                     ⚠ DONNÉES SIMULÉES
                   </span>
                 )}
