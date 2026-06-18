@@ -40,12 +40,13 @@ PIP = 0.1
 class MarketData:
     """Cached 5-minute market data feed (data_provider + synthetic fallback)."""
 
-    def __init__(self, ttl_seconds: int = 60, symbol: str = "XAUUSD"):
+    def __init__(self, ttl_seconds: int = 120, symbol: str = "XAUUSD"):
         self.ttl = ttl_seconds
         self.symbol = symbol
         self._cache: Optional[pd.DataFrame] = None
         self._fetched_at: float = 0.0
         self._lock = threading.Lock()
+        self.provider: Optional[str] = None  # dernier provider utilisé
 
     def get_m5(self, bars: int = 500) -> pd.DataFrame:
         with self._lock:
@@ -60,11 +61,13 @@ class MarketData:
     def _fetch(self) -> pd.DataFrame:
         try:
             import data_provider
-            df, _provider = data_provider.get_m5(bars=500, symbol=self.symbol)
+            df, provider = data_provider.get_m5(bars=500, symbol=self.symbol)
             if df is not None and len(df) > 0:
+                self.provider = provider
                 return df
         except Exception:
             pass
+        self.provider = "synthetic"
         return self._synthetic()
 
     def _synthetic(self) -> pd.DataFrame:
@@ -170,6 +173,10 @@ class PaperBroker(BaseBroker):
 
     def connected(self) -> bool:
         return True
+
+    def is_synthetic(self) -> bool:
+        """True si les données live proviennent du générateur synthétique (non fiables)."""
+        return self.data.provider == "synthetic"
 
     def get_rates_m5(self, bars: int = 500) -> pd.DataFrame:
         return self.data.get_m5(bars)

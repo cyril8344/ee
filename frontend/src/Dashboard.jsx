@@ -639,7 +639,7 @@ export default function Dashboard({ onLogout }) {
           {Object.keys(state?.markets || { XAUUSD: 1 }).map((sym) => (
             <button key={sym} onClick={() => setActiveMarket(sym)}
               style={tabBtn(activeMarket === sym)}>
-              {sym === "XAUUSD" ? "XAU/USD" : sym === "EURUSD" ? "EUR/USD" : sym}
+              {sym === "XAUUSD" ? "XAU/USD" : sym === "EURUSD" ? "EUR/USD" : sym === "XAGUSD" ? "XAG/USD" : sym}
             </button>
           ))}
           <div style={{ width: 1, background: COLORS.border, margin: "0 4px" }} />
@@ -696,6 +696,20 @@ export default function Dashboard({ onLogout }) {
                 <span style={{ marginLeft: 12, color: COLORS.sub, fontSize: 13 }}>
                   {fmt(mkt.price, activeMarket === "EURUSD" ? 5 : 2)} {activeMarket === "EURUSD" ? "" : "$"}
                 </span>
+                {mkt.data_provider === "synthetic" && (
+                  <span title="Données simulées — le bot ne trade pas ce marché"
+                    style={{ marginLeft: 10, padding: "2px 8px", borderRadius: 4, fontSize: 10,
+                      fontWeight: 600, background: COLORS.red + "22", color: COLORS.red }}>
+                    ⚠ DONNÉES SIMULÉES
+                  </span>
+                )}
+                {mkt.data_provider && mkt.data_provider !== "synthetic" && (
+                  <span title={`Source: ${mkt.data_provider}`}
+                    style={{ marginLeft: 10, padding: "2px 8px", borderRadius: 4, fontSize: 10,
+                      fontWeight: 600, background: COLORS.green + "22", color: COLORS.green }}>
+                    ● {mkt.data_provider}
+                  </span>
+                )}
                 <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
                   {["M5", "M15", "H1"].map((t) => (
                     <button key={t} onClick={() => setTf(t)} style={tabBtn(tf === t, true)}>{t}</button>
