@@ -40,7 +40,7 @@ MIN_BACKTEST_TRADES = 20
 # Symbols the agent monitors
 DEFAULT_SYMBOLS = ["XAUUSD", "EURUSD"]
 
-# Mapping from WorkerResult.params keys → strategy module attribute names
+# Mapping from WorkerResult.params keys -> strategy module attribute names
 PARAM_MAP: Dict[str, str] = {
     "adx_min":      "ADX_MIN",
     "rsi_low":      "RSI_LOW",
@@ -89,6 +89,10 @@ class AgentManager:
 
     def start(self) -> None:
         """Start background workers for each active symbol."""
+        if os.environ.get("DISABLE_AGENT", "").lower() in ("1", "true", "yes"):
+            logger.info("[AgentManager] disabled via DISABLE_AGENT env var")
+            return
+
         with self._lock:
             if self._running:
                 return
@@ -277,7 +281,7 @@ class AgentManager:
                            traceback.format_exc())
 
         logger.info(
-            "[AgentManager] params APPLIED — symbol=%s  sharpe %.3f→%.3f  (+%.1f%%)",
+            "[AgentManager] params APPLIED -- symbol=%s  sharpe %.3f->%.3f  (+%.1f%%)",
             result.symbol, result.current_sharpe, result.new_sharpe, result.improvement_pct,
         )
 

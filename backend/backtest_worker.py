@@ -111,8 +111,8 @@ class BacktestWorker:
     # ------------------------------------------------------------------ #
 
     def _run(self) -> None:
-        # Run first optimization shortly after startup (60s delay)
-        self._next_run = datetime.now(timezone.utc) + timedelta(seconds=60)
+        # First run after one full interval (not 60s) to avoid OOM on startup
+        self._next_run = datetime.now(timezone.utc) + timedelta(hours=self.interval_hours)
 
         while not self._stop_event.is_set():
             now = datetime.now(timezone.utc)
@@ -145,7 +145,7 @@ class BacktestWorker:
         start_str = start_dt.strftime("%Y-%m-%d")
         end_str = end_dt.strftime("%Y-%m-%d")
 
-        logger.info("[BacktestWorker:%s] optimising %s → %s", self.symbol, start_str, end_str)
+        logger.info("[BacktestWorker:%s] optimising %s -> %s", self.symbol, start_str, end_str)
 
         # ---- load data once ----
         shared_data = load_m5_data(start_str, end_str, symbol=self.symbol)
