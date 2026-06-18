@@ -1003,19 +1003,6 @@ export default function Dashboard({ onLogout }) {
                       <span>Poids des patterns</span>
                       <span>{weightsOpen ? "▲" : "▼"}</span>
                     </button>
-                    <button
-                      onClick={() => {
-                        if (!window.confirm("Purger l'apprentissage EUR/USD (trades défectueux) et garder l'or ?")) return;
-                        fetch(`${API}/api/pattern-stats/reset?keep_symbol=XAUUSD`, { method: "POST", headers: authHeaders() })
-                          .then(r => r.json())
-                          .then(d => { alert(d.message); setPatternStats({}); })
-                          .catch(() => alert("Erreur"));
-                      }}
-                      style={{ fontSize: 10, padding: "2px 7px", borderRadius: 3,
-                        border: `1px solid ${COLORS.border}`, background: "none",
-                        color: COLORS.sub, cursor: "pointer" }}>
-                      ↺ Reset EUR/USD
-                    </button>
                   </div>
                   {weightsOpen && Object.entries(patternStats)
                     .filter(([, s]) => s.trades >= 1)
