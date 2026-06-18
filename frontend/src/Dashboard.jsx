@@ -1200,10 +1200,10 @@ export default function Dashboard({ onLogout }) {
                   color: pos.direction === "long" ? COLORS.green : COLORS.red }}>
                   {pos.direction === "long" ? "▲ LONG" : "▼ SHORT"} · {pos.volume} lots
                 </span>
-                <Row k="Entrée" v={fmt(pos.entry, 2)} inline />
-                <Row k="SL" v={fmt(pos.stop_loss, 2)} inline />
-                <Row k="TP1" v={fmt(pos.take_profit1, 2)} inline />
-                <Row k="TP2" v={fmt(pos.take_profit2, 2)} inline />
+                <Row k="Entrée" v={fmt(pos.entry, activeMarket === "EURUSD" ? 5 : 2)} inline />
+                <Row k="SL" v={fmt(pos.stop_loss, activeMarket === "EURUSD" ? 5 : 2)} inline />
+                <Row k="TP1" v={fmt(pos.take_profit1, activeMarket === "EURUSD" ? 5 : 2)} inline />
+                <Row k="TP2" v={fmt(pos.take_profit2, activeMarket === "EURUSD" ? 5 : 2)} inline />
                 <span style={{ fontWeight: 700,
                   color: pos.unrealised_pnl >= 0 ? COLORS.green : COLORS.red }}>
                   {money(pos.unrealised_pnl)}
