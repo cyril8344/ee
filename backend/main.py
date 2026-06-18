@@ -155,11 +155,39 @@ class BotState:
 
         self.pattern_weights: Dict = db.get_pattern_stats()
         self._hydrate_today()
+        self._restore_open_positions()
 
         # Agent IA — perpetual optimisation
         self.agent = AgentManager(self)
         self.agent.load_saved_config()
         self.agent.start()
+
+    def _restore_open_positions(self):
+        """On restart, rebuild in-memory Position objects from DB open trades."""
+        from broker import Position
+        open_trades = db.get_open_trades()
+        for t in open_trades:
+            sym = t.get("symbol", "XAUUSD")
+            ms = self.market_states.get(sym)
+            if ms is None or ms.position is not None:
+                continue
+            try:
+                ms.position = Position(
+                    ticket=t.get("meta", {}).get("ticket", t["id"]),
+                    direction=t["direction"],
+                    entry=float(t["entry_price"]),
+                    volume=float(t["volume"]),
+                    stop_loss=float(t["stop_loss"]),
+                    take_profit1=float(t["take_profit1"]),
+                    take_profit2=float(t["take_profit2"]),
+                    open_time=datetime.fromisoformat(t["entry_time"]),
+                    meta=t.get("meta", {}),
+                    session=t.get("session", ""),
+                )
+                logger.info("[BotState] position restaurée: %s %s @ %s (trade_id=%s)",
+                            sym, t["direction"], t["entry_price"], t["id"])
+            except Exception:
+                traceback.print_exc()
 
     def _hydrate_today(self):
         today = db.today_utc()
