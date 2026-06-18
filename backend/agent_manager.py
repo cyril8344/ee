@@ -27,8 +27,9 @@ from backtest_worker import BacktestWorker, WorkerResult
 
 logger = logging.getLogger(__name__)
 
-CONFIG_PATH   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent_config.json")
-HISTORY_PATH  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent_history.json")
+_DATA_DIR     = "/data" if os.path.isdir("/data") else os.path.dirname(os.path.abspath(__file__))
+CONFIG_PATH   = os.path.join(_DATA_DIR, "agent_config.json")
+HISTORY_PATH  = os.path.join(_DATA_DIR, "agent_history.json")
 MAX_HISTORY   = 200
 
 # Minimum improvement to accept new params (10 %)

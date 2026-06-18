@@ -21,10 +21,13 @@ from datetime import datetime, timezone, date
 from contextlib import contextmanager
 from typing import Optional, List, Dict, Any
 
-DB_PATH = os.environ.get(
-    "XAU_DB_PATH",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "xau_bot.db"),
+# Use /data (Railway persistent volume) when available, fall back to local
+_DEFAULT_DB = (
+    "/data/xau_bot.db"
+    if os.path.isdir("/data")
+    else os.path.join(os.path.dirname(os.path.abspath(__file__)), "xau_bot.db")
 )
+DB_PATH = os.environ.get("XAU_DB_PATH", _DEFAULT_DB)
 
 
 # --------------------------------------------------------------------------- #
