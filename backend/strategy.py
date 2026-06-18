@@ -635,10 +635,12 @@ def evaluate(
     if atr_val < atr_min:
         return None
 
-    # 5) M5 EMA9 alignment
-    if bias == "LONG" and cur["close"] < cur["ema9"]:
+    # 5) M5 EMA9 alignment — tolérance de 0.3 ATR pour ne pas bloquer
+    # les entrées légèrement anticipées avant le croisement de l'EMA9.
+    ema9_tolerance = atr_val * 0.3
+    if bias == "LONG" and cur["close"] < cur["ema9"] - ema9_tolerance:
         return None
-    if bias == "SHORT" and cur["close"] > cur["ema9"]:
+    if bias == "SHORT" and cur["close"] > cur["ema9"] + ema9_tolerance:
         return None
 
     # 6) Candlestick pattern trigger (any single pattern is enough)
