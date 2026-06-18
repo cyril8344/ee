@@ -449,13 +449,19 @@ export default function Dashboard({ onLogout }) {
   };
 
   const saveSettings = () => {
+    const capital = parseFloat(settingsDraft.capital);
+    const riskPct = parseFloat(settingsDraft.risk_per_trade_pct);
+    const stopPct = parseFloat(settingsDraft.daily_stop_pct);
+    if ([capital, riskPct, stopPct].some(v => isNaN(v) || v <= 0)) {
+      alert("Valeurs invalides — vérifie que tous les champs sont remplis avec des nombres positifs.");
+      return;
+    }
     const payload = {
-      capital: parseFloat(settingsDraft.capital),
-      risk_per_trade_pct: parseFloat(settingsDraft.risk_per_trade_pct),
-      daily_stop_pct: parseFloat(settingsDraft.daily_stop_pct),
+      capital,
+      risk_per_trade_pct: riskPct,
+      daily_stop_pct: stopPct,
       confirm_risk_change: true,
     };
-    if (Object.values(payload).some(v => isNaN(v))) { alert("Valeurs invalides"); return; }
     setSettingsSaving(true);
     fetch(`${API}/api/settings`, {
       method: "POST",
