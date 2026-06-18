@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import { createChart, CandlestickSeries, LineSeries } from "lightweight-charts";
 import {
   ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
   ReferenceLine, CartesianGrid, Area, AreaChart, Bar, BarChart, Cell,
@@ -87,82 +88,133 @@ function useBeep() {
   }, []);
 }
 
-/* ============================= candlestick =============================== */
-function Candles({ candles, markers, levels }) {
-  if (!candles || candles.length === 0)
-    return <div style={{ color: COLORS.sub, padding: 40 }}>Chargement du graphique…</div>;
+/* ============================= TradingView chart ========================== */
+function TvChart({ candles, markers, levels, position, symbol }) {
+  const containerRef = useRef(null);
+  const chartRef = useRef(null);
+  const seriesRef = useRef({});
+  const srLinesRef = useRef([]);
+  const posLinesRef = useRef([]);
+  const isForex = symbol === "EURUSD";
 
-  const W = 100; // logical, scaled by ResponsiveContainer via SVG viewBox
-  const prices = candles.flatMap((c) => [c.high, c.low]);
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
-  const pad = (max - min) * 0.08 || 1;
-  const lo = min - pad;
-  const hi = max + pad;
-  const height = 420;
-  const width = Math.max(candles.length * 9, 600);
-  const cw = width / candles.length;
-  const bw = cw * 0.6;
+  const toUnix = (iso) => Math.floor(new Date(iso).getTime() / 1000);
 
-  const y = (p) => height - ((p - lo) / (hi - lo)) * height;
+  // Create chart instance once
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const chart = createChart(containerRef.current, {
+      layout: { background: { color: "#0d1421" }, textColor: "#9598a1" },
+      grid: { vertLines: { color: "#1a2540" }, horzLines: { color: "#1a2540" } },
+      crosshair: { mode: 1 },
+      rightPriceScale: { borderColor: "#1a2540" },
+      timeScale: { borderColor: "#1a2540", timeVisible: true, secondsVisible: false },
+      width: containerRef.current.clientWidth,
+      height: 420,
+    });
+    chartRef.current = chart;
 
-  const markerByTime = {};
-  (markers || []).forEach((m) => {
-    markerByTime[m.time] = m;
-  });
+    const priceFormat = { type: "price", precision: isForex ? 5 : 2, minMove: isForex ? 0.00001 : 0.01 };
 
-  return (
-    <div style={{ overflowX: "auto", background: COLORS.panel2, borderRadius: 8 }}>
-      <svg width={width} height={height + 30} style={{ display: "block" }}>
-        {/* support / resistance */}
-        {(levels?.resistance || []).map((r, i) => (
-          <line key={"r" + i} x1={0} x2={width} y1={y(r)} y2={y(r)}
-            stroke={COLORS.red} strokeOpacity={0.18} strokeDasharray="4 4" />
-        ))}
-        {(levels?.support || []).map((s, i) => (
-          <line key={"s" + i} x1={0} x2={width} y1={y(s)} y2={y(s)}
-            stroke={COLORS.green} strokeOpacity={0.18} strokeDasharray="4 4" />
-        ))}
+    seriesRef.current.candle = chart.addSeries(CandlestickSeries, {
+      upColor: "#16c784", downColor: "#ea3943",
+      borderUpColor: "#16c784", borderDownColor: "#ea3943",
+      wickUpColor: "#16c784", wickDownColor: "#ea3943",
+      priceFormat,
+    });
+    seriesRef.current.ema9 = chart.addSeries(LineSeries, {
+      color: "#f59e0b", lineWidth: 1, lastValueVisible: false, priceLineVisible: false,
+    });
+    seriesRef.current.ema21 = chart.addSeries(LineSeries, {
+      color: "#3b82f6", lineWidth: 1, lastValueVisible: false, priceLineVisible: false,
+    });
+    seriesRef.current.ema200 = chart.addSeries(LineSeries, {
+      color: "#c084fc", lineWidth: 1.5, lastValueVisible: false, priceLineVisible: false,
+    });
 
-        {/* EMA lines */}
-        {["ema9", "ema21", "ema200"].map((key, idx) => {
-          const stroke = [COLORS.amber, COLORS.blue, "#c084fc"][idx];
-          const d = candles
-            .map((c, i) => `${i === 0 ? "M" : "L"} ${i * cw + cw / 2} ${y(c[key])}`)
-            .join(" ");
-          return <path key={key} d={d} fill="none" stroke={stroke} strokeWidth={1.3} opacity={0.9} />;
-        })}
+    const obs = new ResizeObserver(() => {
+      if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
+    });
+    obs.observe(containerRef.current);
 
-        {/* candles */}
-        {candles.map((c, i) => {
-          const x = i * cw + cw / 2;
-          const up = c.close >= c.open;
-          const color = up ? COLORS.candleUp : COLORS.candleDown;
-          const yo = y(c.open);
-          const yc = y(c.close);
-          const bodyTop = Math.min(yo, yc);
-          const bodyH = Math.max(Math.abs(yc - yo), 1);
-          const signal = markerByTime[c.time];
-          return (
-            <g key={i}>
-              <line x1={x} x2={x} y1={y(c.high)} y2={y(c.low)} stroke={color} strokeWidth={1} />
-              <rect x={x - bw / 2} y={bodyTop} width={bw} height={bodyH} fill={color} />
-              {signal && signal.type === "entry" && (
-                <text x={x} y={signal.direction === "long" ? y(c.low) + 16 : y(c.high) - 8}
-                  fontSize="14" textAnchor="middle"
-                  fill={signal.direction === "long" ? COLORS.green : COLORS.red}>
-                  {signal.direction === "long" ? "▲" : "▼"}
-                </text>
-              )}
-              {signal && signal.type === "exit" && (
-                <text x={x} y={y(c.high) - 8} fontSize="13" textAnchor="middle" fill={COLORS.sub}>✕</text>
-              )}
-            </g>
-          );
-        })}
-      </svg>
-    </div>
-  );
+    return () => {
+      obs.disconnect();
+      chart.remove();
+      chartRef.current = null;
+      seriesRef.current = {};
+    };
+  }, [isForex]);
+
+  // Update candle + EMA data + S/R + markers
+  useEffect(() => {
+    const s = seriesRef.current;
+    if (!s.candle || !candles?.length) return;
+
+    s.candle.setData(candles.map((c) => ({
+      time: toUnix(c.time), open: c.open, high: c.high, low: c.low, close: c.close,
+    })));
+    s.ema9.setData(candles.map((c) => ({ time: toUnix(c.time), value: c.ema9 })));
+    s.ema21.setData(candles.map((c) => ({ time: toUnix(c.time), value: c.ema21 })));
+    s.ema200.setData(candles.map((c) => ({ time: toUnix(c.time), value: c.ema200 })));
+
+    // Trade markers
+    const marks = [];
+    (markers || []).forEach((m) => {
+      const t = toUnix(m.time);
+      if (m.type === "entry") {
+        marks.push({
+          time: t,
+          position: m.direction === "long" ? "belowBar" : "aboveBar",
+          color: m.direction === "long" ? "#16c784" : "#ea3943",
+          shape: m.direction === "long" ? "arrowUp" : "arrowDown",
+          text: m.direction === "long" ? "L" : "S",
+        });
+      } else if (m.type === "exit") {
+        marks.push({ time: t, position: "aboveBar", color: "#9598a1", shape: "circle", text: "X" });
+      }
+    });
+    s.candle.setMarkers(marks.sort((a, b) => a.time - b.time));
+
+    // S/R levels
+    srLinesRef.current.forEach((pl) => s.candle.removePriceLine(pl));
+    srLinesRef.current = [];
+    (levels?.resistance || []).forEach((r) => {
+      srLinesRef.current.push(s.candle.createPriceLine({ price: r, color: "#ea394355", lineWidth: 1, lineStyle: 2, axisLabelVisible: false }));
+    });
+    (levels?.support || []).forEach((sv) => {
+      srLinesRef.current.push(s.candle.createPriceLine({ price: sv, color: "#16c78455", lineWidth: 1, lineStyle: 2, axisLabelVisible: false }));
+    });
+
+    chartRef.current?.timeScale().scrollToRealTime();
+  }, [candles, markers, levels]);
+
+  // Position SL / TP lines
+  useEffect(() => {
+    const s = seriesRef.current;
+    if (!s.candle) return;
+    posLinesRef.current.forEach((pl) => s.candle.removePriceLine(pl));
+    posLinesRef.current = [];
+    if (position) {
+      const add = (price, color, title, lineStyle = 0) => {
+        if (!price) return;
+        posLinesRef.current.push(s.candle.createPriceLine({ price, color, lineWidth: 1, lineStyle, axisLabelVisible: true, title }));
+      };
+      add(position.stop_loss, "#ea3943", "SL");
+      add(position.entry, "#f0b429", "Entrée", 2);
+      if (!position.tp1_done) add(position.take_profit1, "#16c784", "TP1");
+      add(position.take_profit2, "#16c784", "TP2", 1);
+    }
+  }, [position]);
+
+  if (!candles?.length) {
+    return (
+      <div style={{ height: 420, display: "flex", alignItems: "center", justifyContent: "center",
+        color: COLORS.sub, fontSize: 14, background: "#0d1421", borderRadius: 8 }}>
+        Chargement du graphique…
+      </div>
+    );
+  }
+
+  return <div ref={containerRef} style={{ height: 420, borderRadius: 8, overflow: "hidden" }} />;
 }
 
 /* ============================== gauges =================================== */
@@ -642,7 +694,8 @@ export default function Dashboard({ onLogout }) {
                   ))}
                 </div>
               </div>
-              <Candles candles={chart?.candles} markers={chart?.markers} levels={chart?.levels} />
+              <TvChart candles={chart?.candles} markers={chart?.markers} levels={chart?.levels}
+                position={pos} symbol={activeMarket} />
               <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 11, color: COLORS.sub }}>
                 <Legend c={COLORS.amber} t="EMA9" /><Legend c={COLORS.blue} t="EMA21" />
                 <Legend c="#c084fc" t="EMA200" />
