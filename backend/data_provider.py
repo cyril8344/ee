@@ -180,34 +180,79 @@ def _normalise(df: pd.DataFrame) -> pd.DataFrame:
 # --------------------------------------------------------------------------- #
 # Provider implementations
 # --------------------------------------------------------------------------- #
+def _get_twelvedata_keys() -> List[str]:
+    """Return all configured TwelveData API keys (primary + rotation keys)."""
+    keys = []
+    for var in ("TWELVEDATA_API_KEY", "TWELVEDATA_API_KEY_2", "TWELVEDATA_API_KEY_3"):
+        k = os.environ.get(var, "").strip()
+        if k:
+            keys.append(k)
+    return keys
+
+
+# Index of the currently active key (rotates on 429)
+_td_key_index = [0]
+_td_key_lock = _threading.Lock()
+
+
+def _next_td_key_on_429() -> Optional[str]:
+    """Rotate to the next available key after a 429 error. Returns new key or None."""
+    keys = _get_twelvedata_keys()
+    with _td_key_lock:
+        _td_key_index[0] = (_td_key_index[0] + 1) % max(len(keys), 1)
+        idx = _td_key_index[0]
+    return keys[idx] if idx < len(keys) else None
+
+
 def _fetch_twelvedata(start: Optional[str], end: Optional[str], bars: int,
                       symbol: str = "XAUUSD") -> pd.DataFrame:
-    key = os.environ.get("TWELVEDATA_API_KEY")
-    if not key:
+    keys = _get_twelvedata_keys()
+    if not keys:
         raise RuntimeError("TWELVEDATA_API_KEY not set")
+
     td_symbol = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"])["twelvedata"]
     params = {
         "symbol": td_symbol, "interval": "5min",
-        "apikey": key, "format": "JSON", "timezone": "UTC",
+        "format": "JSON", "timezone": "UTC",
         "outputsize": min(max(bars, 1), 5000),
     }
     if start:
         params["start_date"] = start
     if end:
         params["end_date"] = end
-    _td_throttle()
-    r = requests.get("https://api.twelvedata.com/time_series",
-                     params=params, timeout=REQUEST_TIMEOUT)
-    r.raise_for_status()
-    data = r.json()
-    if data.get("status") == "error" or "values" not in data:
-        raise RuntimeError(f"TwelveData error: {data.get('message', data)}")
-    df = pd.DataFrame(data["values"])
-    df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
-    df = df.set_index("datetime")
-    if "volume" not in df.columns:
-        df["volume"] = 0.0
-    return _normalise(df)
+
+    last_exc = None
+    # Try each key once (rotate on 429)
+    for _ in range(len(keys)):
+        with _td_key_lock:
+            key = keys[_td_key_index[0] % len(keys)]
+        params["apikey"] = key
+        _td_throttle()
+        try:
+            r = requests.get("https://api.twelvedata.com/time_series",
+                             params=params, timeout=REQUEST_TIMEOUT)
+            if r.status_code == 429:
+                # Rate limited on this key — try next
+                _next_td_key_on_429()
+                last_exc = RuntimeError(f"429 Too Many Requests (key rotated)")
+                continue
+            r.raise_for_status()
+            data = r.json()
+            if data.get("status") == "error" or "values" not in data:
+                raise RuntimeError(f"TwelveData error: {data.get('message', data)}")
+            df = pd.DataFrame(data["values"])
+            df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
+            df = df.set_index("datetime")
+            if "volume" not in df.columns:
+                df["volume"] = 0.0
+            return _normalise(df)
+        except RuntimeError:
+            raise
+        except Exception as e:
+            last_exc = e
+            break
+
+    raise last_exc or RuntimeError("All TwelveData keys exhausted")
 
 
 def _fetch_twelvedata_range(start: str, end: str, symbol: str = "XAUUSD") -> pd.DataFrame:
@@ -219,9 +264,10 @@ def _fetch_twelvedata_range(start: str, end: str, symbol: str = "XAUUSD") -> pd.
     """
     import time as _time
 
-    key = os.environ.get("TWELVEDATA_API_KEY")
-    if not key:
+    keys = _get_twelvedata_keys()
+    if not keys:
         raise RuntimeError("TWELVEDATA_API_KEY not set")
+    key = keys[_td_key_index[0] % len(keys)]
 
     td_symbol = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"])["twelvedata"]
 
