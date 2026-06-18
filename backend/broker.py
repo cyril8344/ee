@@ -112,6 +112,7 @@ class Position:
     tp1_done: bool = False
     remaining: float = 0.0
     realised: float = 0.0
+    risk_amount: float = 0.0
     session: str = ""
     meta: Dict[str, Any] = field(default_factory=dict)
 
@@ -177,7 +178,7 @@ class PaperBroker(BaseBroker):
         df = self.data.get_m5(2)
         return float(df["close"].iloc[-1])
 
-    def market_order(self, direction, volume, sl, tp1, tp2, session="", meta=None) -> Position:
+    def market_order(self, direction, volume, sl, tp1, tp2, session="", meta=None, risk_amount=0.0) -> Position:
         self._ticket += 1
         price = self.get_price()
         # fill with spread + slippage
@@ -189,7 +190,7 @@ class PaperBroker(BaseBroker):
             ticket=self._ticket, direction=direction, entry=fill,
             volume=volume, stop_loss=sl, take_profit1=tp1,
             take_profit2=tp2, open_time=datetime.now(timezone.utc),
-            remaining=volume, session=session, meta=meta or {},
+            remaining=volume, risk_amount=risk_amount, session=session, meta=meta or {},
         )
 
     def update_position(self, pos: Position) -> Optional[Dict[str, Any]]:
@@ -199,6 +200,14 @@ class PaperBroker(BaseBroker):
 
         def pnl_for(p, lots):
             return (p - pos.entry) * sign * self.contract_size * lots
+
+        # Emergency stop: never lose more than 3× the intended risk
+        if pos.risk_amount > 0:
+            unrealised = pnl_for(price, pos.remaining) + pos.realised
+            if unrealised < -(pos.risk_amount * 3):
+                pos.realised += pnl_for(price - self.slippage * sign, pos.remaining)
+                return {"closed": True, "reason": "emergency_stop",
+                        "exit_price": price, "pnl": pos.realised}
 
         # TP1 partial (60%)
         if not pos.tp1_done:

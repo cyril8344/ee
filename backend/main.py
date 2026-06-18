@@ -356,7 +356,7 @@ def _open_trade(ms: MarketState, sig, decision, now):
     pos = ms.broker.market_order(
         sig.direction, decision.volume, sig.stop_loss,
         sig.take_profit1, sig.take_profit2,
-        session=sig.session, meta=sig.meta,
+        session=sig.session, meta=sig.meta, risk_amount=decision.risk_amount,
     )
     ms.position = pos
     state.risk.register_open()
