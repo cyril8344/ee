@@ -58,10 +58,10 @@ def _utcnow_iso() -> str:
 # Schema
 # --------------------------------------------------------------------------- #
 DEFAULT_SETTINGS = {
-    "capital": 10000.0,
-    "risk_per_trade_pct": 1.0,     # fixed 1% (changing requires confirmation)
+    "capital": 1000.0,
+    "risk_per_trade_pct": 5.0,     # 5% = 50€ sur 1000€ de capital
     "max_trades_per_day": 4,
-    "daily_stop_pct": 2.0,         # -2% daily loss -> bot blocked
+    "daily_stop_pct": 100.0,       # -100% = -1000€ (pratiquement désactivé)
     "mode": "paper",               # 'paper' | 'live'
     "symbol": "XAUUSD",
     "spread_pips": 0.3,
@@ -137,6 +137,18 @@ def init_db() -> None:
                 "INSERT INTO settings (id, data, updated_at) VALUES (1, ?, ?)",
                 (json.dumps(DEFAULT_SETTINGS), _utcnow_iso()),
             )
+        else:
+            # Migrate: if capital is still at old factory default, apply new defaults
+            data_row = c.execute("SELECT data FROM settings WHERE id = 1").fetchone()
+            existing = json.loads(data_row[0]) if data_row else {}
+            if existing.get("capital") == 10000.0:
+                existing["capital"] = DEFAULT_SETTINGS["capital"]
+                existing["risk_per_trade_pct"] = DEFAULT_SETTINGS["risk_per_trade_pct"]
+                existing["daily_stop_pct"] = DEFAULT_SETTINGS["daily_stop_pct"]
+                c.execute(
+                    "UPDATE settings SET data = ?, updated_at = ? WHERE id = 1",
+                    (json.dumps(existing), _utcnow_iso()),
+                )
 
 
 # --------------------------------------------------------------------------- #

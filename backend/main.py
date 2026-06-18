@@ -848,12 +848,12 @@ def test_signal(symbol: str = "XAUUSD", direction: str = "long",
 class BacktestRequest(BaseModel):
     start: str
     end: str
-    capital: float = 10000.0
-    risk_pct: float = 1.0
+    capital: float = 1000.0
+    risk_pct: float = 5.0
     spread_pips: float = 0.3
     slippage_pips: float = 0.1
     max_trades_per_day: int = 4
-    daily_stop_pct: float = 2.0
+    daily_stop_pct: float = 100.0
     symbol: str = "XAUUSD"
 
 
@@ -875,12 +875,12 @@ class OptimizeRequest(BaseModel):
     start: str
     end: str
     symbol: str = "XAUUSD"
-    capital: float = 10000.0
-    risk_pct: float = 1.0
+    capital: float = 1000.0
+    risk_pct: float = 5.0
     spread_pips: float = 0.3
     slippage_pips: float = 0.1
     max_trades_per_day: int = 4
-    daily_stop_pct: float = 2.0
+    daily_stop_pct: float = 100.0
 
 
 @app.post("/api/optimize")
