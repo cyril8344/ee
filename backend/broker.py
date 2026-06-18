@@ -49,7 +49,9 @@ class MarketData:
     def get_m5(self, bars: int = 500) -> pd.DataFrame:
         with self._lock:
             now = _time.time()
-            if self._cache is not None and (now - self._fetched_at) < self.ttl:
+            # Retry synthetic data quickly so real data is picked up as soon as it returns.
+            ttl = 15.0 if self.provider == "synthetic" else self.ttl
+            if self._cache is not None and (now - self._fetched_at) < ttl:
                 return self._cache.tail(bars).copy()
             df = self._fetch()
             self._cache = df

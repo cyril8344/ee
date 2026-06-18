@@ -303,10 +303,17 @@ def trading_tick() -> Dict[str, Any]:
                 # à des niveaux irréels.
                 data_synthetic = hasattr(ms.broker, "is_synthetic") and ms.broker.is_synthetic()
                 if data_synthetic:
-                    state.push_alert("warn", f"[{ms.symbol}] Données synthétiques — gestion suspendue")
+                    # N'alerter qu'une fois par transition (pas à chaque tick de 5s)
+                    if not ms.last_snapshot.get("_was_synthetic"):
+                        state.push_alert("warn", f"[{ms.symbol}] Données synthétiques — gestion suspendue (retry dans 15s)")
+                    ms.last_snapshot["_was_synthetic"] = True
                     if ms.position is not None:
                         any_active = True
                     continue
+                # Retour aux données réelles — log une fois
+                if ms.last_snapshot.get("_was_synthetic"):
+                    state.push_alert("info", f"[{ms.symbol}] Données réelles restaurées")
+                    ms.last_snapshot["_was_synthetic"] = False
 
                 # ---- Manage open position ----
                 if ms.position is not None:
