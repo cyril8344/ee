@@ -1003,19 +1003,6 @@ export default function Dashboard({ onLogout }) {
                       <span>Poids des patterns</span>
                       <span>{weightsOpen ? "▲" : "▼"}</span>
                     </button>
-                    <button
-                      onClick={() => {
-                        if (!window.confirm("Purger l'apprentissage EUR/USD (trades défectueux) et garder l'or ?")) return;
-                        fetch(`${API}/api/pattern-stats/reset?keep_symbol=XAUUSD`, { method: "POST", headers: authHeaders() })
-                          .then(r => r.json())
-                          .then(d => { alert(d.message); setPatternStats({}); })
-                          .catch(() => alert("Erreur"));
-                      }}
-                      style={{ fontSize: 10, padding: "2px 7px", borderRadius: 3,
-                        border: `1px solid ${COLORS.border}`, background: "none",
-                        color: COLORS.sub, cursor: "pointer" }}>
-                      ↺ Reset EUR/USD
-                    </button>
                   </div>
                   {weightsOpen && Object.entries(patternStats)
                     .filter(([, s]) => s.trades >= 1)
@@ -1200,10 +1187,10 @@ export default function Dashboard({ onLogout }) {
                   color: pos.direction === "long" ? COLORS.green : COLORS.red }}>
                   {pos.direction === "long" ? "▲ LONG" : "▼ SHORT"} · {pos.volume} lots
                 </span>
-                <Row k="Entrée" v={fmt(pos.entry, 2)} inline />
-                <Row k="SL" v={fmt(pos.stop_loss, 2)} inline />
-                <Row k="TP1" v={fmt(pos.take_profit1, 2)} inline />
-                <Row k="TP2" v={fmt(pos.take_profit2, 2)} inline />
+                <Row k="Entrée" v={fmt(pos.entry, activeMarket === "EURUSD" ? 5 : 2)} inline />
+                <Row k="SL" v={fmt(pos.stop_loss, activeMarket === "EURUSD" ? 5 : 2)} inline />
+                <Row k="TP1" v={fmt(pos.take_profit1, activeMarket === "EURUSD" ? 5 : 2)} inline />
+                <Row k="TP2" v={fmt(pos.take_profit2, activeMarket === "EURUSD" ? 5 : 2)} inline />
                 <span style={{ fontWeight: 700,
                   color: pos.unrealised_pnl >= 0 ? COLORS.green : COLORS.red }}>
                   {money(pos.unrealised_pnl)}
