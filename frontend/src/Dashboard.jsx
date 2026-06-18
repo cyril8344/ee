@@ -38,6 +38,17 @@ const COLORS = {
 };
 
 /* ----------------------------- helpers ---------------------------------- */
+// Converts a UTC ISO string to the browser's local time (e.g. Paris = UTC+2)
+const fmtLocalTime = (isoStr, secs = false) => {
+  if (!isoStr) return "—";
+  try {
+    return new Date(isoStr).toLocaleTimeString("fr-FR", {
+      hour: "2-digit", minute: "2-digit",
+      ...(secs ? { second: "2-digit" } : {}),
+    });
+  } catch { return (isoStr || "").slice(11, secs ? 19 : 16); }
+};
+
 const fmt = (n, d = 2) =>
   n === null || n === undefined || isNaN(n) ? "—" : Number(n).toFixed(d);
 const money = (n) =>
@@ -1108,7 +1119,7 @@ export default function Dashboard({ onLogout }) {
                   <tbody>
                     {(trades.trades || []).filter((t) => t.status === "closed").reverse().map((t) => (
                       <tr key={t.id} style={{ borderTop: `1px solid ${COLORS.border}` }}>
-                        <td style={td}>{(t.entry_time || "").slice(11, 16)}</td>
+                        <td style={td}>{fmtLocalTime(t.entry_time)}</td>
                         <td style={{ ...td, color: t.direction === "long" ? COLORS.green : COLORS.red }}>
                           {t.direction === "long" ? "LONG" : "SHORT"}
                         </td>
@@ -1133,7 +1144,7 @@ export default function Dashboard({ onLogout }) {
               <div className="chart-container" style={{ height: 210 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={(trades.equity_curve || []).map((p, i) => ({
-                  i, equity: p.equity, t: (p.ts || "").slice(11, 16),
+                  i, equity: p.equity, t: fmtLocalTime(p.ts),
                 }))}>
                   <defs>
                     <linearGradient id="eq" x1="0" y1="0" x2="0" y2="1">
@@ -1158,7 +1169,7 @@ export default function Dashboard({ onLogout }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 130, overflowY: "auto" }}>
               {(state?.alerts || []).slice().reverse().map((a, i) => (
                 <div key={i} style={{ fontSize: 12, color: alertColor(a.kind) }}>
-                  <span style={{ color: COLORS.sub }}>{(a.ts || "").slice(11, 19)} </span>
+                  <span style={{ color: COLORS.sub }}>{fmtLocalTime(a.ts, true)} </span>
                   {a.message}
                 </div>
               ))}
@@ -1175,7 +1186,7 @@ export default function Dashboard({ onLogout }) {
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {newsFeed.latest_news.slice(0, 5).map((item, i) => {
                   const ts = item.datetime
-                    ? new Date(item.datetime * 1000).toISOString().slice(11, 16) + " UTC"
+                    ? new Date(item.datetime * 1000).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
                     : "";
                   const headline = item.headline.length > 80
                     ? item.headline.slice(0, 79) + "…"
