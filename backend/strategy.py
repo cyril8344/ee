@@ -510,6 +510,70 @@ def is_bearish_harami(prev, cur) -> bool:
             cur["close"] >= prev["open"])
 
 
+def is_three_white_soldiers(df, atr_val: float = 0.0) -> bool:
+    """Trois soldats blancs : 3 bougies vertes consécutives en escalier (continuation forte)."""
+    if len(df) < 3:
+        return False
+    c1, c2, c3 = df.iloc[-3], df.iloc[-2], df.iloc[-1]
+    bulls = all(c["close"] > c["open"] for c in (c1, c2, c3))
+    rising = c2["close"] > c1["close"] and c3["close"] > c2["close"]
+    bodies_ok = atr_val <= 0 or all(_body(c) >= 0.3 * atr_val for c in (c1, c2, c3))
+    return bulls and rising and bodies_ok
+
+
+def is_three_black_crows(df, atr_val: float = 0.0) -> bool:
+    """Trois corbeaux noirs : 3 bougies rouges consécutives en escalier (continuation forte)."""
+    if len(df) < 3:
+        return False
+    c1, c2, c3 = df.iloc[-3], df.iloc[-2], df.iloc[-1]
+    bears = all(c["close"] < c["open"] for c in (c1, c2, c3))
+    falling = c2["close"] < c1["close"] and c3["close"] < c2["close"]
+    bodies_ok = atr_val <= 0 or all(_body(c) >= 0.3 * atr_val for c in (c1, c2, c3))
+    return bears and falling and bodies_ok
+
+
+def is_tweezer_bottom(prev, cur, atr_val: float = 0.0) -> bool:
+    """Pincettes bas : deux bougies avec des plus-bas quasi identiques (support, retournement haussier)."""
+    rng = max(_range(prev), _range(cur))
+    if rng <= 0:
+        return False
+    same_low = abs(prev["low"] - cur["low"]) <= 0.1 * rng
+    return (prev["close"] < prev["open"] and
+            cur["close"] > cur["open"] and
+            same_low)
+
+
+def is_tweezer_top(prev, cur, atr_val: float = 0.0) -> bool:
+    """Pincettes haut : deux bougies avec des plus-hauts quasi identiques (résistance, retournement baissier)."""
+    rng = max(_range(prev), _range(cur))
+    if rng <= 0:
+        return False
+    same_high = abs(prev["high"] - cur["high"]) <= 0.1 * rng
+    return (prev["close"] > prev["open"] and
+            cur["close"] < cur["open"] and
+            same_high)
+
+
+def is_piercing_line(prev, cur, atr_val: float = 0.0) -> bool:
+    """Ligne perçante : rouge puis verte qui clôture au-dessus du milieu de la précédente."""
+    if not (prev["close"] < prev["open"] and cur["close"] > cur["open"]):
+        return False
+    mid = (prev["open"] + prev["close"]) / 2
+    return (cur["open"] < prev["close"] and
+            cur["close"] > mid and
+            cur["close"] < prev["open"])
+
+
+def is_dark_cloud_cover(prev, cur, atr_val: float = 0.0) -> bool:
+    """Couverture en nuage noir : verte puis rouge qui clôture sous le milieu de la précédente."""
+    if not (prev["close"] > prev["open"] and cur["close"] < cur["open"]):
+        return False
+    mid = (prev["open"] + prev["close"]) / 2
+    return (cur["open"] > prev["close"] and
+            cur["close"] < mid and
+            cur["close"] > prev["open"])
+
+
 def ema9_pullback_bounce(m5: pd.DataFrame, bias: str) -> bool:
     """Pullback to EMA9 then rejection in bias direction."""
     if len(m5) < 3:
@@ -654,6 +718,9 @@ def evaluate(
         if is_marubozu_bullish(cur, atr_val):         triggers.append("marubozu")
         if is_morning_star(m5.iloc[-3:], atr_val):    triggers.append("morning_star")
         if is_bullish_harami(prev, cur):              triggers.append("harami")
+        if is_three_white_soldiers(m5.iloc[-3:], atr_val): triggers.append("three_white_soldiers")
+        if is_tweezer_bottom(prev, cur, atr_val):     triggers.append("tweezer_bottom")
+        if is_piercing_line(prev, cur, atr_val):      triggers.append("piercing_line")
         if ema9_pullback_bounce(m5, bias):            triggers.append("ema9_pullback")
         if micro_breakout(m5, bias):                  triggers.append("micro_breakout")
         if is_doji(prev):                             triggers.append("doji_reversal")
@@ -664,6 +731,9 @@ def evaluate(
         if is_marubozu_bearish(cur, atr_val):         triggers.append("marubozu")
         if is_evening_star(m5.iloc[-3:], atr_val):   triggers.append("evening_star")
         if is_bearish_harami(prev, cur):              triggers.append("bearish_harami")
+        if is_three_black_crows(m5.iloc[-3:], atr_val): triggers.append("three_black_crows")
+        if is_tweezer_top(prev, cur, atr_val):        triggers.append("tweezer_top")
+        if is_dark_cloud_cover(prev, cur, atr_val):   triggers.append("dark_cloud_cover")
         if ema9_pullback_bounce(m5, bias):            triggers.append("ema9_pullback")
         if micro_breakout(m5, bias):                  triggers.append("micro_breakout")
         if is_doji(prev):                             triggers.append("doji_reversal")
@@ -891,6 +961,9 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
             if is_marubozu_bullish(cur5, atr_val): patterns_detected.append("marubozu")
             if is_morning_star(m5.iloc[-3:], atr_val): patterns_detected.append("morning_star")
             if is_bullish_harami(prev5, cur5): patterns_detected.append("harami")
+            if is_three_white_soldiers(m5.iloc[-3:], atr_val): patterns_detected.append("three_white_soldiers")
+            if is_tweezer_bottom(prev5, cur5, atr_val): patterns_detected.append("tweezer_bottom")
+            if is_piercing_line(prev5, cur5, atr_val): patterns_detected.append("piercing_line")
             if ema9_pullback_bounce(m5, bias): patterns_detected.append("ema9_pullback")
             if micro_breakout(m5, bias): patterns_detected.append("micro_breakout")
             if is_doji(prev5): patterns_detected.append("doji_reversal")
@@ -901,6 +974,9 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
             if is_marubozu_bearish(cur5, atr_val): patterns_detected.append("marubozu")
             if is_evening_star(m5.iloc[-3:], atr_val): patterns_detected.append("evening_star")
             if is_bearish_harami(prev5, cur5): patterns_detected.append("bearish_harami")
+            if is_three_black_crows(m5.iloc[-3:], atr_val): patterns_detected.append("three_black_crows")
+            if is_tweezer_top(prev5, cur5, atr_val): patterns_detected.append("tweezer_top")
+            if is_dark_cloud_cover(prev5, cur5, atr_val): patterns_detected.append("dark_cloud_cover")
             if ema9_pullback_bounce(m5, bias): patterns_detected.append("ema9_pullback")
             if micro_breakout(m5, bias): patterns_detected.append("micro_breakout")
             if is_doji(prev5): patterns_detected.append("doji_reversal")
