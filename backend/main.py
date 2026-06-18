@@ -38,6 +38,8 @@ from typing import Optional, Dict, Any, List
 import pandas as pd
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 
@@ -118,6 +120,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Built React frontend (produced by `npm run build` during nixpacks build phase)
+_FRONTEND_DIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "dist")
+_ASSETS_DIR = os.path.join(_FRONTEND_DIST, "assets")
+if os.path.isdir(_ASSETS_DIR):
+    app.mount("/assets", StaticFiles(directory=_ASSETS_DIR), name="frontend-assets")
 
 
 class BotState:
@@ -547,6 +555,9 @@ class LoginRequest(BaseModel):
 
 @app.get("/")
 def root():
+    _idx = os.path.join(_FRONTEND_DIST, "index.html")
+    if os.path.isfile(_idx):
+        return FileResponse(_idx)
     return {"status": "ok", "service": "scalping-bot"}
 
 
@@ -1139,6 +1150,15 @@ async def websocket_endpoint(ws: WebSocket):
         ws_manager.disconnect(ws)
     except Exception:
         ws_manager.disconnect(ws)
+
+
+# SPA fallback — any unknown path serves index.html so React Router can handle it
+@app.get("/{full_path:path}")
+def spa_fallback(full_path: str):
+    _idx = os.path.join(_FRONTEND_DIST, "index.html")
+    if os.path.isfile(_idx):
+        return FileResponse(_idx)
+    raise HTTPException(status_code=404, detail="Not found")
 
 
 if __name__ == "__main__":
