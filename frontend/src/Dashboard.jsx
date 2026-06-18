@@ -893,7 +893,7 @@ export default function Dashboard({ onLogout }) {
                         <span style={{ color: COLORS.text }}>{name.replace(/_/g, " ")}</span>
                         <span style={{ color: COLORS.sub }}>{s.trades}t {s.win_rate}%</span>
                         <span style={{ color: s.weight > 1.2 ? COLORS.green : s.weight < 0.8 ? COLORS.red : COLORS.sub, fontWeight: "bold" }}>
-                          x{s.weight.toFixed(2)}
+                          x{fmt(s.weight, 2)}
                         </span>
                       </div>
                     ))
@@ -1235,7 +1235,8 @@ function CorrelationsPanel({ data }) {
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 5, maxHeight: 180, overflowY: "auto" }}>
         {entries.map(([name, info]) => {
-          const c = info.correlation;
+          const c = info?.correlation ?? null;
+          const trend = info?.trend;
           const barColor =
             c === null ? COLORS.grey
             : c > 0.3 ? COLORS.green
@@ -1245,8 +1246,8 @@ function CorrelationsPanel({ data }) {
             c === null ? "—"
             : (c >= 0 ? "+" : "") + c.toFixed(2);
           const trendArrow =
-            info.trend === "strengthening" ? "▲"
-            : info.trend === "weakening" ? "▼"
+            trend === "strengthening" ? "▲"
+            : trend === "weakening" ? "▼"
             : "";
           /* bar fills proportionally: c in [-1, 1] mapped to [0%, 100%] from centre */
           const barWidth = c === null ? 0 : Math.abs(c) * 50; // max 50% of half
