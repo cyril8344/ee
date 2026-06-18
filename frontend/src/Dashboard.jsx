@@ -1005,16 +1005,16 @@ export default function Dashboard({ onLogout }) {
                     </button>
                     <button
                       onClick={() => {
-                        if (!window.confirm("Réinitialiser l'apprentissage des patterns ? Les poids reviennent à neutre (×1.0).")) return;
-                        fetch(`${API}/api/pattern-stats/reset`, { method: "POST", headers: authHeaders() })
+                        if (!window.confirm("Purger l'apprentissage EUR/USD (trades défectueux) et garder l'or ?")) return;
+                        fetch(`${API}/api/pattern-stats/reset?keep_symbol=XAUUSD`, { method: "POST", headers: authHeaders() })
                           .then(r => r.json())
-                          .then(() => setPatternStats({}))
+                          .then(d => { alert(d.message); setPatternStats({}); })
                           .catch(() => alert("Erreur"));
                       }}
                       style={{ fontSize: 10, padding: "2px 7px", borderRadius: 3,
                         border: `1px solid ${COLORS.border}`, background: "none",
                         color: COLORS.sub, cursor: "pointer" }}>
-                      ↺ Reset
+                      ↺ Reset EUR/USD
                     </button>
                   </div>
                   {weightsOpen && Object.entries(patternStats)

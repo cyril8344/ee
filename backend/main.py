@@ -986,12 +986,24 @@ def pattern_stats():
 
 
 @app.post("/api/pattern-stats/reset")
-def reset_pattern_stats(_user: dict = Depends(get_current_user)):
-    """Remet tous les poids de patterns à zéro (apprentissage neutre)."""
-    db.reset_pattern_stats()
-    state.pattern_weights = {}
-    state.push_alert("info", "Statistiques des patterns réinitialisées — poids remis à neutre")
-    return {"ok": True, "message": "Pattern stats réinitialisées"}
+def reset_pattern_stats(keep_symbol: Optional[str] = None,
+                        _user: dict = Depends(get_current_user)):
+    """
+    Remet les poids de patterns à neutre.
+    keep_symbol (ex: 'XAUUSD'): reconstruit les stats depuis l'historique
+    de ce symbole, efface le reste. Utile pour purger les trades EUR/USD
+    défectueux sans perdre l'apprentissage sur l'or.
+    """
+    replayed = db.reset_pattern_stats(rebuild_from_symbol=keep_symbol)
+    state.pattern_weights = db.get_pattern_stats()
+    if keep_symbol:
+        state.push_alert("info",
+            f"Stats patterns réinitialisées — {replayed} trades {keep_symbol} rejoués, "
+            f"apprentissage EUR/USD effacé")
+    else:
+        state.push_alert("info", "Statistiques des patterns réinitialisées — poids remis à neutre")
+    return {"ok": True, "replayed": replayed,
+            "message": f"Pattern stats réinitialisées ({replayed} trades rejoués)"}
 
 
 @app.get("/api/agent")
