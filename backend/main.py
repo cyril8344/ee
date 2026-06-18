@@ -518,7 +518,10 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 @app.on_event("startup")
 async def _startup():
-    realtime_feed.start_feed()
+    try:
+        realtime_feed.start_feed()
+    except Exception:
+        traceback.print_exc()
     asyncio.create_task(_loop())
 
 
@@ -540,6 +543,11 @@ async def _loop():
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "scalping-bot"}
 
 
 @app.post("/api/login")
