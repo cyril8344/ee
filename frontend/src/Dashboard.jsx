@@ -1183,8 +1183,12 @@ export default function Dashboard({ onLogout }) {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead>
                     <tr style={{ color: COLORS.sub, textAlign: "left" }}>
-                      <th style={th}>Heure</th><th style={th}>Dir</th><th style={th}>Entrée</th>
+                      <th style={th}>Heure</th>
+                      <th style={th}>Actif</th>
+                      <th style={th}>Dir</th>
+                      <th style={th}>Entrée</th>
                       <th style={th}>Sortie</th>
+                      <th className="hide-mobile" style={th}>Mise</th>
                       <th className="hide-mobile" style={th}>Durée</th>
                       <th style={th}>Résultat</th>
                     </tr>
@@ -1193,11 +1197,17 @@ export default function Dashboard({ onLogout }) {
                     {(trades.trades || []).filter((t) => t.status === "closed").reverse().map((t) => (
                       <tr key={t.id} style={{ borderTop: `1px solid ${COLORS.border}` }}>
                         <td style={td}>{fmtLocalTime(t.entry_time)}</td>
+                        <td style={{ ...td, color: COLORS.sub, fontSize: 11 }}>
+                          {t.symbol || "XAUUSD"}
+                        </td>
                         <td style={{ ...td, color: t.direction === "long" ? COLORS.green : COLORS.red }}>
                           {t.direction === "long" ? "LONG" : "SHORT"}
                         </td>
-                        <td style={td}>{fmt(t.entry_price, 2)}</td>
-                        <td style={td}>{fmt(t.exit_price, 2)}</td>
+                        <td style={td}>{fmt(t.entry_price, t.symbol === "EURUSD" ? 5 : 2)}</td>
+                        <td style={td}>{fmt(t.exit_price, t.symbol === "EURUSD" ? 5 : 2)}</td>
+                        <td className="hide-mobile" style={{ ...td, color: COLORS.sub }}>
+                          {t.risk_amount ? money(t.risk_amount) : "—"}
+                        </td>
                         <td className="hide-mobile" style={td}>{fmt(t.duration_min, 0)}m</td>
                         <td style={{ ...td, fontWeight: 600, color: (t.pnl || 0) >= 0 ? COLORS.green : COLORS.red }}>
                           {money(t.pnl)}
@@ -1205,7 +1215,7 @@ export default function Dashboard({ onLogout }) {
                       </tr>
                     ))}
                     {(trades.trades || []).filter((t) => t.status === "closed").length === 0 && (
-                      <tr><td style={{ ...td, color: COLORS.sub }} colSpan={6}>Aucun trade clôturé aujourd'hui</td></tr>
+                      <tr><td style={{ ...td, color: COLORS.sub }} colSpan={8}>Aucun trade clôturé aujourd'hui</td></tr>
                     )}
                   </tbody>
                 </table>
