@@ -397,14 +397,14 @@ def near_fvg(price: float, bias: str, fvgs: List[Dict[str, Any]]) -> bool:
 # Bias / confirmation / entry primitives
 # --------------------------------------------------------------------------- #
 def compute_bias(h1: pd.DataFrame) -> str:
-    """LONG / SHORT from H1 EMA200 only."""
+    """LONG / SHORT selon EMA50 H1 (plus réactif que EMA200)."""
     if len(h1) < 1:
         return "NEUTRE"
     row = h1.iloc[-1]
-    price, ema200 = row["close"], row["ema200"]
-    if pd.isna(ema200):
+    price, ema50 = row["close"], row.get("ema50", float("nan"))
+    if pd.isna(ema50):
         return "NEUTRE"
-    return "LONG" if price > ema200 else "SHORT"
+    return "LONG" if price > ema50 else "SHORT"
 
 
 def confirm_m15(m15: pd.DataFrame, bias: str) -> bool:
@@ -755,9 +755,9 @@ def evaluate(
     if atr_val < atr_min:
         return None
 
-    # 5) M5 EMA9 alignment — tolérance de 0.3 ATR pour ne pas bloquer
-    # les entrées légèrement anticipées avant le croisement de l'EMA9.
-    ema9_tolerance = atr_val * 0.3
+    # 5) M5 EMA9 alignment — tolérance de 0.5 ATR pour capter les départs
+    # de mouvement depuis légèrement au-delà de l'EMA9.
+    ema9_tolerance = atr_val * 0.5
     if bias == "LONG" and cur["close"] < cur["ema9"] - ema9_tolerance:
         return None
     if bias == "SHORT" and cur["close"] > cur["ema9"] + ema9_tolerance:
@@ -1039,7 +1039,11 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
     if bias != "NEUTRE" and cur5 is not None:
         ema9_v = cur5.get("ema9", float("nan"))
         if not pd.isna(ema9_v):
+<<<<<<< HEAD
+            ema9_tol = atr_val * 0.5
+=======
             ema9_tol = atr_val * 0.3
+>>>>>>> origin/main
             if bias == "LONG":
                 ema9_aligned = cur5["close"] >= float(ema9_v) - ema9_tol
             else:
