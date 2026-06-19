@@ -300,7 +300,8 @@ def trading_tick() -> Dict[str, Any]:
         for ms in state.market_states.values():
             try:
                 m5, m15, h1 = build_context(ms.broker)
-                snap = snapshot(m5, m15, h1, atr_min_override=ms.config["atr_min"])
+                snap = snapshot(m5, m15, h1, atr_min_override=ms.config["atr_min"],
+                               pattern_weights=state.pattern_weights)
                 ms.last_snapshot = snap
 
                 # Vérifier la fiabilité des données AVANT toute gestion de position.
