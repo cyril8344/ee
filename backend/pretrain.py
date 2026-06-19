@@ -82,7 +82,7 @@ def run_pretrain(
 
     contract_size = 100.0   if symbol == "XAUUSD" else 100000.0
     pip_size      = 0.1     if symbol == "XAUUSD" else 0.0001
-    default_atr   = 0.8     if symbol == "XAUUSD" else 0.00030
+    default_atr   = 3.0     if symbol == "XAUUSD" else 0.00030
     effective_atr = atr_min if atr_min is not None else default_atr
     spread    = 0.3  * pip_size
     slippage  = 0.1  * pip_size
