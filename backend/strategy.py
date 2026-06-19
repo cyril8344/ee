@@ -743,14 +743,17 @@ def evaluate(
     if triggers and near_orderblock(entry, bias, obs, atr_val):
         triggers.append("near_order_block")
 
-    # Any single pattern is sufficient (weighted score ≥ 1.0)
+    # Entry gating: sum of weights >= 1.0 AND average weight >= 0.45
     def _w(t: str) -> float:
         if pattern_weights is None:
             return 1.0
         info = pattern_weights.get(t)
         return info["weight"] if isinstance(info, dict) else float(info) if info else 1.0
 
-    if sum(_w(t) for t in triggers) < 1.0:
+    weights = [_w(t) for t in triggers]
+    if sum(weights) < 1.0:
+        return None
+    if len(weights) > 1 and (sum(weights) / len(weights)) < 0.45:
         return None
 
     # 7) Build trade levels
