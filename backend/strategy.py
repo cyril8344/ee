@@ -407,21 +407,17 @@ def compute_bias(h1: pd.DataFrame) -> str:
     return "LONG" if price > ema50 else "SHORT"
 
 
-def confirm_m15(m15: pd.DataFrame, bias: str) -> bool:
+def confirm_m15(m15: pd.DataFrame, bias: str, ema_mult: float = 0.3) -> bool:
     if bias not in ("LONG", "SHORT") or len(m15) < 1:
         return False
     cur = m15.iloc[-1]
     if any(pd.isna(cur[c]) for c in ("ema9", "ema21", "rsi")):
         return False
     rsi_ok = RSI_LOW <= cur["rsi"] <= RSI_HIGH
-    # Tolérance = max(0.3 ATR, 1 pip en unités prix).
-    # Sur XAUUSD : 0.3 * 1.5 ≈ 0.45 $ → significatif.
-    # Sur EUR/USD : 0.3 * 0.001 ≈ 0.0003 → sub-pip, inutile sans plancher.
-    # 1 pip EUR/USD = 0.0001, 1 pip XAUUSD = 0.1 → on utilise price * 0.0001.
     atr_m15 = float(cur.get("atr", 0) or 0)
     price = float(cur.get("close", 1) or 1)
     pip_floor = price * 0.0001
-    tol = max(0.3 * atr_m15, pip_floor)
+    tol = max(ema_mult * atr_m15, pip_floor)
     if bias == "LONG":
         ema_ok = cur["ema9"] >= cur["ema21"] - tol
     else:
@@ -716,6 +712,7 @@ def evaluate(
     atr_min: float = ATR_MIN,
     pattern_weights: Optional[Dict[str, float]] = None,
     ml_gate=None,
+    adaptive_thresholds=None,
 ) -> Optional[Signal]:
     """
     Evaluate the full multi-timeframe stack on the *last closed* M5 bar.
@@ -747,18 +744,24 @@ def evaluate(
     if bias == "NEUTRE":
         return None
 
+    # Seuils adaptatifs (si disponibles et entraînés)
+    _adapt = adaptive_thresholds
+    _adapt_ready = _adapt is not None and _adapt.is_ready
+    effective_atr_min  = _adapt.atr_min   if _adapt_ready else atr_min
+    effective_ema9_mult = _adapt.ema9_mult if _adapt_ready else 0.5
+    effective_m15_mult  = _adapt.m15_mult  if _adapt_ready else 0.3
+
     # 3) M15 EMA9/21 + RSI confirmation
-    if not confirm_m15(m15, bias):
+    if not confirm_m15(m15, bias, ema_mult=effective_m15_mult):
         return None
 
     # 4) M5 volatility floor
     atr_val = float(cur["atr"]) if not pd.isna(cur["atr"]) else 0.0
-    if atr_val < atr_min:
+    if atr_val < effective_atr_min:
         return None
 
-    # 5) M5 EMA9 alignment — tolérance de 0.5 ATR pour capter les départs
-    # de mouvement depuis légèrement au-delà de l'EMA9.
-    ema9_tolerance = atr_val * 0.5
+    # 5) M5 EMA9 alignment — tolérance adaptative (défaut 0.5 ATR)
+    ema9_tolerance = atr_val * effective_ema9_mult
     if bias == "LONG" and cur["close"] < cur["ema9"] - ema9_tolerance:
         return None
     if bias == "SHORT" and cur["close"] > cur["ema9"] + ema9_tolerance:
@@ -1011,7 +1014,8 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
              now: Optional[datetime] = None,
              atr_min_override: float = ATR_MIN,
              pattern_weights: Optional[Dict[str, Any]] = None,
-             ml_gate=None) -> Dict[str, Any]:
+             ml_gate=None,
+             adaptive_thresholds=None) -> Dict[str, Any]:
     """Lightweight market snapshot for the dashboard."""
     ts = now or datetime.now(timezone.utc)
     bias = compute_bias(h1) if len(h1) else "NEUTRE"
@@ -1026,8 +1030,15 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
 
     asian = asian_session_range(m5) if len(m5) else None
 
+    # Seuils adaptatifs pour le diagnostic
+    _adapt = adaptive_thresholds
+    _adapt_ready = _adapt is not None and _adapt.is_ready
+    snap_atr_min   = _adapt.atr_min    if _adapt_ready else atr_min_override
+    snap_ema9_mult = _adapt.ema9_mult  if _adapt_ready else 0.5
+    snap_m15_mult  = _adapt.m15_mult   if _adapt_ready else 0.3
+
     # --- condition diagnostics ---
-    m15_confirmed = confirm_m15(m15, bias) if (len(m15) >= 1 and bias != "NEUTRE") else False
+    m15_confirmed = confirm_m15(m15, bias, ema_mult=snap_m15_mult) if (len(m15) >= 1 and bias != "NEUTRE") else False
 
     # Diagnostic fin de la M15 : on sépare l'alignement EMA9/21 de la bande RSI
     # pour savoir laquelle des deux sous-conditions bloque réellement.
@@ -1042,7 +1053,7 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
         if not any(pd.isna(cur15_d.get(c, float("nan"))) for c in ("ema9", "ema21", "rsi")):
             atr_m15_d = float(cur15_d.get("atr", 0) or 0)
             price_m15 = float(cur15_d.get("close", 1) or 1)
-            tol_d = max(0.3 * atr_m15_d, price_m15 * 0.0001)
+            tol_d = max(snap_m15_mult * atr_m15_d, price_m15 * 0.0001)
             m15_ema9 = round(float(cur15_d["ema9"]), 3)
             m15_ema21 = round(float(cur15_d["ema21"]), 3)
             m15_ema_gap = round(float(cur15_d["ema9"]) - float(cur15_d["ema21"]), 3)
@@ -1054,13 +1065,13 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
             m15_rsi_ok = bool(RSI_LOW <= cur15_d["rsi"] <= RSI_HIGH)
 
     atr_val = float(cur5["atr"]) if (cur5 is not None and not pd.isna(cur5.get("atr", float("nan")))) else 0.0
-    atr_ok = atr_val >= atr_min_override
+    atr_ok = atr_val >= snap_atr_min
 
     ema9_aligned = False
     if bias != "NEUTRE" and cur5 is not None:
         ema9_v = cur5.get("ema9", float("nan"))
         if not pd.isna(ema9_v):
-            ema9_tol = atr_val * 0.5
+            ema9_tol = atr_val * snap_ema9_mult
             if bias == "LONG":
                 ema9_aligned = cur5["close"] >= float(ema9_v) - ema9_tol
             else:
@@ -1184,5 +1195,6 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
             "blocking_reason": blocking_reason,
             "ml_prob": ml_prob,
             "ml_ready": ml_ready,
+            "adaptive": _adapt.status() if _adapt is not None else None,
         },
     }

@@ -870,6 +870,36 @@ export default function Dashboard({ onLogout }) {
                       )}
                     </div>
                   </div>
+                  {/* Adaptive thresholds */}
+                  {mkt.conditions.adaptive && (
+                    <div style={{ marginTop: 4, borderTop: `1px solid ${COLORS.border}`, paddingTop: 4 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                        <span style={{ color: COLORS.sub }}>Seuils adaptatifs</span>
+                        <span style={{ color: mkt.conditions.adaptive.ready ? COLORS.green : COLORS.grey, fontSize: 11 }}>
+                          {mkt.conditions.adaptive.ready
+                            ? `actifs (${mkt.conditions.adaptive.n_wins} wins)`
+                            : `apprentissage… ${mkt.conditions.adaptive.n_wins}/${mkt.conditions.adaptive.n_min}`}
+                        </span>
+                      </div>
+                      {mkt.conditions.adaptive.ready && (
+                        <>
+                          {[
+                            ["ATR min", mkt.conditions.adaptive.atr_min?.toFixed(3), mkt.conditions.adaptive.atr_min_default?.toFixed(3)],
+                            ["EMA9 tol ×", mkt.conditions.adaptive.ema9_mult?.toFixed(2), "0.50"],
+                            ["M15 tol ×",  mkt.conditions.adaptive.m15_mult?.toFixed(2),  "0.30"],
+                          ].map(([label, val, def]) => (
+                            <div key={label} style={{ display: "flex", justifyContent: "space-between", paddingLeft: 8, opacity: 0.85 }}>
+                              <span style={{ color: COLORS.sub, fontSize: 10 }}>{label}</span>
+                              <span style={{ fontSize: 10, color: COLORS.text }}>
+                                {val}
+                                <span style={{ color: COLORS.sub, marginLeft: 4 }}>(défaut {def})</span>
+                              </span>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 

@@ -25,6 +25,124 @@ THRESHOLD     = 0.45  # probabilité minimum pour autoriser l'entrée
 LEARNING_RATE = 0.05  # taux d'apprentissage SGD
 L2_LAMBDA     = 0.01  # régularisation L2 (évite les poids extrêmes)
 
+# --------------------------------------------------------------------------- #
+# Seuils adaptatifs
+# --------------------------------------------------------------------------- #
+
+class AdaptiveThresholds:
+    """
+    Adapte ATR_MIN, la tolérance EMA9 M5 et la tolérance EMA M15
+    à partir des trades gagnants via EMA exponentielle.
+
+    Logique : après chaque victoire on observe les valeurs réelles
+    (ATR à l'entrée, écart EMA9, écart EMA M15) et on déplace lentement
+    les seuils vers ces valeurs. Les trades perdants ne modifient rien —
+    on apprend uniquement ce qui marche.
+
+    Sécurité : plancher et plafond absolus pour chaque paramètre.
+    """
+
+    # Multiplicateurs limites pour chaque seuil
+    ATR_RATIO_FLOOR  = 0.40   # ATR_min peut descendre à 40 % du défaut
+    ATR_RATIO_CEIL   = 2.50   # ATR_min peut monter jusqu'à 250 % du défaut
+    EMA9_MULT_FLOOR  = 0.15   # tolérance EMA9 M5 minimum (× ATR)
+    EMA9_MULT_CEIL   = 1.20   # tolérance EMA9 M5 maximum (× ATR)
+    M15_MULT_FLOOR   = 0.05   # tolérance EMA M15 minimum (× ATR)
+    M15_MULT_CEIL    = 0.70   # tolérance EMA M15 maximum (× ATR)
+
+    N_MIN = 15     # victoires nécessaires avant d'activer l'adaptation
+    ALPHA = 0.08   # poids EMA (≈ 50 trades pour convergence)
+
+    def __init__(self, atr_min_default: float = 0.8, symbol: str = "XAUUSD"):
+        self.symbol           = symbol
+        self.atr_min_default  = atr_min_default
+        # Valeurs courantes (initialisées aux défauts strategy.py)
+        self.atr_min   = atr_min_default
+        self.ema9_mult = 0.5   # EMA9 M5 tolerance multiplier
+        self.m15_mult  = 0.3   # EMA M15 tolerance multiplier
+        self.n_wins    = 0
+        self.n_total   = 0
+        self._load()
+
+    def _load(self) -> None:
+        try:
+            import database as db
+            data = db.load_adaptive_thresholds(self.symbol)
+            if data:
+                self.atr_min   = data.get("atr_min",   self.atr_min_default)
+                self.ema9_mult = data.get("ema9_mult",  0.5)
+                self.m15_mult  = data.get("m15_mult",   0.3)
+                self.n_wins    = data.get("n_wins",     0)
+                self.n_total   = data.get("n_total",    0)
+        except Exception:
+            pass
+
+    def _save(self) -> None:
+        try:
+            import database as db
+            db.save_adaptive_thresholds(self.symbol, {
+                "atr_min":   self.atr_min,
+                "ema9_mult": self.ema9_mult,
+                "m15_mult":  self.m15_mult,
+                "n_wins":    self.n_wins,
+                "n_total":   self.n_total,
+            })
+        except Exception:
+            pass
+
+    def update(self, ml_features: list, entry_price: float, won: bool) -> None:
+        """Mise à jour après un trade clôturé."""
+        self.n_total += 1
+        if not won or len(ml_features) < 3:
+            self._save()
+            return
+
+        self.n_wins += 1
+        if self.n_wins < self.N_MIN:
+            self._save()
+            return
+
+        atr_norm       = ml_features[0]          # ATR / price
+        ema9_gap_ratio = abs(ml_features[1])      # |close - ema9| / ATR
+        m15_gap_ratio  = abs(ml_features[2])      # |ema9_m15 - ema21_m15| / ATR_m15
+
+        atr_at_entry = atr_norm * entry_price
+
+        # ATR_MIN → converge vers 90 % de l'ATR des trades gagnants
+        target_atr = atr_at_entry * 0.90
+        self.atr_min = (1 - self.ALPHA) * self.atr_min + self.ALPHA * target_atr
+        self.atr_min = max(
+            self.atr_min_default * self.ATR_RATIO_FLOOR,
+            min(self.atr_min_default * self.ATR_RATIO_CEIL, self.atr_min),
+        )
+
+        # EMA9 M5 tolerance → converge vers l'écart observé dans les wins
+        self.ema9_mult = (1 - self.ALPHA) * self.ema9_mult + self.ALPHA * ema9_gap_ratio
+        self.ema9_mult = max(self.EMA9_MULT_FLOOR, min(self.EMA9_MULT_CEIL, self.ema9_mult))
+
+        # EMA M15 tolerance
+        self.m15_mult = (1 - self.ALPHA) * self.m15_mult + self.ALPHA * m15_gap_ratio
+        self.m15_mult = max(self.M15_MULT_FLOOR, min(self.M15_MULT_CEIL, self.m15_mult))
+
+        self._save()
+
+    @property
+    def is_ready(self) -> bool:
+        return self.n_wins >= self.N_MIN
+
+    def status(self) -> Dict:
+        return {
+            "ready":             self.is_ready,
+            "n_wins":            self.n_wins,
+            "n_total":           self.n_total,
+            "n_min":             self.N_MIN,
+            "atr_min":           round(self.atr_min,   4),
+            "atr_min_default":   self.atr_min_default,
+            "ema9_mult":         round(self.ema9_mult, 3),
+            "m15_mult":          round(self.m15_mult,  3),
+        }
+
+
 FEATURE_NAMES = [
     "atr_norm",           # ATR / prix (volatilité normalisée)
     "ema9_gap_m5",        # (close - ema9) / ATR → proximité EMA9

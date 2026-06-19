@@ -134,6 +134,12 @@ def init_db() -> None:
                 data        TEXT NOT NULL,
                 updated_at  TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS adaptive_thresholds (
+                symbol      TEXT PRIMARY KEY,
+                data        TEXT NOT NULL,
+                updated_at  TEXT NOT NULL
+            );
             """
         )
 
@@ -442,6 +448,29 @@ def save_ml_weights(weights: list, bias_w: float, n_samples: int) -> None:
             INSERT INTO ml_gate (id, data, updated_at) VALUES (1, ?, ?)
             ON CONFLICT(id) DO UPDATE SET data = ?, updated_at = ?
         """, (data, now, data, now))
+
+
+def save_adaptive_thresholds(symbol: str, data: dict) -> None:
+    payload = json.dumps(data)
+    now     = _utcnow_iso()
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO adaptive_thresholds (symbol, data, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(symbol) DO UPDATE SET data = ?, updated_at = ?
+        """, (symbol, payload, now, payload, now))
+
+
+def load_adaptive_thresholds(symbol: str) -> dict:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT data FROM adaptive_thresholds WHERE symbol = ?", (symbol,)
+        ).fetchone()
+    if row is None:
+        return {}
+    try:
+        return json.loads(row[0])
+    except Exception:
+        return {}
 
 
 def load_ml_weights() -> dict:
