@@ -902,8 +902,12 @@ async def backtest(req: BacktestRequest, _user: dict = Depends(get_current_user)
         daily_stop_pct=req.daily_stop_pct,
         symbol=req.symbol,
     )
-    result = await asyncio.to_thread(run_backtest, cfg)
-    return result
+    try:
+        result = await asyncio.to_thread(run_backtest, cfg)
+        return result
+    except Exception as exc:
+        traceback.print_exc()
+        return {"error": str(exc) or "Erreur interne du backtest"}
 
 
 class OptimizeRequest(BaseModel):
