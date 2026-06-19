@@ -439,9 +439,13 @@ def update_pattern_stats(patterns: List[str], won: bool) -> None:
             """, (p, 1 if won else 0, now, 1 if won else 0, now))
 
 
-def save_ml_weights(weights: list, bias_w: float, n_samples: int) -> None:
+def save_ml_weights(weights: list, bias_w: float, n_samples: int,
+                    consecutive_losses: int = 0) -> None:
     """Persist ML gate weights to DB."""
-    data = json.dumps({"weights": weights, "bias_w": bias_w, "n_samples": n_samples})
+    data = json.dumps({
+        "weights": weights, "bias_w": bias_w, "n_samples": n_samples,
+        "consecutive_losses": consecutive_losses,
+    })
     now  = _utcnow_iso()
     with get_conn() as conn:
         conn.execute("""

@@ -864,11 +864,23 @@ export default function Dashboard({ onLogout }) {
                           fontWeight: 600,
                         }}>
                           {mkt.conditions.ml_prob != null
-                            ? `${(mkt.conditions.ml_prob * 100).toFixed(0)}% ${mkt.conditions.ml_prob >= 0.45 ? "✓" : "✗"}`
+                            ? `${(mkt.conditions.ml_prob * 100).toFixed(0)}% ${mkt.conditions.ml_prob >= (state?.ml_gate?.threshold ?? 0.45) ? "✓" : "✗"}`
                             : "—"}
                         </span>
                       )}
                     </div>
+                    {/* Série noire */}
+                    {state?.ml_gate?.consecutive_losses >= 3 && (
+                      <div style={{ display: "flex", justifyContent: "space-between", paddingLeft: 8, marginTop: 2 }}>
+                        <span style={{ color: COLORS.red, fontSize: 10 }}>
+                          ⚠ Série noire ({state.ml_gate.consecutive_losses} pertes)
+                        </span>
+                        <span style={{ color: COLORS.amber, fontSize: 10 }}>
+                          seuil {(state.ml_gate.threshold * 100).toFixed(0)}%
+                          {state.ml_gate.streak_boost > 0 && ` (+${(state.ml_gate.streak_boost * 100).toFixed(0)}%)`}
+                        </span>
+                      </div>
+                    )}
                   </div>
                   {/* Adaptive thresholds */}
                   {mkt.conditions.adaptive && (
@@ -877,8 +889,8 @@ export default function Dashboard({ onLogout }) {
                         <span style={{ color: COLORS.sub }}>Seuils adaptatifs</span>
                         <span style={{ color: mkt.conditions.adaptive.ready ? COLORS.green : COLORS.grey, fontSize: 11 }}>
                           {mkt.conditions.adaptive.ready
-                            ? `actifs (${mkt.conditions.adaptive.n_wins} wins)`
-                            : `apprentissage… ${mkt.conditions.adaptive.n_wins}/${mkt.conditions.adaptive.n_min}`}
+                            ? `${mkt.conditions.adaptive.n_wins}W / ${mkt.conditions.adaptive.n_losses}L (${mkt.conditions.adaptive.win_rate != null ? (mkt.conditions.adaptive.win_rate * 100).toFixed(0) + "%" : "—"})`
+                            : `apprentissage… ${mkt.conditions.adaptive.n_total}/${mkt.conditions.adaptive.n_min}`}
                         </span>
                       </div>
                       {mkt.conditions.adaptive.ready && (
