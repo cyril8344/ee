@@ -20,10 +20,10 @@ from __future__ import annotations
 import math
 from typing import Dict, List, Optional, Tuple
 
-N_MIN_TRADES  = 20    # trades min avant activation du ML gate
-THRESHOLD     = 0.45  # probabilité de base pour autoriser une entrée
+N_MIN_TRADES  = 15    # trades min avant activation du ML gate
+THRESHOLD     = 0.55  # seuil relevé pour réduire l'over-trading
 STREAK_BOOST  = 0.05  # boost du seuil par perte au-delà de 2 consécutives
-STREAK_CAP    = 0.30  # boost maximum (+30 % → seuil max 0.75)
+STREAK_CAP    = 0.30  # boost maximum (+30 % → seuil max 0.85)
 LEARNING_RATE = 0.05
 L2_LAMBDA     = 0.01
 
@@ -106,20 +106,19 @@ class AdaptiveThresholds:
             self._save()
             return
 
-        atr_norm       = ml_features[0]
-        ema9_gap_ratio = abs(ml_features[1])
-        m15_gap_ratio  = abs(ml_features[2])
-        atr_at_entry   = atr_norm * entry_price
+        # features[0] = atr_norm, features[1] = rsi_norm, features[2] = ema200_bias
+        atr_norm      = ml_features[0]
+        rsi_norm      = abs(ml_features[1])
+        bias_strength = abs(ml_features[2])
+        atr_at_entry  = atr_norm * entry_price
 
         if won:
-            # Victoire → élargit / baisse les seuils vers ce contexte
-            self.atr_min = (1 - self.ALPHA_WIN) * self.atr_min + self.ALPHA_WIN * (atr_at_entry * 0.90)
-            self.ema9_mult = (1 - self.ALPHA_WIN) * self.ema9_mult + self.ALPHA_WIN * ema9_gap_ratio
-            self.m15_mult  = (1 - self.ALPHA_WIN) * self.m15_mult  + self.ALPHA_WIN * m15_gap_ratio
+            self.atr_min   = (1 - self.ALPHA_WIN) * self.atr_min + self.ALPHA_WIN * (atr_at_entry * 0.90)
+            self.ema9_mult = (1 - self.ALPHA_WIN) * self.ema9_mult + self.ALPHA_WIN * rsi_norm
+            self.m15_mult  = (1 - self.ALPHA_WIN) * self.m15_mult  + self.ALPHA_WIN * bias_strength
         else:
-            # Défaite → remonte ATR_MIN + resserre les tolérances EMA
             self.atr_min   = (1 - self.ALPHA_LOSS) * self.atr_min + self.ALPHA_LOSS * (atr_at_entry * 1.15)
-            self.ema9_mult = self.ema9_mult * (1 - self.ALPHA_LOSS * 0.15)   # resserre de ~0.6 % par perte
+            self.ema9_mult = self.ema9_mult * (1 - self.ALPHA_LOSS * 0.15)
             self.m15_mult  = self.m15_mult  * (1 - self.ALPHA_LOSS * 0.15)
 
         self.atr_min = max(
@@ -160,15 +159,9 @@ class AdaptiveThresholds:
 # --------------------------------------------------------------------------- #
 
 FEATURE_NAMES = [
-    "atr_norm",
-    "ema9_gap_m5",
-    "ema_gap_m15",
-    "hour_sin",
-    "hour_cos",
-    "session_london",
-    "session_newyork",
-    "bias_long",
-    "pattern_weight_sum",
+    "atr_norm",      # volatilité normalisée (ATR/prix)
+    "rsi_norm",      # momentum (RSI centré, -1 à +1)
+    "ema200_bias",   # tendance majeure H1 (+1 LONG, -1 SHORT)
 ]
 N_FEATURES = len(FEATURE_NAMES)
 
@@ -284,39 +277,19 @@ def extract_features(
     pattern_weight_sum: float,
     ts,
 ) -> List[float]:
-    import math as _math
-
     cur5  = m5.iloc[-1]
-    cur15 = m15.iloc[-1] if len(m15) > 0 else cur5
 
-    price    = float(cur5.get("close", 1) or 1)
-    atr5     = float(cur5.get("atr",   0) or 0)
-    ema9_5   = float(cur5.get("ema9",  price) or price)
-    atr15    = float(cur15.get("atr",  atr5) or atr5)
-    ema9_15  = float(cur15.get("ema9",  price) or price)
-    ema21_15 = float(cur15.get("ema21", price) or price)
+    price = float(cur5.get("close", 1) or 1)
+    atr5  = float(cur5.get("atr",   0) or 0)
+    rsi5  = float(cur5.get("rsi",  50) or 50)
 
-    atr_norm    = atr5 / price if price > 0 else 0.0
-    ema9_gap_m5 = (price - ema9_5) / atr5 if atr5 > 0 else 0.0
-    ema_gap_m15 = (ema9_15 - ema21_15) / atr15 if atr15 > 0 else 0.0
+    # Volatilité normalisée : ATR en % du prix
+    atr_norm = atr5 / price if price > 0 else 0.0
 
-    hour       = ts.hour + ts.minute / 60.0
-    hour_sin   = _math.sin(2 * _math.pi * hour / 24.0)
-    hour_cos   = _math.cos(2 * _math.pi * hour / 24.0)
+    # Momentum centré : RSI transformé en [-1, +1], 0 = neutre
+    rsi_norm = (rsi5 - 50.0) / 50.0
 
-    sess_low        = (session or "").lower()
-    session_london  = 1.0 if "london" in sess_low else 0.0
-    session_newyork = 1.0 if "new" in sess_low or "york" in sess_low else 0.0
-    bias_long       = 1.0 if bias == "LONG" else 0.0
+    # Tendance majeure H1 : +1 LONG, -1 SHORT (signal directionnel fort)
+    ema200_bias = 1.0 if bias == "LONG" else -1.0
 
-    return [
-        atr_norm,
-        ema9_gap_m5,
-        ema_gap_m15,
-        hour_sin,
-        hour_cos,
-        session_london,
-        session_newyork,
-        bias_long,
-        float(pattern_weight_sum),
-    ]
+    return [atr_norm, rsi_norm, ema200_bias]
