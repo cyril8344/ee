@@ -131,6 +131,7 @@ class BacktestConfig:
     max_trades_per_day: int = 4
     daily_stop_pct: float = 2.0
     symbol: str = "XAUUSD"
+    strategy_mode: str = "standard"  # "standard" | "ict"
 
 
 @dataclass
@@ -178,13 +179,15 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
     m15_index = m15_full.index
     h1_index  = h1_full.index
 
-    # ── Vectorised signal pre-computation (O(n) instead of O(n²)) ────────────
-    # batch_signals() returns a Series: "long" | "short" | None for every bar.
-    # The inner loop simply looks up precomputed_signals[ts] instead of calling
-    # evaluate() (which is O(n) per call).
-    precomputed_signals = batch_signals(
-        m5, m15_full, h1_full, check_session=True
-    )
+    # ── Signal pre-computation ────────────────────────────────────────────────
+    # Standard mode: vectorised O(n) lookup via batch_signals().
+    # ICT mode: per-bar evaluate_ict() — slower but correct for context-heavy logic.
+    if cfg.strategy_mode == "ict":
+        from strategy_ict import evaluate_ict as _evaluate_ict
+        precomputed_signals = None
+    else:
+        precomputed_signals = batch_signals(m5, m15_full, h1_full, check_session=True)
+        _evaluate_ict = None
 
     equity = cfg.capital
     equity_curve: List[Dict[str, Any]] = [
@@ -242,43 +245,51 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
 
         # ---- Look for a new entry (only if flat & allowed) ----
         if open_trade is None and not day_blocked and trades_today < cfg.max_trades_per_day:
-            # O(1) lookup into the pre-computed signal array
-            direction = precomputed_signals.get(ts)
-            if direction is None:
-                sig = None
+            if cfg.strategy_mode == "ict":
+                # Per-bar ICT evaluation with data sliced to current timestamp
+                m15_s = m15_full.iloc[:m15_full.index.searchsorted(ts, side="right")]
+                h1_s  = h1_full.iloc[:h1_full.index.searchsorted(ts, side="right")]
+                sig = _evaluate_ict(
+                    m5.iloc[:i + 1], m15_s, h1_s,
+                    now=ts.to_pydatetime(), check_session=True,
+                )
             else:
-                # Build a lightweight Signal-like dict from current bar
-                bar_atr = float(bar.get("atr", pip_size * 10))
-                entry_p = float(bar["close"])
-                if direction == "long":
-                    swing  = last_swing_low(m5.iloc[:i+1], lookback=10)
-                    raw_sl = min(swing, entry_p - 1e-6)
-                    sl     = max(raw_sl, entry_p - SL_ATR_MULT * bar_atr)
-                else:
-                    swing  = last_swing_high(m5.iloc[:i+1], lookback=10)
-                    raw_sl = max(swing, entry_p + 1e-6)
-                    sl     = min(raw_sl, entry_p + SL_ATR_MULT * bar_atr)
-                risk = abs(entry_p - sl)
-                if risk <= 0:
+                direction = precomputed_signals.get(ts)
+                if direction is None:
                     sig = None
                 else:
-                    from types import SimpleNamespace
-                    sig = SimpleNamespace(
-                        direction=direction,
-                        entry=entry_p,
-                        stop_loss=sl,
-                        take_profit1=entry_p + risk   if direction == "long" else entry_p - risk,
-                        take_profit2=entry_p + 2.5*risk if direction == "long" else entry_p - 2.5*risk,
-                        risk_distance=risk,
-                        session=active_session(ts.to_pydatetime()) or "London",
-                    )
+                    bar_atr = float(bar.get("atr", pip_size * 10))
+                    entry_p = float(bar["close"])
+                    if direction == "long":
+                        swing  = last_swing_low(m5.iloc[:i+1], lookback=10)
+                        raw_sl = min(swing, entry_p - 1e-6)
+                        sl     = max(raw_sl, entry_p - SL_ATR_MULT * bar_atr)
+                    else:
+                        swing  = last_swing_high(m5.iloc[:i+1], lookback=10)
+                        raw_sl = max(swing, entry_p + 1e-6)
+                        sl     = min(raw_sl, entry_p + SL_ATR_MULT * bar_atr)
+                    risk = abs(entry_p - sl)
+                    if risk <= 0:
+                        sig = None
+                    else:
+                        from types import SimpleNamespace
+                        sig = SimpleNamespace(
+                            direction=direction,
+                            entry=entry_p,
+                            stop_loss=sl,
+                            take_profit1=entry_p + risk     if direction == "long" else entry_p - risk,
+                            take_profit2=entry_p + 2.5*risk if direction == "long" else entry_p - 2.5*risk,
+                            risk_distance=risk,
+                            session=active_session(ts.to_pydatetime()) or "London",
+                            max_duration_min=MAX_TRADE_MINUTES,
+                        )
+
             if sig is not None:
                 vol = _round_lot(
                     (equity * cfg.risk_pct / 100.0)
                     / (sig.risk_distance * contract_size)
                 )
                 if vol >= MIN_LOT:
-                    # apply spread+slippage to entry (buy at ask / sell at bid)
                     if sig.direction == "long":
                         fill = sig.entry + spread + slippage
                     else:
@@ -295,7 +306,7 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
                         "tp1_done": False,
                         "remaining": vol,
                         "realised": 0.0,
-                        "max_exit_time": ts.to_pydatetime() + timedelta(minutes=MAX_TRADE_MINUTES),
+                        "max_exit_time": ts.to_pydatetime() + timedelta(minutes=sig.max_duration_min),
                     }
                     trades_today += 1
 
