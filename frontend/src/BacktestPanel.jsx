@@ -310,7 +310,13 @@ export default function BacktestPanel({ api }) {
         }),
       });
       if (logout401(r)) return;
-      const data = await r.json();
+      let data;
+      try {
+        data = await r.json();
+      } catch {
+        const text = await r.text().catch(() => "");
+        throw new Error(`Erreur serveur (${r.status}) — ${text.slice(0, 300)}`);
+      }
       if (data.error) setErr(data.error);
       else setRes(data);
     } catch (e) {
