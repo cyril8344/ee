@@ -397,14 +397,28 @@ def near_fvg(price: float, bias: str, fvgs: List[Dict[str, Any]]) -> bool:
 # Bias / confirmation / entry primitives
 # --------------------------------------------------------------------------- #
 def compute_bias(h1: pd.DataFrame) -> str:
-    """LONG / SHORT selon EMA50 H1 (plus réactif que EMA200)."""
+    """LONG / SHORT : EMA50 donne la direction, EMA200 bloque si contradictoire.
+    On ne trade QUE dans le sens du flux majeur (price > EMA200 → LONG autorisé)."""
     if len(h1) < 1:
         return "NEUTRE"
     row = h1.iloc[-1]
-    price, ema50 = row["close"], row.get("ema50", float("nan"))
+    price  = row["close"]
+    ema50  = row.get("ema50",  float("nan"))
+    ema200 = row.get("ema200", float("nan"))
+
     if pd.isna(ema50):
         return "NEUTRE"
-    return "LONG" if price > ema50 else "SHORT"
+
+    bias = "LONG" if price > ema50 else "SHORT"
+
+    # Filtre dur EMA200 : interdit de trader contre le flux majeur
+    if not pd.isna(ema200):
+        if bias == "LONG"  and price < ema200:
+            return "NEUTRE"
+        if bias == "SHORT" and price > ema200:
+            return "NEUTRE"
+
+    return bias
 
 
 def confirm_m15(m15: pd.DataFrame, bias: str, ema_mult: float = 0.3) -> bool:
