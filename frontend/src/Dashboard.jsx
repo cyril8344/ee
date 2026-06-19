@@ -979,6 +979,31 @@ export default function Dashboard({ onLogout }) {
                         <div style={{ color: COLORS.sub, fontSize: 10, marginBottom: 4 }}>
                           ML: {pretrainStatus.last_result.ml_samples} échantillons
                         </div>
+                        {/* Equity curve */}
+                        {pretrainStatus.last_result.equity_curve?.length > 1 && (() => {
+                          const curve = pretrainStatus.last_result.equity_curve;
+                          const vals = curve.map(p => p.equity);
+                          const minV = Math.min(...vals);
+                          const maxV = Math.max(...vals);
+                          const range = maxV - minV || 1;
+                          const W = 220, H = 48;
+                          const pts = curve.map((p, i) => {
+                            const x = (i / (curve.length - 1)) * W;
+                            const y = H - ((p.equity - minV) / range) * H;
+                            return `${x},${y}`;
+                          }).join(" ");
+                          const isProfit = vals[vals.length - 1] >= vals[0];
+                          const color = isProfit ? COLORS.green : COLORS.red;
+                          return (
+                            <div style={{ marginBottom: 6 }}>
+                              <svg width={W} height={H} style={{ display: "block", width: "100%", height: H }}>
+                                <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" />
+                                <line x1="0" y1={H - ((10000 - minV) / range) * H} x2={W} y2={H - ((10000 - minV) / range) * H}
+                                  stroke={COLORS.border} strokeWidth="1" strokeDasharray="3,3" />
+                              </svg>
+                            </div>
+                          );
+                        })()}
                         <button
                           onClick={() => launchPretrain(activeMarket)}
                           disabled={pretrainLoading}
