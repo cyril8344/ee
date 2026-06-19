@@ -1039,7 +1039,11 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
     if bias != "NEUTRE" and cur5 is not None:
         ema9_v = cur5.get("ema9", float("nan"))
         if not pd.isna(ema9_v):
-            ema9_aligned = (cur5["close"] >= ema9_v) if bias == "LONG" else (cur5["close"] <= ema9_v)
+            ema9_tol = atr_val * 0.3
+            if bias == "LONG":
+                ema9_aligned = cur5["close"] >= float(ema9_v) - ema9_tol
+            else:
+                ema9_aligned = cur5["close"] <= float(ema9_v) + ema9_tol
 
     # NOTE: cette liste doit rester alignée avec les triggers de evaluate()
     # pour que l'affichage du dashboard reflète exactement la logique d'entrée.
