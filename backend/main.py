@@ -83,6 +83,7 @@ import finnhub_feed as _fh_module
 from agent_manager import AgentManager
 import agent_memory
 from ml_gate import OnlineLogisticRegression, AdaptiveThresholds
+import pretrain as _pretrain_module
 
 
 MARKET_CONFIG = {
@@ -1075,6 +1076,34 @@ def macro_status():
 @app.get("/api/pattern-stats")
 def pattern_stats():
     return db.get_pattern_stats()
+
+
+# ── Pré-entraînement ─────────────────────────────────────────────────────────
+class PretrainRequest(BaseModel):
+    start:   str = "2024-01-01"
+    end:     str = "2024-12-31"
+    symbol:  str = "XAUUSD"
+    atr_min: Optional[float] = None
+    reset:   bool = True
+
+
+@app.post("/api/pretrain")
+def start_pretrain(req: PretrainRequest, _user: dict = Depends(get_current_user)):
+    """Lance le pré-entraînement en arrière-plan."""
+    prog = _pretrain_module.get_progress()
+    if prog["running"]:
+        return {"ok": False, "message": "Pré-entraînement déjà en cours", "progress": prog}
+    _pretrain_module.launch_pretrain(
+        start=req.start, end=req.end,
+        symbol=req.symbol, atr_min=req.atr_min, reset=req.reset,
+    )
+    return {"ok": True, "message": "Pré-entraînement lancé", "progress": _pretrain_module.get_progress()}
+
+
+@app.get("/api/pretrain/status")
+def pretrain_status(_user: dict = Depends(get_current_user)):
+    """Progression du pré-entraînement en cours."""
+    return _pretrain_module.get_progress()
 
 
 @app.post("/api/pattern-stats/reset")

@@ -329,6 +329,8 @@ export default function Dashboard({ onLogout }) {
   const [patternStats, setPatternStats] = useState({});
   const [correlations, setCorrelations] = useState({});
   const [newsFeed, setNewsFeed] = useState(null);
+  const [pretrainStatus, setPretrainStatus]   = useState(null);
+  const [pretrainLoading, setPretrainLoading] = useState(false);
   const [agentStatus, setAgentStatus] = useState(null);
   const [agentHistory, setAgentHistory] = useState([]);
   const [rlStatus, setRlStatus] = useState(null);
@@ -428,6 +430,36 @@ export default function Dashboard({ onLogout }) {
     const id = setInterval(load, 30000);
     return () => clearInterval(id);
   }, []);
+
+  /* Pré-entraînement — polling pendant l'exécution */
+  useEffect(() => {
+    let id = null;
+    const poll = () =>
+      fetch(`${API}/api/pretrain/status`, { headers: authHeaders() })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) setPretrainStatus(d); })
+        .catch(() => {});
+    poll();
+    id = setInterval(poll, 3000);
+    return () => clearInterval(id);
+  }, []);
+
+  const launchPretrain = (symbol) => {
+    setPretrainLoading(true);
+    const now = new Date();
+    const end = now.toISOString().slice(0, 10);
+    const sixMonthsAgo = new Date(now);
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    const start = sixMonthsAgo.toISOString().slice(0, 10);
+    fetch(`${API}/api/pretrain`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ start, end, symbol, reset: true }),
+    })
+      .then(r => r.json())
+      .then(d => { setPretrainStatus(d.progress); setPretrainLoading(false); })
+      .catch(() => setPretrainLoading(false));
+  };
 
   /* Agent IA status + history polling — every 30 seconds */
   useEffect(() => {
@@ -882,6 +914,56 @@ export default function Dashboard({ onLogout }) {
                       </div>
                     )}
                   </div>
+                  {/* Pré-entraînement */}
+                  <div style={{ marginTop: 6, borderTop: `1px solid ${COLORS.border}`, paddingTop: 6 }}>
+                    {pretrainStatus?.status === "running" ? (
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                          <span style={{ color: COLORS.amber, fontSize: 11 }}>Pré-entraînement en cours…</span>
+                          <span style={{ color: COLORS.amber, fontSize: 11 }}>{pretrainStatus.pct ?? 0}%</span>
+                        </div>
+                        <div style={{ background: COLORS.border, borderRadius: 3, height: 4 }}>
+                          <div style={{ background: COLORS.amber, width: `${pretrainStatus.pct ?? 0}%`, height: 4, borderRadius: 3, transition: "width 0.5s" }} />
+                        </div>
+                        <div style={{ color: COLORS.sub, fontSize: 10, marginTop: 2 }}>
+                          {pretrainStatus.trades} trades détectés — {pretrainStatus.status}
+                        </div>
+                      </div>
+                    ) : pretrainStatus?.status === "done" && pretrainStatus.last_result ? (
+                      <div>
+                        <div style={{ color: COLORS.green, fontSize: 11, marginBottom: 3 }}>
+                          ✓ Pré-entraînement terminé — {pretrainStatus.last_result.n_trades} trades ({(pretrainStatus.last_result.win_rate * 100).toFixed(0)}% win rate)
+                        </div>
+                        <div style={{ color: COLORS.sub, fontSize: 10 }}>
+                          {pretrainStatus.last_result.period} · ML: {pretrainStatus.last_result.ml_samples} échantillons
+                        </div>
+                        <button
+                          onClick={() => launchPretrain(mkt.symbol)}
+                          disabled={pretrainLoading}
+                          style={{ marginTop: 6, width: "100%", background: COLORS.blue + "22",
+                            border: `1px solid ${COLORS.blue}`, borderRadius: 4,
+                            color: COLORS.blue, padding: "4px 0", cursor: "pointer", fontSize: 11 }}>
+                          Relancer (6 mois)
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <div style={{ color: COLORS.sub, fontSize: 11, marginBottom: 6 }}>
+                          Pré-entraîner le bot sur les 6 derniers mois de données historiques
+                        </div>
+                        <button
+                          onClick={() => launchPretrain(mkt.symbol)}
+                          disabled={pretrainLoading}
+                          style={{ width: "100%", background: COLORS.blue + "33",
+                            border: `1px solid ${COLORS.blue}`, borderRadius: 4,
+                            color: COLORS.blue, padding: "6px 0", cursor: "pointer",
+                            fontSize: 12, fontWeight: 600 }}>
+                          {pretrainLoading ? "Lancement…" : "Pré-entraîner maintenant"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Adaptive thresholds */}
                   {mkt.conditions.adaptive && (
                     <div style={{ marginTop: 4, borderTop: `1px solid ${COLORS.border}`, paddingTop: 4 }}>
