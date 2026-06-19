@@ -1008,11 +1008,19 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
     # pour savoir laquelle des deux sous-conditions bloque réellement.
     m15_ema_aligned = None
     m15_rsi_ok = None
+    m15_ema9 = None
+    m15_ema21 = None
+    m15_ema_gap = None
+    m15_ema_tol = None
     if bias != "NEUTRE" and len(m15) >= 1:
         cur15_d = m15.iloc[-1]
         if not any(pd.isna(cur15_d.get(c, float("nan"))) for c in ("ema9", "ema21", "rsi")):
             atr_m15_d = float(cur15_d.get("atr", 0) or 0)
             tol_d = 0.3 * atr_m15_d
+            m15_ema9 = round(float(cur15_d["ema9"]), 3)
+            m15_ema21 = round(float(cur15_d["ema21"]), 3)
+            m15_ema_gap = round(float(cur15_d["ema9"]) - float(cur15_d["ema21"]), 3)
+            m15_ema_tol = round(tol_d, 3)
             if bias == "LONG":
                 m15_ema_aligned = bool(cur15_d["ema9"] >= cur15_d["ema21"] - tol_d)
             else:
@@ -1118,6 +1126,10 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
             "h1_bias": bias,
             "m15_confirmed": m15_confirmed,
             "m15_ema_aligned": m15_ema_aligned,
+            "m15_ema9": m15_ema9,
+            "m15_ema21": m15_ema21,
+            "m15_ema_gap": m15_ema_gap,
+            "m15_ema_tol": m15_ema_tol,
             "m15_rsi_ok": m15_rsi_ok,
             "atr_ok": atr_ok,
             "ema9_aligned": ema9_aligned,

@@ -798,7 +798,15 @@ export default function Dashboard({ onLogout }) {
                   {[
                     { label: "Biais H1 EMA200", ok: mkt.conditions.h1_bias !== "NEUTRE", val: mkt.conditions.h1_bias },
                     { label: "M15 EMA9>EMA21", ok: mkt.conditions.m15_ema_aligned,
-                      val: mkt.conditions.m15_ema_aligned == null ? "—" : (mkt.conditions.m15_ema_aligned ? "✓" : "✗") },
+                      val: mkt.conditions.m15_ema_aligned == null ? "—"
+                        : mkt.conditions.m15_ema_aligned ? "✓"
+                        : (() => {
+                            const gap = mkt.conditions.m15_ema_gap;
+                            const tol = mkt.conditions.m15_ema_tol;
+                            if (gap == null) return "✗";
+                            const needed = (tol != null ? (-tol - gap) : -gap).toFixed(2);
+                            return `✗ (gap ${gap > 0 ? "+" : ""}${gap.toFixed(2)}, manque ${needed})`;
+                          })() },
                     { label: "M15 RSI dans zone", ok: mkt.conditions.m15_rsi_ok,
                       val: mkt.conditions.m15_rsi_ok == null ? "—" : (mkt.conditions.m15_rsi_ok ? "✓" : "✗") },
                     { label: "ATR M5", ok: mkt.conditions.atr_ok, val: mkt.conditions.atr_ok ? "✓" : "✗" },
