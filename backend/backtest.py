@@ -410,10 +410,14 @@ def _build_report(cfg: BacktestConfig, trades: List[BTTrade],
     avg_dur_win = round(float(np.mean([t.duration_min for t in wins])), 1) if wins else 0.0
     avg_dur_loss = round(float(np.mean([t.duration_min for t in losses])), 1) if losses else 0.0
 
-    # Sharpe ratio (annualised, assuming 252 trading days, ~288 M5 bars/day)
+    # Sharpe ratio — raw per-trade (no annualisation).
+    # Annualising with sqrt(252) gives absurd values with <30 trades, so we
+    # show the raw ratio: positive = profitable pattern, negative = losing.
+    # Typical good strategies land between 0.3 and 1.5.
     if n > 1:
-        returns = pnls / cfg.capital  # trade returns as fraction of initial capital
-        sharpe = float(np.mean(returns) / np.std(returns) * np.sqrt(252)) if np.std(returns) > 0 else 0.0
+        returns = pnls / cfg.capital
+        std = float(np.std(returns))
+        sharpe = float(np.mean(returns) / std) if std > 0 else 0.0
     else:
         sharpe = 0.0
 

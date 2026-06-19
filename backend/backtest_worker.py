@@ -111,8 +111,8 @@ class BacktestWorker:
     # ------------------------------------------------------------------ #
 
     def _run(self) -> None:
-        # First run after one full interval (not 60s) to avoid OOM on startup
-        self._next_run = datetime.now(timezone.utc) + timedelta(hours=self.interval_hours)
+        # First run 30 min after startup so the user sees a Sharpe quickly
+        self._next_run = datetime.now(timezone.utc) + timedelta(minutes=30)
 
         while not self._stop_event.is_set():
             now = datetime.now(timezone.utc)

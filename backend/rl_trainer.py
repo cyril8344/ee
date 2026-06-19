@@ -99,7 +99,7 @@ def evaluate_agent(agent, env: TradingEnv, n_episodes: int = 5) -> EvalMetrics:
     arr = np.array(all_returns)
     total_ret = float(np.prod(1 + arr) - 1) * 100
     std = arr.std() + 1e-8
-    sharpe = float(arr.mean() / std * np.sqrt(252 * 288))  # annualised M5
+    sharpe = float(arr.mean() / std * np.sqrt(252))  # annualised daily (evite l'explosion avec sqrt(288))
     dd = _max_drawdown(arr)
 
     return EvalMetrics(
