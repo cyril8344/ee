@@ -998,6 +998,19 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
     # --- condition diagnostics ---
     m15_confirmed = confirm_m15(m15, bias) if (len(m15) >= 1 and bias != "NEUTRE") else False
 
+    # Diagnostic fin de la M15 : on sépare l'alignement EMA9/21 de la bande RSI
+    # pour savoir laquelle des deux sous-conditions bloque réellement.
+    m15_ema_aligned = None
+    m15_rsi_ok = None
+    if bias != "NEUTRE" and len(m15) >= 1:
+        cur15_d = m15.iloc[-1]
+        if not any(pd.isna(cur15_d.get(c, float("nan"))) for c in ("ema9", "ema21", "rsi")):
+            if bias == "LONG":
+                m15_ema_aligned = bool(cur15_d["ema9"] > cur15_d["ema21"])
+            else:
+                m15_ema_aligned = bool(cur15_d["ema9"] < cur15_d["ema21"])
+            m15_rsi_ok = bool(RSI_LOW <= cur15_d["rsi"] <= RSI_HIGH)
+
     atr_val = float(cur5["atr"]) if (cur5 is not None and not pd.isna(cur5.get("atr", float("nan")))) else 0.0
     atr_ok = atr_val >= atr_min_override
 
@@ -1050,7 +1063,15 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
     if bias == "NEUTRE":
         blocking_reason = "bias_neutre"
     elif not m15_confirmed:
-        blocking_reason = "m15_non_confirmé"
+        # Diagnostic fin : on précise quelle sous-condition M15 bloque.
+        if m15_ema_aligned is False and m15_rsi_ok is False:
+            blocking_reason = "m15_ema_et_rsi"
+        elif m15_ema_aligned is False:
+            blocking_reason = "m15_ema_non_aligné"
+        elif m15_rsi_ok is False:
+            blocking_reason = "m15_rsi_hors_zone"
+        else:
+            blocking_reason = "m15_non_confirmé"
     elif not atr_ok:
         blocking_reason = "atr_trop_bas"
     elif not ema9_aligned:
@@ -1075,6 +1096,8 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
         "conditions": {
             "h1_bias": bias,
             "m15_confirmed": m15_confirmed,
+            "m15_ema_aligned": m15_ema_aligned,
+            "m15_rsi_ok": m15_rsi_ok,
             "atr_ok": atr_ok,
             "ema9_aligned": ema9_aligned,
             "patterns": patterns_detected,

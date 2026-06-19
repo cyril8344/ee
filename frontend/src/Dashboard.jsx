@@ -797,7 +797,10 @@ export default function Dashboard({ onLogout }) {
                   </div>
                   {[
                     { label: "Biais H1 EMA200", ok: mkt.conditions.h1_bias !== "NEUTRE", val: mkt.conditions.h1_bias },
-                    { label: "M15 EMA9/RSI", ok: mkt.conditions.m15_confirmed, val: mkt.conditions.m15_confirmed ? "✓" : "✗" },
+                    { label: "M15 EMA9>EMA21", ok: mkt.conditions.m15_ema_aligned,
+                      val: mkt.conditions.m15_ema_aligned == null ? "—" : (mkt.conditions.m15_ema_aligned ? "✓" : "✗") },
+                    { label: "M15 RSI dans zone", ok: mkt.conditions.m15_rsi_ok,
+                      val: mkt.conditions.m15_rsi_ok == null ? "—" : (mkt.conditions.m15_rsi_ok ? "✓" : "✗") },
                     { label: "ATR M5", ok: mkt.conditions.atr_ok, val: mkt.conditions.atr_ok ? "✓" : "✗" },
                     { label: "EMA9 aligné M5", ok: mkt.conditions.ema9_aligned, val: mkt.conditions.ema9_aligned ? "✓" : "✗" },
                     { label: "Pattern", ok: mkt.conditions.patterns?.length > 0,
