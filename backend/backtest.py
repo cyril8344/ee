@@ -246,13 +246,19 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
         # ---- Look for a new entry (only if flat & allowed) ----
         if open_trade is None and not day_blocked and trades_today < cfg.max_trades_per_day:
             if cfg.strategy_mode == "ict":
-                # Per-bar ICT evaluation with data sliced to current timestamp
-                m15_s = m15_full.iloc[:m15_full.index.searchsorted(ts, side="right")]
-                h1_s  = h1_full.iloc[:h1_full.index.searchsorted(ts, side="right")]
-                sig = _evaluate_ict(
-                    m5.iloc[:i + 1], m15_s, h1_s,
-                    now=ts.to_pydatetime(), check_session=True,
-                )
+                # Pre-filter by session (London 8-12 CET / NY 14-18 CET) before
+                # the expensive per-bar evaluate_ict() call — reduces ~26k bars to ~4k.
+                from strategy import CET as _CET
+                _hour = ts.astimezone(_CET).hour
+                if (_hour < 8 or 12 <= _hour < 14 or _hour >= 18):
+                    sig = None
+                else:
+                    m15_s = m15_full.iloc[:m15_full.index.searchsorted(ts, side="right")]
+                    h1_s  = h1_full.iloc[:h1_full.index.searchsorted(ts, side="right")]
+                    sig = _evaluate_ict(
+                        m5.iloc[:i + 1], m15_s, h1_s,
+                        now=ts.to_pydatetime(), check_session=True,
+                    )
             else:
                 direction = precomputed_signals.get(ts)
                 if direction is None:
