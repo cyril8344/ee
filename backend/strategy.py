@@ -414,10 +414,15 @@ def confirm_m15(m15: pd.DataFrame, bias: str) -> bool:
     if any(pd.isna(cur[c]) for c in ("ema9", "ema21", "rsi")):
         return False
     rsi_ok = RSI_LOW <= cur["rsi"] <= RSI_HIGH
+    # Tolérance de 0.3 ATR : accepte l'EMA quasi-croisée (convergence en cours)
+    # pour ne pas bloquer quand H1 a déjà tourné mais M15 lag encore.
+    atr_m15 = float(cur.get("atr", 0) or 0)
+    tol = 0.3 * atr_m15
     if bias == "LONG":
-        return cur["ema9"] > cur["ema21"] and rsi_ok
+        ema_ok = cur["ema9"] >= cur["ema21"] - tol
     else:
-        return cur["ema9"] < cur["ema21"] and rsi_ok
+        ema_ok = cur["ema9"] <= cur["ema21"] + tol
+    return ema_ok and rsi_ok
 
 
 def _body(c) -> float:
@@ -1005,10 +1010,12 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
     if bias != "NEUTRE" and len(m15) >= 1:
         cur15_d = m15.iloc[-1]
         if not any(pd.isna(cur15_d.get(c, float("nan"))) for c in ("ema9", "ema21", "rsi")):
+            atr_m15_d = float(cur15_d.get("atr", 0) or 0)
+            tol_d = 0.3 * atr_m15_d
             if bias == "LONG":
-                m15_ema_aligned = bool(cur15_d["ema9"] > cur15_d["ema21"])
+                m15_ema_aligned = bool(cur15_d["ema9"] >= cur15_d["ema21"] - tol_d)
             else:
-                m15_ema_aligned = bool(cur15_d["ema9"] < cur15_d["ema21"])
+                m15_ema_aligned = bool(cur15_d["ema9"] <= cur15_d["ema21"] + tol_d)
             m15_rsi_ok = bool(RSI_LOW <= cur15_d["rsi"] <= RSI_HIGH)
 
     atr_val = float(cur5["atr"]) if (cur5 is not None and not pd.isna(cur5.get("atr", float("nan")))) else 0.0
