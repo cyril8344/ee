@@ -82,6 +82,7 @@ import correlations as corr_engine
 import finnhub_feed as _fh_module
 from agent_manager import AgentManager
 import agent_memory
+from ml_gate import OnlineLogisticRegression, AdaptiveThresholds
 
 
 MARKET_CONFIG = {
@@ -112,6 +113,7 @@ class MarketState:
     position: Optional[Any] = None
     last_signal: Optional[Dict[str, Any]] = None
     last_snapshot: Dict[str, Any] = field(default_factory=dict)
+    adaptive: Optional[Any] = None   # AdaptiveThresholds instance
 
 
 # --------------------------------------------------------------------------- #
@@ -157,9 +159,14 @@ class BotState:
                 cfg["contract_size"],
                 cfg.get("pip_size", 0.1),
             )
-            self.market_states[sym] = MarketState(symbol=sym, config=cfg, broker=broker)
+            ms = MarketState(symbol=sym, config=cfg, broker=broker)
+            ms.adaptive = AdaptiveThresholds(
+                atr_min_default=cfg["atr_min"], symbol=sym
+            )
+            self.market_states[sym] = ms
 
         self.pattern_weights: Dict = db.get_pattern_stats()
+        self.ml_gate = OnlineLogisticRegression()
         self._hydrate_today()
         self._restore_open_positions()
 
@@ -301,7 +308,9 @@ def trading_tick() -> Dict[str, Any]:
             try:
                 m5, m15, h1 = build_context(ms.broker)
                 snap = snapshot(m5, m15, h1, atr_min_override=ms.config["atr_min"],
-                               pattern_weights=state.pattern_weights)
+                               pattern_weights=state.pattern_weights,
+                               ml_gate=state.ml_gate,
+                               adaptive_thresholds=ms.adaptive)
                 ms.last_snapshot = snap
 
                 # Vérifier la fiabilité des données AVANT toute gestion de position.
@@ -346,7 +355,9 @@ def trading_tick() -> Dict[str, Any]:
                         and state.settings.get("bot_enabled", True)):
                     sig = evaluate(m5, m15, h1, now=now, check_session=session_filter,
                                    atr_min=ms.config["atr_min"],
-                                   pattern_weights=state.pattern_weights)
+                                   pattern_weights=state.pattern_weights,
+                                   ml_gate=state.ml_gate,
+                                   adaptive_thresholds=ms.adaptive)
                     if sig is not None:
                         ms.last_signal = sig.to_dict()
                         decision = state.risk.can_open_trade(
@@ -426,10 +437,22 @@ def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], 
 
     # Update pattern performance stats
     triggers = pos.meta.get("triggers", [])
+    won = pnl > 0
     if triggers:
-        won = pnl > 0
         db.update_pattern_stats(triggers, won)
         state.pattern_weights = db.get_pattern_stats()
+
+    # Update ML gate and adaptive thresholds with entry context features
+    ml_features = pos.meta.get("ml_features")
+    if ml_features:
+        try:
+            state.ml_gate.update(ml_features, won)
+        except Exception:
+            pass
+        try:
+            ms.adaptive.update(ml_features, pos.entry, won)
+        except Exception:
+            pass
 
     duration = (now - pos.open_time).total_seconds() / 60.0
     trade_id = pos.meta.get("trade_id")
@@ -583,6 +606,7 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
             "xauusd_tick": realtime_feed.get_latest("XAU/USD"),
             "eurusd_tick": realtime_feed.get_latest("EUR/USD"),
         },
+        "ml_gate": state.ml_gate.status(),
     }
 
 
