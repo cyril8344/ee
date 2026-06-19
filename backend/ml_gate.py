@@ -159,9 +159,12 @@ class AdaptiveThresholds:
 # --------------------------------------------------------------------------- #
 
 FEATURE_NAMES = [
-    "atr_norm",      # volatilité normalisée (ATR/prix)
-    "rsi_norm",      # momentum (RSI centré, -1 à +1)
-    "ema200_bias",   # tendance majeure H1 (+1 LONG, -1 SHORT)
+    "atr_norm",          # volatilité normalisée (ATR/prix)
+    "rsi_norm",          # momentum (RSI centré, -1 à +1)
+    "ema200_bias",       # tendance majeure H1 (+1 LONG, -1 SHORT)
+    "pattern_w_norm",    # poids patterns normalisé (qualité du signal)
+    "adx_norm",          # force de tendance H1 normalisée (0-1)
+    "session_enc",       # session encodée (London=1.0, NY=0.5)
 ]
 N_FEATURES = len(FEATURE_NAMES)
 
@@ -276,6 +279,8 @@ def extract_features(
     session: str,
     pattern_weight_sum: float,
     ts,
+    h1_adx: float = 0.0,
+    n_patterns: int = 1,
 ) -> List[float]:
     cur5  = m5.iloc[-1]
 
@@ -292,4 +297,14 @@ def extract_features(
     # Tendance majeure H1 : +1 LONG, -1 SHORT (signal directionnel fort)
     ema200_bias = 1.0 if bias == "LONG" else -1.0
 
-    return [atr_norm, rsi_norm, ema200_bias]
+    # Qualité du signal : poids moyen par pattern, normalisé (0-2 → 0-1)
+    avg_weight = pattern_weight_sum / max(1, n_patterns)
+    pattern_w_norm = min(1.0, avg_weight / 2.0)
+
+    # Force de tendance H1 : ADX normalisé (30=normal, 50=fort)
+    adx_norm = min(1.0, h1_adx / 50.0)
+
+    # Session : London=1.0 (meilleure pour l'or), NY=0.5
+    session_enc = 1.0 if session == "London" else 0.5
+
+    return [atr_norm, rsi_norm, ema200_bias, pattern_w_norm, adx_norm, session_enc]

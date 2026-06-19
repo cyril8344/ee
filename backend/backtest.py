@@ -89,7 +89,7 @@ def _synthetic_m5(start: str, end: str) -> pd.DataFrame:
     n = len(idx)
     rng = np.random.default_rng(42)
     price0 = 2000.0
-    rets = rng.normal(0, 0.0009, n)
+    rets = rng.normal(0, 0.0004, n)
     # add mild intraday session volatility
     hours = idx.hour.values
     sess_boost = np.where(((hours >= 7) & (hours < 11)) | ((hours >= 13) & (hours < 17)), 1.6, 0.7)

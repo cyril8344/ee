@@ -101,7 +101,7 @@ def run_pretrain(
         # ---- Initialiser les systèmes d'apprentissage ----
         if reset:
             gate     = OnlineLogisticRegression.__new__(OnlineLogisticRegression)
-            gate.weights            = [0.0] * 3
+            gate.weights            = [0.0] * 6
             gate.bias_w             = 0.0
             gate.n_samples          = 0
             gate.consecutive_losses = 0
