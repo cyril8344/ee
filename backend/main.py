@@ -753,6 +753,8 @@ def write_settings(patch: SettingsPatch, _user: dict = Depends(get_current_user)
 def reset_day(_user: dict = Depends(get_current_user)):
     """Remet les compteurs journaliers à zéro et débloque le bot sans effacer l'historique."""
     with state.lock:
+        today = db.today_utc()
+        db.update_daily(today, {"blocked": 0})
         state.risk.start_new_day(state.risk.capital)
         state.bot_status = "ACTIF"
     state.push_alert("info", "Journée réinitialisée — bot débloqué, compteurs remis à zéro")
@@ -817,6 +819,18 @@ def toggle_bot(_user: dict = Depends(get_current_user)):
         new_val = not state.settings.get("bot_enabled", True)
         state.settings = db.update_settings({"bot_enabled": new_val})
     return {"bot_enabled": new_val}
+
+
+@app.post("/api/risk/unblock")
+def unblock_risk(_user: dict = Depends(get_current_user)):
+    """Force-clear the daily risk block (admin override)."""
+    with state.lock:
+        state.risk.blocked = False
+        state.risk.block_reason = ""
+        today = db.today_utc()
+        db.update_daily(today, {"blocked": 0})
+        state.push_alert("info", "🔓 Blocage risk réinitialisé manuellement")
+    return {"ok": True, "blocked": False}
 
 
 @app.post("/api/test/signal")
