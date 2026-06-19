@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import asyncio
 import json
+import logging
 import os
 import threading
 import traceback
@@ -34,6 +35,8 @@ import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
+
+logger = logging.getLogger("main")
 
 import pandas as pd
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
