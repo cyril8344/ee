@@ -715,6 +715,7 @@ def evaluate(
     check_session: bool = True,
     atr_min: float = ATR_MIN,
     pattern_weights: Optional[Dict[str, float]] = None,
+    ml_gate=None,
 ) -> Optional[Signal]:
     """
     Evaluate the full multi-timeframe stack on the *last closed* M5 bar.
@@ -838,6 +839,29 @@ def evaluate(
         tp1 = entry - risk
         tp2 = entry - 2.5 * risk
 
+    # ML gate — filtre probabiliste appris trade par trade
+    ml_prob: float = -1.0
+    ml_features = None
+    if ml_gate is not None:
+        try:
+            from ml_gate import extract_features
+            weight_sum = sum([_w(t) for t in triggers])
+            ml_features = extract_features(m5, m15, bias, session, weight_sum, ts)
+            allowed, ml_prob = ml_gate.gate(ml_features)
+            if not allowed:
+                return None
+        except Exception:
+            pass  # gate non disponible → on laisse passer
+
+    meta: Dict[str, Any] = {
+        "rsi_m5":    round(float(cur["rsi"]), 1),
+        "rsi_m15":   round(float(m15.iloc[-1]["rsi"]), 1),
+        "triggers":  triggers,
+        "ml_prob":   round(ml_prob, 3) if ml_prob >= 0 else None,
+    }
+    if ml_features is not None:
+        meta["ml_features"] = ml_features
+
     return Signal(
         direction=direction,
         bias=bias,
@@ -850,11 +874,7 @@ def evaluate(
         reason="+".join(triggers),
         risk_distance=risk,
         timestamp=ts,
-        meta={
-            "rsi_m5": round(float(cur["rsi"]), 1),
-            "rsi_m15": round(float(m15.iloc[-1]["rsi"]), 1),
-            "triggers": triggers,
-        },
+        meta=meta,
     )
 
 
@@ -990,7 +1010,8 @@ def batch_signals(
 def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
              now: Optional[datetime] = None,
              atr_min_override: float = ATR_MIN,
-             pattern_weights: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+             pattern_weights: Optional[Dict[str, Any]] = None,
+             ml_gate=None) -> Dict[str, Any]:
     """Lightweight market snapshot for the dashboard."""
     ts = now or datetime.now(timezone.utc)
     bias = compute_bias(h1) if len(h1) else "NEUTRE"
@@ -1094,6 +1115,20 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
     pattern_weight_sum = round(sum(pattern_weight_detail.values()), 3)
     weight_gate_ok = pattern_weight_sum >= 1.0 if patterns_detected else False
 
+    # ML gate probability (display only — no blocking in snapshot)
+    ml_prob: Optional[float] = None
+    ml_ready: bool = False
+    if ml_gate is not None and cur5 is not None and len(m15) > 0:
+        try:
+            from ml_gate import extract_features
+            ml_features = extract_features(m5, m15, bias, session or "London",
+                                           pattern_weight_sum, ts)
+            ml_ready = ml_gate.is_ready
+            if ml_ready:
+                ml_prob = round(ml_gate.predict(ml_features), 3)
+        except Exception:
+            pass
+
     # first failing condition for quick diagnosis
     blocking_reason = None
     if bias == "NEUTRE":
@@ -1147,5 +1182,7 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
             "pattern_weight_detail": pattern_weight_detail,
             "weight_gate_ok": weight_gate_ok,
             "blocking_reason": blocking_reason,
+            "ml_prob": ml_prob,
+            "ml_ready": ml_ready,
         },
     }

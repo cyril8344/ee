@@ -128,6 +128,12 @@ def init_db() -> None:
                 wins        INTEGER DEFAULT 0,
                 updated_at  TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS ml_gate (
+                id          INTEGER PRIMARY KEY CHECK (id = 1),
+                data        TEXT NOT NULL,
+                updated_at  TEXT NOT NULL
+            );
             """
         )
 
@@ -425,6 +431,29 @@ def update_pattern_stats(patterns: List[str], won: bool) -> None:
                     wins = wins + ?,
                     updated_at = ?
             """, (p, 1 if won else 0, now, 1 if won else 0, now))
+
+
+def save_ml_weights(weights: list, bias_w: float, n_samples: int) -> None:
+    """Persist ML gate weights to DB."""
+    data = json.dumps({"weights": weights, "bias_w": bias_w, "n_samples": n_samples})
+    now  = _utcnow_iso()
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO ml_gate (id, data, updated_at) VALUES (1, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET data = ?, updated_at = ?
+        """, (data, now, data, now))
+
+
+def load_ml_weights() -> dict:
+    """Load ML gate weights from DB. Returns {} if not found."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT data FROM ml_gate WHERE id = 1").fetchone()
+    if row is None:
+        return {}
+    try:
+        return json.loads(row[0])
+    except Exception:
+        return {}
 
 
 if __name__ == "__main__":
