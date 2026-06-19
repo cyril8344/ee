@@ -48,7 +48,7 @@ VOL_AVG_PERIOD = 20
 RSI_LOW = 33.0
 RSI_HIGH = 67.0
 ATR_MIN = 3.0
-ADX_MIN = 28.0
+ADX_MIN = 25.0
 SR_PROXIMITY_ATR = 0.7
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
 SL_ATR_MULT = 1.2
@@ -792,13 +792,6 @@ def evaluate(
         return None
     if bias == "SHORT" and rsi_m5 > 55:
         return None
-
-    # 5c) M5 volume confirmation — la bougie signal doit avoir du volume réel
-    vol_cur = float(cur.get("volume", 0) or 0)
-    if vol_cur > 0 and len(m5) >= VOL_AVG_PERIOD:
-        vol_avg = float(m5["volume"].iloc[-VOL_AVG_PERIOD:].mean() or 0)
-        if vol_avg > 0 and vol_cur < 1.2 * vol_avg:
-            return None
 
     # 6) Candlestick pattern trigger (any single pattern is enough)
     entry = float(cur["close"])
