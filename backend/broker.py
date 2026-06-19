@@ -61,7 +61,7 @@ class MarketData:
     def _fetch(self) -> pd.DataFrame:
         try:
             import data_provider
-            df, provider = data_provider.get_m5(bars=500, symbol=self.symbol)
+            df, provider = data_provider.get_m5(bars=2000, symbol=self.symbol)
             if df is not None and len(df) > 0:
                 self.provider = provider
                 return df
