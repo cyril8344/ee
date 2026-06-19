@@ -48,7 +48,7 @@ VOL_AVG_PERIOD = 20
 RSI_LOW = 33.0
 RSI_HIGH = 67.0
 ATR_MIN = 3.0
-ADX_MIN = 22.0
+ADX_MIN = 28.0
 SR_PROXIMITY_ATR = 0.7
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
 SL_ATR_MULT = 1.2
@@ -774,6 +774,11 @@ def evaluate(
     if atr_val < effective_atr_min:
         return None
 
+    # 4b) H1 ADX trend strength — ne trader qu'en vraie tendance
+    h1_adx = float(h1.iloc[-1].get("adx", 0)) if len(h1) else 0.0
+    if h1_adx < ADX_MIN:
+        return None
+
     # 5) M5 EMA9 alignment — tolérance adaptative (défaut 0.5 ATR)
     ema9_tolerance = atr_val * effective_ema9_mult
     if bias == "LONG" and cur["close"] < cur["ema9"] - ema9_tolerance:
@@ -830,7 +835,8 @@ def evaluate(
         return info["weight"] if isinstance(info, dict) else float(info) if info else 1.0
 
     weights = [_w(t) for t in triggers]
-    if sum(weights) < 1.0:
+    # Exige au moins 2 patterns ET poids cumulé >= 1.0
+    if len(triggers) < 2 or sum(weights) < 1.0:
         return None
 
     # 7) Build trade levels
@@ -939,7 +945,7 @@ def batch_signals(
         bias_long  = pd.Series(False, index=m5.index)
         bias_short = pd.Series(False, index=m5.index)
 
-    adx_ok = pd.Series(True, index=m5.index)  # ADX filter removed
+    adx_ok = (h1_adx >= ADX_MIN).reindex(m5.index, method="ffill").fillna(False) if h1_adx is not None else pd.Series(True, index=m5.index)
 
     # ── M15 confirmation (forward-filled) ────────────────────────────────────
     m15_ema9  = m15["ema9"].reindex(m5.index,  method="ffill") if "ema9"  in m15.columns else None
