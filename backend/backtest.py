@@ -151,6 +151,9 @@ class BTTrade:
     duration_min: float
     exit_reason: str
     entry_hour: int
+    mae: float = 0.0   # Maximum Adverse Excursion  (en unités de prix)
+    mfe: float = 0.0   # Maximum Favorable Excursion (en unités de prix)
+    risk: float = 0.0  # distance SL initiale (pour normaliser en R)
 
 
 def _round_lot(lot: float) -> float:
@@ -235,6 +238,9 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
                     pnl_pct=pnl / day_start_equity * 100.0,
                     duration_min=dur, exit_reason=reason,
                     entry_hour=t["entry_time"].astimezone(timezone.utc).hour,
+                    mae=t.get("mae", 0.0),
+                    mfe=t.get("mfe", 0.0),
+                    risk=t.get("risk", 0.0),
                 ))
                 equity_curve.append({"ts": ts.isoformat(), "equity": round(equity, 2)})
                 # daily stop check
@@ -313,6 +319,9 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
                         "remaining": vol,
                         "realised": 0.0,
                         "max_exit_time": ts.to_pydatetime() + timedelta(minutes=sig.max_duration_min),
+                        "risk": sig.risk_distance,
+                        "mae": 0.0,
+                        "mfe": 0.0,
                     }
                     trades_today += 1
 
@@ -337,6 +346,14 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
 
     def pnl_for(price, lots):
         return (price - t["entry"]) * sign * contract_size * lots
+
+    # MAE / MFE : mise à jour barre par barre
+    if direction == "long":
+        t["mfe"] = max(t.get("mfe", 0.0), high - t["entry"])
+        t["mae"] = max(t.get("mae", 0.0), t["entry"] - low)
+    else:
+        t["mfe"] = max(t.get("mfe", 0.0), t["entry"] - low)
+        t["mae"] = max(t.get("mae", 0.0), high - t["entry"])
 
     # 1) TP1 (partial 60%) — after close, SL moves to breakeven so remaining
     #    position cannot lose more than it already gained at TP1.
@@ -430,6 +447,35 @@ def _build_report(cfg: BacktestConfig, trades: List[BTTrade],
     avg_dur_win = round(float(np.mean([t.duration_min for t in wins])), 1) if wins else 0.0
     avg_dur_loss = round(float(np.mean([t.duration_min for t in losses])), 1) if losses else 0.0
 
+    # MAE / MFE en multiples de R (normalisation par distance SL initiale)
+    def _r(val, risk):
+        return round(val / risk, 3) if risk > 0 else 0.0
+
+    trades_with_risk = [t for t in trades if t.risk > 0]
+    mae_r_all   = [_r(t.mae, t.risk) for t in trades_with_risk]
+    mfe_r_all   = [_r(t.mfe, t.risk) for t in trades_with_risk]
+    mae_r_wins  = [_r(t.mae, t.risk) for t in wins  if t.risk > 0]
+    mfe_r_wins  = [_r(t.mfe, t.risk) for t in wins  if t.risk > 0]
+    mae_r_loss  = [_r(t.mae, t.risk) for t in losses if t.risk > 0]
+    mfe_r_loss  = [_r(t.mfe, t.risk) for t in losses if t.risk > 0]
+
+    excursion = {
+        "avg_mae_r":       round(float(np.mean(mae_r_all)),  3) if mae_r_all  else 0.0,
+        "avg_mfe_r":       round(float(np.mean(mfe_r_all)),  3) if mfe_r_all  else 0.0,
+        "avg_mae_r_wins":  round(float(np.mean(mae_r_wins)), 3) if mae_r_wins else 0.0,
+        "avg_mfe_r_wins":  round(float(np.mean(mfe_r_wins)), 3) if mfe_r_wins else 0.0,
+        "avg_mae_r_loss":  round(float(np.mean(mae_r_loss)), 3) if mae_r_loss else 0.0,
+        "avg_mfe_r_loss":  round(float(np.mean(mfe_r_loss)), 3) if mfe_r_loss else 0.0,
+        # Losers qui ont déjà atteint 0.5R avant de perdre = signal ok mais sortie prématurée
+        "pct_loss_mfe_gt_half_r": round(
+            sum(1 for v in mfe_r_loss if v >= 0.5) / len(mfe_r_loss) * 100, 1
+        ) if mfe_r_loss else 0.0,
+        # Gagnants avec MAE > 0.5R = entrée trop tôt, trade risqué avant d'être gagnant
+        "pct_win_mae_gt_half_r": round(
+            sum(1 for v in mae_r_wins if v >= 0.5) / len(mae_r_wins) * 100, 1
+        ) if mae_r_wins else 0.0,
+    }
+
     # Sharpe ratio — raw per-trade (no annualisation).
     # Annualising with sqrt(252) gives absurd values with <30 trades, so we
     # show the raw ratio: positive = profitable pattern, negative = losing.
@@ -471,6 +517,7 @@ def _build_report(cfg: BacktestConfig, trades: List[BTTrade],
             "avg_win_min": avg_dur_win,
             "avg_loss_min": avg_dur_loss,
         },
+        "excursion": excursion,
         "heatmap": heatmap,
         "best_hour": best_hour,
         "worst_hour": worst_hour,
@@ -487,6 +534,8 @@ def _build_report(cfg: BacktestConfig, trades: List[BTTrade],
                 "pnl": round(t.pnl, 2),
                 "duration_min": round(t.duration_min, 1),
                 "exit_reason": t.exit_reason,
+                "mae_r": _r(t.mae, t.risk),
+                "mfe_r": _r(t.mfe, t.risk),
             }
             for t in trades
         ],
