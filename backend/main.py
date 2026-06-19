@@ -936,6 +936,25 @@ async def backtest(req: BacktestRequest, _user: dict = Depends(get_current_user)
         return {"error": str(exc) or "Erreur interne du backtest"}
 
 
+@app.post("/api/backtest/ict")
+async def backtest_ict(req: BacktestRequest, _user: dict = Depends(get_current_user)):
+    cfg = BacktestConfig(
+        start=req.start, end=req.end, capital=req.capital,
+        risk_pct=req.risk_pct, spread_pips=req.spread_pips,
+        slippage_pips=req.slippage_pips,
+        max_trades_per_day=req.max_trades_per_day,
+        daily_stop_pct=req.daily_stop_pct,
+        symbol=req.symbol,
+        strategy_mode="ict",
+    )
+    try:
+        result = await asyncio.to_thread(run_backtest, cfg)
+        return result
+    except Exception as exc:
+        traceback.print_exc()
+        return {"error": str(exc) or "Erreur interne du backtest ICT"}
+
+
 class OptimizeRequest(BaseModel):
     start: str
     end: str
