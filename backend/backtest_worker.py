@@ -47,8 +47,8 @@ def _optuna_search_space(trial) -> Dict[str, Any]:
     """Define Optuna trial parameters matching the grid-search space."""
     return {
         "adx_min":      trial.suggest_float("adx_min",     20.0, 30.0, step=1.0),
-        "rsi_low":      trial.suggest_float("rsi_low",     42.0, 47.0, step=1.0),
-        "rsi_high":     trial.suggest_float("rsi_high",    53.0, 58.0, step=1.0),
+        "rsi_low":      trial.suggest_float("rsi_low",     35.0, 48.0, step=1.0),
+        "rsi_high":     trial.suggest_float("rsi_high",    52.0, 65.0, step=1.0),
         "sl_atr_mult":  trial.suggest_float("sl_atr_mult",  1.0,  1.5, step=0.1),
         "sr_proximity": trial.suggest_float("sr_proximity", 0.3,  0.7, step=0.1),
     }
