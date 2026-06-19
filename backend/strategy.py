@@ -45,8 +45,8 @@ ATR_PERIOD = 14
 ADX_PERIOD = 14
 VOL_AVG_PERIOD = 20
 
-RSI_LOW = 33.0
-RSI_HIGH = 67.0
+RSI_LOW = 40.0
+RSI_HIGH = 60.0
 ATR_MIN = 3.0
 ADX_MIN = 25.0
 SR_PROXIMITY_ATR = 0.7
@@ -59,7 +59,7 @@ OB_LOOKBACK       = 40      # bougies analysées pour détecter les Order Blocks
 OB_PROXIMITY_ATR  = 0.4     # tolérance de proximité OB en multiples d'ATR
 FVG_MIN_SIZE_ATR  = 0.3     # taille minimale d'un FVG pour être valide
 MICRO_RANGE_BARS = 3        # micro-consolidation length
-MAX_TRADE_MINUTES = 45
+MAX_TRADE_MINUTES = 30
 
 CET = pytz.timezone("Europe/Paris")  # CET/CEST
 
@@ -879,7 +879,10 @@ def evaluate(
     try:
         from ml_gate import extract_features
         weight_sum = sum([_w(t) for t in triggers])
-        ml_features = extract_features(m5, m15, bias, session, weight_sum, ts)
+        ml_features = extract_features(
+            m5, m15, bias, session, weight_sum, ts,
+            h1_adx=h1_adx, n_patterns=len(triggers),
+        )
         if ml_gate is not None:
             allowed, ml_prob = ml_gate.gate(ml_features)
             if not allowed:

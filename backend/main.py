@@ -651,22 +651,6 @@ def root():
     return {"status": "ok", "service": "scalping-bot"}
 
 
-@app.get("/api/auth-debug")
-def auth_debug():
-    """Temporary diagnostic — confirms what credentials Railway passes to the app.
-    Does NOT expose the password (only its length) so it is safe to open in a
-    browser. Remove once login is confirmed working."""
-    u = os.environ.get("ADMIN_USERNAME")
-    p = os.environ.get("ADMIN_PASSWORD")
-    return {
-        "admin_username_is_set": u is not None,
-        "admin_username_value": u,            # username is not a secret
-        "admin_password_is_set": p is not None,
-        "admin_password_length": len(p) if p else 0,
-        "using_defaults": u is None and p is None,
-    }
-
-
 @app.post("/api/login")
 def login(req: LoginRequest):
     """Public endpoint — no auth required. Returns a JWT on success."""

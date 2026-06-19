@@ -74,7 +74,7 @@ def get_last_errors() -> dict:
     return dict(_last_errors)
 
 
-
+def _cache_key(symbol: str, start: str, end: str) -> str:
     raw = f"{symbol}_{start}_{end}"
     return hashlib.md5(raw.encode()).hexdigest()
 
@@ -140,7 +140,7 @@ MARKET_SYMBOLS = {
         "alphavantage": ("XAU", "USD"),
         "yfinance": "GC=F",
         "synthetic_price": 2000.0,
-        "synthetic_vol": 0.0009,
+        "synthetic_vol": 0.0004,
         "synthetic_spread": 0.4,
     },
     "EURUSD": {

@@ -61,7 +61,7 @@ DEFAULT_SETTINGS = {
     "capital": 1000.0,
     "risk_per_trade_pct": 5.0,     # 5% = 50€ sur 1000€ de capital
     "max_trades_per_day": 4,
-    "daily_stop_pct": 100.0,       # -100% = -1000€ (pratiquement désactivé)
+    "daily_stop_pct": 2.0,         # -2% stop journalier par défaut
     "mode": "paper",               # 'paper' | 'live'
     "symbol": "XAUUSD",
     "active_markets": ["XAUUSD", "EURUSD"],
@@ -426,7 +426,7 @@ def update_pattern_stats(patterns: List[str], won: bool) -> None:
     """Increment trades (+1) and optionally wins (+1) for each pattern."""
     if not patterns:
         return
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     with get_conn() as conn:
         for p in patterns:
             conn.execute("""
