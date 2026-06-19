@@ -414,10 +414,14 @@ def confirm_m15(m15: pd.DataFrame, bias: str) -> bool:
     if any(pd.isna(cur[c]) for c in ("ema9", "ema21", "rsi")):
         return False
     rsi_ok = RSI_LOW <= cur["rsi"] <= RSI_HIGH
-    # Tolérance de 0.3 ATR : accepte l'EMA quasi-croisée (convergence en cours)
-    # pour ne pas bloquer quand H1 a déjà tourné mais M15 lag encore.
+    # Tolérance = max(0.3 ATR, 1 pip en unités prix).
+    # Sur XAUUSD : 0.3 * 1.5 ≈ 0.45 $ → significatif.
+    # Sur EUR/USD : 0.3 * 0.001 ≈ 0.0003 → sub-pip, inutile sans plancher.
+    # 1 pip EUR/USD = 0.0001, 1 pip XAUUSD = 0.1 → on utilise price * 0.0001.
     atr_m15 = float(cur.get("atr", 0) or 0)
-    tol = 0.3 * atr_m15
+    price = float(cur.get("close", 1) or 1)
+    pip_floor = price * 0.0001
+    tol = max(0.3 * atr_m15, pip_floor)
     if bias == "LONG":
         ema_ok = cur["ema9"] >= cur["ema21"] - tol
     else:
@@ -1016,7 +1020,8 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
         cur15_d = m15.iloc[-1]
         if not any(pd.isna(cur15_d.get(c, float("nan"))) for c in ("ema9", "ema21", "rsi")):
             atr_m15_d = float(cur15_d.get("atr", 0) or 0)
-            tol_d = 0.3 * atr_m15_d
+            price_m15 = float(cur15_d.get("close", 1) or 1)
+            tol_d = max(0.3 * atr_m15_d, price_m15 * 0.0001)
             m15_ema9 = round(float(cur15_d["ema9"]), 3)
             m15_ema21 = round(float(cur15_d["ema21"]), 3)
             m15_ema_gap = round(float(cur15_d["ema9"]) - float(cur15_d["ema21"]), 3)
