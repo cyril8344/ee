@@ -811,6 +811,30 @@ export default function Dashboard({ onLogout }) {
                       <span style={{ color: ok ? COLORS.green : COLORS.red, fontWeight: 500 }}>{val}</span>
                     </div>
                   ))}
+                  {/* Pattern weight gate */}
+                  {mkt.conditions.patterns?.length > 0 && (
+                    <div style={{ marginTop: 4, borderTop: `1px solid ${COLORS.border}`, paddingTop: 4 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                        <span style={{ color: COLORS.sub }}>Poids total patterns</span>
+                        <span style={{
+                          color: mkt.conditions.weight_gate_ok ? COLORS.green : COLORS.red,
+                          fontWeight: 600,
+                        }}>
+                          {mkt.conditions.pattern_weight_sum != null
+                            ? `${mkt.conditions.pattern_weight_sum.toFixed(2)} / 1.0 ${mkt.conditions.weight_gate_ok ? "✓" : "✗"}`
+                            : "—"}
+                        </span>
+                      </div>
+                      {mkt.conditions.pattern_weight_detail && Object.entries(mkt.conditions.pattern_weight_detail).map(([p, w]) => (
+                        <div key={p} style={{ display: "flex", justifyContent: "space-between", paddingLeft: 8, opacity: 0.8 }}>
+                          <span style={{ color: COLORS.sub, fontSize: 10 }}>{p.replace(/_/g, " ")}</span>
+                          <span style={{ fontSize: 10, color: w >= 1.0 ? COLORS.green : w >= 0.6 ? COLORS.amber : COLORS.red }}>
+                            x{w.toFixed(2)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 

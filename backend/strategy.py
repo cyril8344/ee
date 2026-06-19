@@ -985,7 +985,8 @@ def batch_signals(
 
 def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
              now: Optional[datetime] = None,
-             atr_min_override: float = ATR_MIN) -> Dict[str, Any]:
+             atr_min_override: float = ATR_MIN,
+             pattern_weights: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Lightweight market snapshot for the dashboard."""
     ts = now or datetime.now(timezone.utc)
     bias = compute_bias(h1) if len(h1) else "NEUTRE"
@@ -1065,6 +1066,17 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
         if near_orderblock(float(cur5["close"]), bias, obs_snap, atr_val):
             patterns_detected.append("near_order_block")
 
+    # Pattern weight computation (mirrors evaluate() logic)
+    def _pw(t: str) -> float:
+        if pattern_weights is None:
+            return 1.0
+        info = pattern_weights.get(t)
+        return info["weight"] if isinstance(info, dict) else float(info) if info else 1.0
+
+    pattern_weight_detail = {t: round(_pw(t), 3) for t in patterns_detected}
+    pattern_weight_sum = round(sum(pattern_weight_detail.values()), 3)
+    weight_gate_ok = pattern_weight_sum >= 1.0 if patterns_detected else False
+
     # first failing condition for quick diagnosis
     blocking_reason = None
     if bias == "NEUTRE":
@@ -1085,6 +1097,8 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
         blocking_reason = "ema9_non_aligné"
     elif not patterns_detected:
         blocking_reason = "aucun_pattern"
+    elif not weight_gate_ok:
+        blocking_reason = "poids_insuffisants"
 
     return {
         "bias": bias,
@@ -1108,6 +1122,9 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
             "atr_ok": atr_ok,
             "ema9_aligned": ema9_aligned,
             "patterns": patterns_detected,
+            "pattern_weight_sum": pattern_weight_sum,
+            "pattern_weight_detail": pattern_weight_detail,
+            "weight_gate_ok": weight_gate_ok,
             "blocking_reason": blocking_reason,
         },
     }
