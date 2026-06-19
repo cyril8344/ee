@@ -4,7 +4,6 @@ import {
   ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
   ReferenceLine, CartesianGrid, Area, AreaChart, Bar, BarChart, Cell,
 } from "recharts";
-import BacktestPanel from "./BacktestPanel";
 
 /* ============================================================================
  * XAU/USD Scalping Bot — Dashboard
@@ -317,7 +316,6 @@ function logout401(onLogout) {
 
 /* ============================ Dashboard ================================== */
 export default function Dashboard({ onLogout }) {
-  const [tab, setTab] = useState("live");
   const [activeMarket, setActiveMarket] = useState("XAUUSD");
   const [weightsOpen, setWeightsOpen] = useState(false);
   const [state, setState] = useState(null);
@@ -698,12 +696,6 @@ export default function Dashboard({ onLogout }) {
             </button>
           ))}
           <div style={{ width: 1, background: COLORS.border, margin: "0 4px" }} />
-          {["live", "backtest"].map((t) => (
-            <button key={t} onClick={() => setTab(t)} style={tabBtn(tab === t)}>
-              {t === "live" ? "Live" : "Backtest"}
-            </button>
-          ))}
-          <div style={{ width: 1, background: COLORS.border, margin: "0 4px" }} />
           <button
             onClick={() => { localStorage.removeItem("token"); if (onLogout) onLogout(); }}
             style={{
@@ -723,10 +715,7 @@ export default function Dashboard({ onLogout }) {
         </div>
       </div>
 
-      {tab === "backtest" ? (
-        <BacktestPanel api={API} />
-      ) : (
-        <>
+      <>
           {/* ===== top band ===== */}
           <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 14 }}>
             <Stat label="Biais du jour"
@@ -1635,8 +1624,7 @@ export default function Dashboard({ onLogout }) {
               </div>
             </div>
           )}
-        </>
-      )}
+      </>
     </div>
   );
 }
