@@ -445,7 +445,11 @@ export default function Dashboard({ onLogout }) {
   }, []);
 
   const launchPretrain = (symbol) => {
+    const sym = symbol || activeMarket;
     setPretrainLoading(true);
+    // Optimistic update so the UI shows "in progress" immediately
+    setPretrainStatus({ running: true, pct: 0, bars_done: 0, bars_total: 0,
+      trades: 0, status: "Démarrage…", error: null, last_result: null });
     const now = new Date();
     const end = now.toISOString().slice(0, 10);
     const sixMonthsAgo = new Date(now);
@@ -454,11 +458,14 @@ export default function Dashboard({ onLogout }) {
     fetch(`${API}/api/pretrain`, {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ start, end, symbol, reset: true }),
+      body: JSON.stringify({ start, end, symbol: sym, reset: true }),
     })
       .then(r => r.json())
-      .then(d => { setPretrainStatus(d.progress); setPretrainLoading(false); })
-      .catch(() => setPretrainLoading(false));
+      .then(d => { if (d.progress) setPretrainStatus(d.progress); setPretrainLoading(false); })
+      .catch(() => {
+        setPretrainStatus({ running: false, status: "error", error: "Impossible de contacter le serveur" });
+        setPretrainLoading(false);
+      });
   };
 
   /* Agent IA status + history polling — every 30 seconds */
@@ -829,7 +836,7 @@ export default function Dashboard({ onLogout }) {
                   </div>
                   {[
                     { label: "Biais H1 EMA50", ok: mkt.conditions.h1_bias !== "NEUTRE", val: mkt.conditions.h1_bias },
-                    { label: "M15 EMA9>EMA21", ok: mkt.conditions.m15_ema_aligned,
+                    { label: mkt.conditions.h1_bias === "SHORT" ? "M15 EMA9<EMA21" : "M15 EMA9>EMA21", ok: mkt.conditions.m15_ema_aligned,
                       val: mkt.conditions.m15_ema_aligned == null ? "—"
                         : mkt.conditions.m15_ema_aligned ? "✓"
                         : (() => {
@@ -916,7 +923,7 @@ export default function Dashboard({ onLogout }) {
                   </div>
                   {/* Pré-entraînement */}
                   <div style={{ marginTop: 6, borderTop: `1px solid ${COLORS.border}`, paddingTop: 6 }}>
-                    {pretrainStatus?.status === "running" ? (
+                    {pretrainStatus?.running ? (
                       <div>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                           <span style={{ color: COLORS.amber, fontSize: 11 }}>Pré-entraînement en cours…</span>
@@ -926,8 +933,25 @@ export default function Dashboard({ onLogout }) {
                           <div style={{ background: COLORS.amber, width: `${pretrainStatus.pct ?? 0}%`, height: 4, borderRadius: 3, transition: "width 0.5s" }} />
                         </div>
                         <div style={{ color: COLORS.sub, fontSize: 10, marginTop: 2 }}>
-                          {pretrainStatus.trades} trades détectés — {pretrainStatus.status}
+                          {pretrainStatus.trades ?? 0} trades · {pretrainStatus.bars_done ?? 0}/{pretrainStatus.bars_total ?? 0} barres — {pretrainStatus.status}
                         </div>
+                      </div>
+                    ) : pretrainStatus?.status === "error" ? (
+                      <div>
+                        <div style={{ color: COLORS.red, fontSize: 11, marginBottom: 4 }}>
+                          ✗ Erreur pré-entraînement
+                        </div>
+                        <div style={{ color: COLORS.sub, fontSize: 10, marginBottom: 6, wordBreak: "break-word" }}>
+                          {pretrainStatus.error || "Erreur inconnue"}
+                        </div>
+                        <button
+                          onClick={() => launchPretrain(activeMarket)}
+                          disabled={pretrainLoading}
+                          style={{ width: "100%", background: COLORS.red + "22",
+                            border: `1px solid ${COLORS.red}`, borderRadius: 4,
+                            color: COLORS.red, padding: "4px 0", cursor: "pointer", fontSize: 11 }}>
+                          Réessayer
+                        </button>
                       </div>
                     ) : pretrainStatus?.status === "done" && pretrainStatus.last_result ? (
                       <div>
@@ -938,7 +962,7 @@ export default function Dashboard({ onLogout }) {
                           {pretrainStatus.last_result.period} · ML: {pretrainStatus.last_result.ml_samples} échantillons
                         </div>
                         <button
-                          onClick={() => launchPretrain(mkt.symbol)}
+                          onClick={() => launchPretrain(activeMarket)}
                           disabled={pretrainLoading}
                           style={{ marginTop: 6, width: "100%", background: COLORS.blue + "22",
                             border: `1px solid ${COLORS.blue}`, borderRadius: 4,
@@ -952,7 +976,7 @@ export default function Dashboard({ onLogout }) {
                           Pré-entraîner le bot sur les 6 derniers mois de données historiques
                         </div>
                         <button
-                          onClick={() => launchPretrain(mkt.symbol)}
+                          onClick={() => launchPretrain(activeMarket)}
                           disabled={pretrainLoading}
                           style={{ width: "100%", background: COLORS.blue + "33",
                             border: `1px solid ${COLORS.blue}`, borderRadius: 4,

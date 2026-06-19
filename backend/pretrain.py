@@ -246,10 +246,15 @@ def launch_pretrain(
     if get_progress()["running"]:
         return
 
+    # Pre-set running=True before the thread starts so the API response is
+    # consistent even if the thread hasn't had a chance to run yet.
+    _set(running=True, pct=0, bars_done=0, bars_total=0, trades=0, wins=0,
+         status="Démarrage…", error=None, last_result=None)
+
     def _run():
         try:
             run_pretrain(start, end, symbol=symbol, atr_min=atr_min, reset=reset)
-        except Exception:
-            pass
+        except Exception as exc:
+            _set(running=False, status="error", error=str(exc))
 
     threading.Thread(target=_run, daemon=True, name="pretrain").start()

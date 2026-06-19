@@ -698,7 +698,12 @@ def get_chart(tf: str = "M5", symbol: str = "XAUUSD", _user: dict = Depends(get_
     ms = state.market_states.get(symbol)
     if ms is None:
         raise HTTPException(status_code=404, detail=f"Unknown market: {symbol}")
-    m5_raw = ms.broker.get_rates_m5(500)
+    # Fetch more raw M5 bars so EMA200 has enough warmup before the displayed window.
+    # M5: 2500 bars → EMA200 needs 200, leaves 2300 warmup before the last 180 shown.
+    # M15: 3600 M5 bars → ~1200 M15 bars → ~1020 warmup bars before the last 180 shown.
+    # H1: 5000 M5 bars → ~416 H1 bars → ~236 warmup bars before the last 180 shown.
+    _RAW_BARS = {"M5": 2500, "M15": 3600, "H1": 5000}
+    m5_raw = ms.broker.get_rates_m5(_RAW_BARS.get(tf.upper(), 2500))
     rule = {"M5": None, "M15": "15min", "H1": "60min"}.get(tf.upper())
     if rule:
         agg = {"open": "first", "high": "max", "low": "min",

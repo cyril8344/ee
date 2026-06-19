@@ -338,7 +338,8 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
     def pnl_for(price, lots):
         return (price - t["entry"]) * sign * contract_size * lots
 
-    # 1) TP1 (partial 60%)
+    # 1) TP1 (partial 60%) — after close, SL moves to breakeven so remaining
+    #    position cannot lose more than it already gained at TP1.
     if not t["tp1_done"]:
         hit_tp1 = (high >= t["tp1"]) if direction == "long" else (low <= t["tp1"])
         if hit_tp1:
@@ -348,6 +349,8 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
             t["realised"] += pnl_for(fill, lots60)
             t["remaining"] = round(t["remaining"] - lots60, 2)
             t["tp1_done"] = True
+            # Breakeven: SL moves to entry so the remaining position is risk-free
+            t["stop_loss"] = t["entry"]
             if t["remaining"] < MIN_LOT:
                 return t["realised"], t["tp1"], "tp1"
 
