@@ -841,6 +841,10 @@ def evaluate(
         info = pattern_weights.get(t)
         return info["weight"] if isinstance(info, dict) else float(info) if info else 1.0
 
+    # Exclure les patterns vraiment nuls (perdent 70%+ du temps)
+    PATTERN_FLOOR = 0.60
+    triggers = [t for t in triggers if _w(t) >= PATTERN_FLOOR]
+
     weights = [_w(t) for t in triggers]
     # Exige au moins 2 patterns ET poids cumulé >= 1.0
     if len(triggers) < 2 or sum(weights) < 1.0:
