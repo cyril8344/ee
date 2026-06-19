@@ -122,9 +122,11 @@ def run_pretrain(
         # ---- Boucle bar par bar ----
         warmup     = 210
         total      = len(m5) - warmup
-        open_trade = None
-        n_trades   = 0
-        n_wins     = 0
+        open_trade   = None
+        n_trades     = 0
+        n_wins       = 0
+        equity       = 10_000.0
+        equity_curve = [{"ts": m5.index[warmup].isoformat(), "equity": equity}]
         pnl_wins   = []   # PnL $ des trades gagnants
         pnl_losses = []   # PnL $ (abs) des trades perdants
         mae_wins   = []   # MAE en R des trades gagnants
@@ -151,6 +153,8 @@ def run_pretrain(
                     pnl, _, _ = exit_info
                     won = pnl > 0
                     n_trades += 1
+                    equity += pnl
+                    equity_curve.append({"ts": ts.isoformat(), "equity": round(equity, 2)})
                     if won:
                         n_wins += 1
                         pnl_wins.append(pnl)
