@@ -136,7 +136,7 @@ class BotState:
         self.settings = db.get_settings()
         self.risk = RiskManager()
         self.risk.sync_from_settings(self.settings)
-        self.news = NewsFilter(window_minutes=60, currencies=("USD", "EUR"))
+        self.news = NewsFilter(window_minutes=30, currencies=("USD", "EUR"))
         self.macro = MacroFilter()
         self.alerts: List[Dict[str, Any]] = []
         self.bot_status = "EN VEILLE"     # ACTIF | EN VEILLE | BLOQUE
