@@ -47,7 +47,7 @@ VOL_AVG_PERIOD = 20
 
 RSI_LOW = 33.0
 RSI_HIGH = 67.0
-ATR_MIN = 0.8
+ATR_MIN = 3.0
 ADX_MIN = 22.0
 SR_PROXIMITY_ATR = 0.7
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
