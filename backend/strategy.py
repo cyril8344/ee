@@ -842,19 +842,19 @@ def evaluate(
         tp1 = entry - risk
         tp2 = entry - 2.5 * risk
 
-    # ML gate — filtre probabiliste appris trade par trade
+    # Extraction des features ML — toujours calculées (gate live + pré-entraînement)
     ml_prob: float = -1.0
     ml_features = None
-    if ml_gate is not None:
-        try:
-            from ml_gate import extract_features
-            weight_sum = sum([_w(t) for t in triggers])
-            ml_features = extract_features(m5, m15, bias, session, weight_sum, ts)
+    try:
+        from ml_gate import extract_features
+        weight_sum = sum([_w(t) for t in triggers])
+        ml_features = extract_features(m5, m15, bias, session, weight_sum, ts)
+        if ml_gate is not None:
             allowed, ml_prob = ml_gate.gate(ml_features)
             if not allowed:
                 return None
-        except Exception:
-            pass  # gate non disponible → on laisse passer
+    except Exception:
+        pass
 
     meta: Dict[str, Any] = {
         "rsi_m5":    round(float(cur["rsi"]), 1),
