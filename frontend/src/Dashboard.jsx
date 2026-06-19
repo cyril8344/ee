@@ -802,10 +802,13 @@ export default function Dashboard({ onLogout }) {
                         : mkt.conditions.m15_ema_aligned ? "✓"
                         : (() => {
                             const gap = mkt.conditions.m15_ema_gap;
-                            const tol = mkt.conditions.m15_ema_tol;
+                            const tol = mkt.conditions.m15_ema_tol ?? 0;
+                            const bias = mkt.conditions.h1_bias;
                             if (gap == null) return "✗";
-                            const needed = (tol != null ? (-tol - gap) : -gap).toFixed(2);
-                            return `✗ (gap ${gap > 0 ? "+" : ""}${gap.toFixed(2)}, manque ${needed})`;
+                            // Pour SHORT : il faut gap <= tol → manque = gap - tol (combien EMA9 doit descendre)
+                            // Pour LONG  : il faut gap >= -tol → manque = -tol - gap (combien EMA9 doit monter)
+                            const manque = bias === "SHORT" ? (gap - tol) : (-tol - gap);
+                            return `✗ (gap ${gap > 0 ? "+" : ""}${gap.toFixed(3)}, manque ${manque.toFixed(3)})`;
                           })() },
                     { label: "M15 RSI dans zone", ok: mkt.conditions.m15_rsi_ok,
                       val: mkt.conditions.m15_rsi_ok == null ? "—" : (mkt.conditions.m15_rsi_ok ? "✓" : "✗") },
