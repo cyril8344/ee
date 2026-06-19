@@ -89,11 +89,12 @@ function useBeep() {
 }
 
 /* ============================= TradingView chart ========================== */
-function TvChart({ candles, markers, levels, position, symbol }) {
+function TvChart({ candles, markers, levels, orderBlocks, position, symbol }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const seriesRef = useRef({});
   const srLinesRef = useRef([]);
+  const obLinesRef = useRef([]);
   const posLinesRef = useRef([]);
   const markersPluginRef = useRef(null);
   const isForex = symbol === "EURUSD";
@@ -110,7 +111,7 @@ function TvChart({ candles, markers, levels, position, symbol }) {
       rightPriceScale: { borderColor: "#1a2540" },
       timeScale: { borderColor: "#1a2540", timeVisible: true, secondsVisible: false },
       width: containerRef.current.clientWidth,
-      height: 420,
+      height: 540,
     });
     chartRef.current = chart;
 
@@ -191,8 +192,23 @@ function TvChart({ candles, markers, levels, position, symbol }) {
       srLinesRef.current.push(s.candle.createPriceLine({ price: sv, color: "#16c78455", lineWidth: 1, lineStyle: 2, axisLabelVisible: false }));
     });
 
+    // Order blocks — 2 price lines per zone (top + bottom)
+    obLinesRef.current.forEach((pl) => s.candle.removePriceLine(pl));
+    obLinesRef.current = [];
+    (orderBlocks || []).forEach((ob) => {
+      const color = ob.type === "bullish" ? "#16c784" : "#ea3943";
+      obLinesRef.current.push(s.candle.createPriceLine({
+        price: ob.high, color: color + "cc", lineWidth: 1, lineStyle: 0,
+        axisLabelVisible: false, title: ob.type === "bullish" ? "OB↑" : "OB↓",
+      }));
+      obLinesRef.current.push(s.candle.createPriceLine({
+        price: ob.low, color: color + "66", lineWidth: 1, lineStyle: 1,
+        axisLabelVisible: false,
+      }));
+    });
+
     chartRef.current?.timeScale().scrollToRealTime();
-  }, [candles, markers, levels]);
+  }, [candles, markers, levels, orderBlocks]);
 
   // Position SL / TP lines
   useEffect(() => {
@@ -213,7 +229,7 @@ function TvChart({ candles, markers, levels, position, symbol }) {
   }, [position]);
 
   return (
-    <div style={{ position: "relative", height: 420, borderRadius: 8, overflow: "hidden" }}>
+    <div style={{ position: "relative", height: 540, borderRadius: 8, overflow: "hidden" }}>
       <div ref={containerRef} style={{ height: "100%", background: "#0d1421" }} />
       {!candles?.length && (
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center",
@@ -718,13 +734,20 @@ export default function Dashboard({ onLogout }) {
                 </div>
               </div>
               <TvChart candles={chart?.candles} markers={chart?.markers} levels={chart?.levels}
-                position={pos} symbol={activeMarket} />
-              <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 11, color: COLORS.sub }}>
+                orderBlocks={chart?.order_blocks} position={pos} symbol={activeMarket} />
+              <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 11, color: COLORS.sub, flexWrap: "wrap" }}>
                 <Legend c={COLORS.amber} t="EMA9" /><Legend c={COLORS.blue} t="EMA21" />
                 <Legend c="#c084fc" t="EMA200" />
                 <Legend c={COLORS.green} t="Support" /><Legend c={COLORS.red} t="Résistance" />
+                <Legend c={COLORS.green + "cc"} t="OB haussier" /><Legend c={COLORS.red + "cc"} t="OB baissier" />
                 <span>▲ entrée long · ▼ entrée short · ✕ sortie</span>
               </div>
+              {chart?.order_blocks?.length > 0 && (
+                <div style={{ marginTop: 6, fontSize: 11, color: COLORS.sub }}>
+                  {chart.order_blocks.filter(ob => ob.type === "bullish").length} OB haussier(s) ·{" "}
+                  {chart.order_blocks.filter(ob => ob.type === "bearish").length} OB baissier(s) détectés
+                </div>
+              )}
             </div>
 
             {/* ===== side panel ===== */}
