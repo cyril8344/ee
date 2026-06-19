@@ -955,16 +955,45 @@ export default function Dashboard({ onLogout }) {
                       </div>
                     ) : pretrainStatus?.status === "done" && pretrainStatus.last_result ? (
                       <div>
-                        <div style={{ color: COLORS.green, fontSize: 11, marginBottom: 3 }}>
-                          ✓ Pré-entraînement terminé — {pretrainStatus.last_result.n_trades} trades ({(pretrainStatus.last_result.win_rate * 100).toFixed(0)}% win rate)
+                        <div style={{ color: COLORS.green, fontSize: 11, marginBottom: 4 }}>
+                          ✓ Pré-entraînement terminé
                         </div>
-                        <div style={{ color: COLORS.sub, fontSize: 10 }}>
-                          {pretrainStatus.last_result.period} · ML: {pretrainStatus.last_result.ml_samples} échantillons
+                        {/* Ligne 1 : trades + WR + PF */}
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 2 }}>
+                          <span style={{ color: COLORS.sub }}>{pretrainStatus.last_result.n_trades} trades</span>
+                          <span style={{ color: pretrainStatus.last_result.win_rate >= 0.45 ? COLORS.green : COLORS.red }}>
+                            {(pretrainStatus.last_result.win_rate * 100).toFixed(0)}% WR
+                          </span>
+                          <span style={{ color: (pretrainStatus.last_result.profit_factor ?? 0) >= 1.0 ? COLORS.green : COLORS.red }}>
+                            PF {(pretrainStatus.last_result.profit_factor ?? 0).toFixed(2)}
+                          </span>
+                        </div>
+                        {/* Ligne 2 : avg win / avg loss */}
+                        {pretrainStatus.last_result.avg_win != null && (
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 2 }}>
+                            <span style={{ color: COLORS.sub }}>Moy. gain</span>
+                            <span style={{ color: COLORS.green }}>+{pretrainStatus.last_result.avg_win.toFixed(2)}$</span>
+                            <span style={{ color: COLORS.sub }}>Moy. perte</span>
+                            <span style={{ color: COLORS.red }}>-{pretrainStatus.last_result.avg_loss.toFixed(2)}$</span>
+                          </div>
+                        )}
+                        {/* Ligne 3 : net PnL */}
+                        {pretrainStatus.last_result.net_pnl != null && (
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 4 }}>
+                            <span style={{ color: COLORS.sub }}>Net PnL</span>
+                            <span style={{ color: pretrainStatus.last_result.net_pnl >= 0 ? COLORS.green : COLORS.red, fontWeight: 600 }}>
+                              {pretrainStatus.last_result.net_pnl >= 0 ? "+" : ""}{pretrainStatus.last_result.net_pnl.toFixed(2)}$
+                            </span>
+                            <span style={{ color: COLORS.sub }}>{pretrainStatus.last_result.period}</span>
+                          </div>
+                        )}
+                        <div style={{ color: COLORS.sub, fontSize: 10, marginBottom: 4 }}>
+                          ML: {pretrainStatus.last_result.ml_samples} échantillons
                         </div>
                         <button
                           onClick={() => launchPretrain(activeMarket)}
                           disabled={pretrainLoading}
-                          style={{ marginTop: 6, width: "100%", background: COLORS.blue + "22",
+                          style={{ marginTop: 2, width: "100%", background: COLORS.blue + "22",
                             border: `1px solid ${COLORS.blue}`, borderRadius: 4,
                             color: COLORS.blue, padding: "4px 0", cursor: "pointer", fontSize: 11 }}>
                           Relancer (6 mois)
