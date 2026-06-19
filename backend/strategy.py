@@ -786,6 +786,20 @@ def evaluate(
     if bias == "SHORT" and cur["close"] > cur["ema9"] + ema9_tolerance:
         return None
 
+    # 5b) M5 RSI momentum confirmation — évite les entrées à contre-courant M5
+    rsi_m5 = float(cur.get("rsi", 50) or 50)
+    if bias == "LONG"  and rsi_m5 < 45:
+        return None
+    if bias == "SHORT" and rsi_m5 > 55:
+        return None
+
+    # 5c) M5 volume confirmation — la bougie signal doit avoir du volume réel
+    vol_cur = float(cur.get("volume", 0) or 0)
+    if vol_cur > 0 and len(m5) >= VOL_AVG_PERIOD:
+        vol_avg = float(m5["volume"].iloc[-VOL_AVG_PERIOD:].mean() or 0)
+        if vol_avg > 0 and vol_cur < 1.2 * vol_avg:
+            return None
+
     # 6) Candlestick pattern trigger (any single pattern is enough)
     entry = float(cur["close"])
     triggers = []
