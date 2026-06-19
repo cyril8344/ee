@@ -125,6 +125,10 @@ def run_pretrain(
         open_trade = None
         n_trades   = 0
         n_wins     = 0
+        mae_wins   = []   # MAE en R des trades gagnants
+        mfe_wins   = []   # MFE en R des trades gagnants
+        mae_loss   = []   # MAE en R des trades perdants
+        mfe_loss   = []   # MFE en R des trades perdants
 
         _set(bars_total=total, status="Analyse des trades historiques…")
 
@@ -147,6 +151,18 @@ def run_pretrain(
                     n_trades += 1
                     if won:
                         n_wins += 1
+
+                    # Collecter MAE/MFE en multiples de R
+                    risk = open_trade.get("risk", 0.0)
+                    if risk > 0:
+                        mae_r = open_trade.get("mae", 0.0) / risk
+                        mfe_r = open_trade.get("mfe", 0.0) / risk
+                        if won:
+                            mae_wins.append(mae_r)
+                            mfe_wins.append(mfe_r)
+                        else:
+                            mae_loss.append(mae_r)
+                            mfe_loss.append(mfe_r)
 
                     features = open_trade.get("ml_features")
                     if features:
@@ -197,6 +213,9 @@ def run_pretrain(
                 "max_exit_time": ts.to_pydatetime() + timedelta(minutes=MAX_TRADE_MINUTES),
                 "triggers":     sig.meta.get("triggers", []),
                 "ml_features":  sig.meta.get("ml_features"),
+                "risk":         abs(fill - sig.stop_loss),
+                "mae":          0.0,
+                "mfe":          0.0,
             }
 
         # ---- Persister les modèles appris ----
@@ -212,6 +231,10 @@ def run_pretrain(
         })
 
         win_rate = round(n_wins / n_trades, 3) if n_trades else 0.0
+
+        import statistics as _stats
+        def _avg(lst): return round(_stats.mean(lst), 3) if lst else 0.0
+
         result = {
             "n_trades":      n_trades,
             "n_wins":        n_wins,
@@ -222,6 +245,20 @@ def run_pretrain(
             "ema9_mult_final": round(adaptive.ema9_mult, 3),
             "m15_mult_final":  round(adaptive.m15_mult, 3),
             "ml_samples":    gate.n_samples,
+            "excursion": {
+                "avg_mae_r_wins": _avg(mae_wins),
+                "avg_mfe_r_wins": _avg(mfe_wins),
+                "avg_mae_r_loss": _avg(mae_loss),
+                "avg_mfe_r_loss": _avg(mfe_loss),
+                # % pertes qui avaient atteint 0.5R favorable → "near-wins"
+                "pct_loss_mfe_gt_half_r": round(
+                    sum(1 for v in mfe_loss if v >= 0.5) / len(mfe_loss) * 100, 1
+                ) if mfe_loss else 0.0,
+                # % gains qui ont subi >0.5R adverse → entrée trop tôt
+                "pct_win_mae_gt_half_r": round(
+                    sum(1 for v in mae_wins if v >= 0.5) / len(mae_wins) * 100, 1
+                ) if mae_wins else 0.0,
+            },
         }
         _set(running=False, pct=100, bars_done=total, trades=n_trades,
              wins=n_wins, status="done", last_result=result)
