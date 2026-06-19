@@ -89,11 +89,12 @@ function useBeep() {
 }
 
 /* ============================= TradingView chart ========================== */
-function TvChart({ candles, markers, levels, position, symbol }) {
+function TvChart({ candles, markers, levels, orderBlocks, position, symbol }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const seriesRef = useRef({});
   const srLinesRef = useRef([]);
+  const obLinesRef = useRef([]);
   const posLinesRef = useRef([]);
   const markersPluginRef = useRef(null);
   const isForex = symbol === "EURUSD";
@@ -110,7 +111,7 @@ function TvChart({ candles, markers, levels, position, symbol }) {
       rightPriceScale: { borderColor: "#1a2540" },
       timeScale: { borderColor: "#1a2540", timeVisible: true, secondsVisible: false },
       width: containerRef.current.clientWidth,
-      height: 420,
+      height: 540,
     });
     chartRef.current = chart;
 
@@ -191,8 +192,23 @@ function TvChart({ candles, markers, levels, position, symbol }) {
       srLinesRef.current.push(s.candle.createPriceLine({ price: sv, color: "#16c78455", lineWidth: 1, lineStyle: 2, axisLabelVisible: false }));
     });
 
+    // Order blocks — 2 price lines per zone (top + bottom)
+    obLinesRef.current.forEach((pl) => s.candle.removePriceLine(pl));
+    obLinesRef.current = [];
+    (orderBlocks || []).forEach((ob) => {
+      const color = ob.type === "bullish" ? "#16c784" : "#ea3943";
+      obLinesRef.current.push(s.candle.createPriceLine({
+        price: ob.high, color: color + "cc", lineWidth: 1, lineStyle: 0,
+        axisLabelVisible: false, title: ob.type === "bullish" ? "OB↑" : "OB↓",
+      }));
+      obLinesRef.current.push(s.candle.createPriceLine({
+        price: ob.low, color: color + "66", lineWidth: 1, lineStyle: 1,
+        axisLabelVisible: false,
+      }));
+    });
+
     chartRef.current?.timeScale().scrollToRealTime();
-  }, [candles, markers, levels]);
+  }, [candles, markers, levels, orderBlocks]);
 
   // Position SL / TP lines
   useEffect(() => {
@@ -213,7 +229,7 @@ function TvChart({ candles, markers, levels, position, symbol }) {
   }, [position]);
 
   return (
-    <div style={{ position: "relative", height: 420, borderRadius: 8, overflow: "hidden" }}>
+    <div style={{ position: "relative", height: 540, borderRadius: 8, overflow: "hidden" }}>
       <div ref={containerRef} style={{ height: "100%", background: "#0d1421" }} />
       {!candles?.length && (
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center",
@@ -718,13 +734,20 @@ export default function Dashboard({ onLogout }) {
                 </div>
               </div>
               <TvChart candles={chart?.candles} markers={chart?.markers} levels={chart?.levels}
-                position={pos} symbol={activeMarket} />
-              <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 11, color: COLORS.sub }}>
+                orderBlocks={chart?.order_blocks} position={pos} symbol={activeMarket} />
+              <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 11, color: COLORS.sub, flexWrap: "wrap" }}>
                 <Legend c={COLORS.amber} t="EMA9" /><Legend c={COLORS.blue} t="EMA21" />
                 <Legend c="#c084fc" t="EMA200" />
                 <Legend c={COLORS.green} t="Support" /><Legend c={COLORS.red} t="Résistance" />
+                <Legend c={COLORS.green + "cc"} t="OB haussier" /><Legend c={COLORS.red + "cc"} t="OB baissier" />
                 <span>▲ entrée long · ▼ entrée short · ✕ sortie</span>
               </div>
+              {chart?.order_blocks?.length > 0 && (
+                <div style={{ marginTop: 6, fontSize: 11, color: COLORS.sub }}>
+                  {chart.order_blocks.filter(ob => ob.type === "bullish").length} OB haussier(s) ·{" "}
+                  {chart.order_blocks.filter(ob => ob.type === "bearish").length} OB baissier(s) détectés
+                </div>
+              )}
             </div>
 
             {/* ===== side panel ===== */}
@@ -1181,35 +1204,53 @@ export default function Dashboard({ onLogout }) {
           </div>
 
           {/* ===== active trade ===== */}
-          {pos && (
-            <div className="dashboard-panel" style={{ ...panel(), marginTop: 14, borderColor: pos.direction === "long" ? COLORS.green : COLORS.red }}>
-              <div className="active-trade-row" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-                <span style={{ fontWeight: 700, fontSize: 16,
-                  color: pos.direction === "long" ? COLORS.green : COLORS.red }}>
-                  {pos.direction === "long" ? "▲ LONG" : "▼ SHORT"} · {pos.volume} lots
-                </span>
-                <Row k="Entrée" v={fmt(pos.entry, activeMarket === "EURUSD" ? 5 : 2)} inline />
-                <Row k="SL" v={fmt(pos.stop_loss, activeMarket === "EURUSD" ? 5 : 2)} inline />
-                <Row k="TP1" v={fmt(pos.take_profit1, activeMarket === "EURUSD" ? 5 : 2)} inline />
-                <Row k="TP2" v={fmt(pos.take_profit2, activeMarket === "EURUSD" ? 5 : 2)} inline />
-                <span style={{ fontWeight: 700,
-                  color: pos.unrealised_pnl >= 0 ? COLORS.green : COLORS.red }}>
-                  {money(pos.unrealised_pnl)}
-                </span>
-                <span style={{ marginLeft: "auto", fontSize: 13, color: remaining < 300 ? COLORS.amber : COLORS.sub }}>
-                  ⏱ {hms(remaining)} / 45:00
-                </span>
-                <button onClick={closeNow}
-                  style={{ ...tabBtn(false), borderColor: COLORS.red, color: COLORS.red, fontWeight: 700 }}>
-                  FERMER MAINTENANT
-                </button>
+          {pos && (() => {
+            const cs = activeMarket === "EURUSD" ? 100000 : 100;
+            const sign = pos.direction === "long" ? 1 : -1;
+            const gainTp1 = sign * (pos.take_profit1 - pos.entry) * pos.volume * cs;
+            const gainTp2 = sign * (pos.take_profit2 - pos.entry) * pos.volume * cs;
+            const dp = activeMarket === "EURUSD" ? 5 : 2;
+            return (
+              <div className="dashboard-panel" style={{ ...panel(), marginTop: 14, borderColor: pos.direction === "long" ? COLORS.green : COLORS.red }}>
+                <div className="active-trade-row" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 700, fontSize: 16,
+                    color: pos.direction === "long" ? COLORS.green : COLORS.red }}>
+                    {pos.direction === "long" ? "▲ LONG" : "▼ SHORT"} · {pos.volume} lots
+                  </span>
+                  <Row k="Entrée" v={fmt(pos.entry, dp)} inline />
+                  <Row k="SL" v={fmt(pos.stop_loss, dp)} inline />
+                  <Row k="TP1" v={fmt(pos.take_profit1, dp)} inline />
+                  <Row k="TP2" v={fmt(pos.take_profit2, dp)} inline />
+                  {pos.risk_amount > 0 && (
+                    <span style={{ fontSize: 12, color: COLORS.sub }}>
+                      Mise: <span style={{ color: COLORS.amber }}>{money(pos.risk_amount)}</span>
+                    </span>
+                  )}
+                  <span style={{ fontSize: 12, color: COLORS.sub }}>
+                    Gain pot:{" "}
+                    <span style={{ color: COLORS.green }}>
+                      {money(gainTp1)} (TP1) · {money(gainTp2)} (TP2)
+                    </span>
+                  </span>
+                  <span style={{ fontWeight: 700,
+                    color: pos.unrealised_pnl >= 0 ? COLORS.green : COLORS.red }}>
+                    {money(pos.unrealised_pnl)}
+                  </span>
+                  <span style={{ marginLeft: "auto", fontSize: 13, color: remaining < 300 ? COLORS.amber : COLORS.sub }}>
+                    ⏱ {hms(remaining)} / 45:00
+                  </span>
+                  <button onClick={closeNow}
+                    style={{ ...tabBtn(false), borderColor: COLORS.red, color: COLORS.red, fontWeight: 700 }}>
+                    FERMER MAINTENANT
+                  </button>
+                </div>
+                <div style={{ marginTop: 12 }}>
+                  <ProgressBar label="TP1 (60%)" value={pos.progress_tp1} done={pos.tp1_done} />
+                  <ProgressBar label="TP2 (40%)" value={pos.progress_tp2} />
+                </div>
               </div>
-              <div style={{ marginTop: 12 }}>
-                <ProgressBar label="TP1 (60%)" value={pos.progress_tp1} done={pos.tp1_done} />
-                <ProgressBar label="TP2 (40%)" value={pos.progress_tp2} />
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* ===== history + equity ===== */}
           <div className="history-layout" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14, marginTop: 14 }}>
@@ -1232,32 +1273,50 @@ export default function Dashboard({ onLogout }) {
                       <th style={th}>Dir</th>
                       <th style={th}>Entrée</th>
                       <th style={th}>Sortie</th>
-                      <th className="hide-mobile" style={th}>Mise</th>
-                      <th className="hide-mobile" style={th}>Durée</th>
+                      <th style={th}>Mise</th>
+                      <th style={th}>Gain pot.</th>
                       <th style={th}>Résultat</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(trades.trades || []).filter((t) => t.status === "closed").reverse().map((t) => (
-                      <tr key={t.id} style={{ borderTop: `1px solid ${COLORS.border}` }}>
-                        <td style={td}>{fmtLocalTime(t.entry_time)}</td>
-                        <td style={{ ...td, color: COLORS.sub, fontSize: 11 }}>
-                          {t.symbol || "XAUUSD"}
-                        </td>
-                        <td style={{ ...td, color: t.direction === "long" ? COLORS.green : COLORS.red }}>
-                          {t.direction === "long" ? "LONG" : "SHORT"}
-                        </td>
-                        <td style={td}>{fmt(t.entry_price, t.symbol === "EURUSD" ? 5 : 2)}</td>
-                        <td style={td}>{fmt(t.exit_price, t.symbol === "EURUSD" ? 5 : 2)}</td>
-                        <td className="hide-mobile" style={{ ...td, color: COLORS.sub }}>
-                          {t.risk_amount ? money(t.risk_amount) : "—"}
-                        </td>
-                        <td className="hide-mobile" style={td}>{fmt(t.duration_min, 0)}m</td>
-                        <td style={{ ...td, fontWeight: 600, color: (t.pnl || 0) >= 0 ? COLORS.green : COLORS.red }}>
-                          {money(t.pnl)}
-                        </td>
-                      </tr>
-                    ))}
+                    {(trades.trades || []).filter((t) => t.status === "closed").reverse().map((t) => {
+                      const cs = t.symbol === "EURUSD" ? 100000 : 100;
+                      const sign = t.direction === "long" ? 1 : -1;
+                      const gTp1 = t.take_profit1 && t.entry_price && t.volume
+                        ? sign * (t.take_profit1 - t.entry_price) * t.volume * cs : null;
+                      const gTp2 = t.take_profit2 && t.entry_price && t.volume
+                        ? sign * (t.take_profit2 - t.entry_price) * t.volume * cs : null;
+                      const dp = t.symbol === "EURUSD" ? 5 : 2;
+                      return (
+                        <tr key={t.id} style={{ borderTop: `1px solid ${COLORS.border}` }}>
+                          <td style={td}>{fmtLocalTime(t.entry_time)}</td>
+                          <td style={{ ...td, color: COLORS.sub, fontSize: 11 }}>
+                            {t.symbol || "XAUUSD"}
+                          </td>
+                          <td style={{ ...td, color: t.direction === "long" ? COLORS.green : COLORS.red }}>
+                            {t.direction === "long" ? "LONG" : "SHORT"}
+                          </td>
+                          <td style={td}>{fmt(t.entry_price, dp)}</td>
+                          <td style={td}>{fmt(t.exit_price, dp)}</td>
+                          <td style={{ ...td, color: COLORS.amber }}>
+                            {t.risk_amount ? money(t.risk_amount) : "—"}
+                          </td>
+                          <td style={{ ...td, fontSize: 11 }}>
+                            {gTp1 != null ? (
+                              <span title={`TP1: ${money(gTp1)} · TP2: ${money(gTp2)}`}>
+                                <span style={{ color: COLORS.green }}>{money(gTp1)}</span>
+                                {gTp2 != null && (
+                                  <span style={{ color: COLORS.sub }}> / {money(gTp2)}</span>
+                                )}
+                              </span>
+                            ) : "—"}
+                          </td>
+                          <td style={{ ...td, fontWeight: 600, color: (t.pnl || 0) >= 0 ? COLORS.green : COLORS.red }}>
+                            {money(t.pnl)}
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {(trades.trades || []).filter((t) => t.status === "closed").length === 0 && (
                       <tr><td style={{ ...td, color: COLORS.sub }} colSpan={8}>Aucun trade clôturé aujourd'hui</td></tr>
                     )}

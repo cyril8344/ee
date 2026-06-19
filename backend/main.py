@@ -68,7 +68,7 @@ from news_filter import NewsFilter
 from macro_filter import MacroFilter
 from broker import make_broker, Position
 import strategy
-from strategy import add_indicators, evaluate, snapshot, swing_levels, active_session
+from strategy import add_indicators, evaluate, snapshot, swing_levels, active_session, find_order_blocks
 from backtest import BacktestConfig, run_backtest
 from optimizer import OptimizeConfig, run_optimize
 from auth import create_access_token, get_current_user, verify_credentials
@@ -136,7 +136,7 @@ class BotState:
         self.settings = db.get_settings()
         self.risk = RiskManager()
         self.risk.sync_from_settings(self.settings)
-        self.news = NewsFilter(window_minutes=60, currencies=("USD", "EUR"))
+        self.news = NewsFilter(window_minutes=30, currencies=("USD", "EUR"))
         self.macro = MacroFilter()
         self.alerts: List[Dict[str, Any]] = []
         self.bot_status = "EN VEILLE"     # ACTIF | EN VEILLE | BLOQUE
@@ -513,6 +513,7 @@ def _position_payload(ms: MarketState) -> Optional[Dict[str, Any]]:
         "remaining_seconds": remaining_sec,
         "progress_tp1": 1.0 if pos.tp1_done else round(max(-1.0, min(prog1, 1.5)), 3),
         "progress_tp2": round(max(-1.0, min(prog2, 1.5)), 3),
+        "risk_amount": round(pos.risk_amount, 2),
     }
 
 
@@ -700,8 +701,11 @@ def get_chart(tf: str = "M5", symbol: str = "XAUUSD", _user: dict = Depends(get_
                 "price": t.get("exit_price"), "pnl": t.get("pnl"),
             })
 
+    obs = find_order_blocks(add_indicators(base))
+    order_blocks = [{"type": ob["type"], "low": round(ob["low"], 5), "high": round(ob["high"], 5)} for ob in obs]
+
     return {"timeframe": tf.upper(), "symbol": symbol, "candles": candles,
-            "levels": levels, "markers": markers}
+            "levels": levels, "markers": markers, "order_blocks": order_blocks}
 
 
 @app.get("/api/trades")
