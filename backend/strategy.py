@@ -753,8 +753,6 @@ def evaluate(
     weights = [_w(t) for t in triggers]
     if sum(weights) < 1.0:
         return None
-    if len(weights) > 1 and (sum(weights) / len(weights)) < 0.45:
-        return None
 
     # 7) Build trade levels
     if bias == "LONG":
