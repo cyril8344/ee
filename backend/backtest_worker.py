@@ -51,6 +51,9 @@ def _optuna_search_space(trial) -> Dict[str, Any]:
         "rsi_high":     trial.suggest_float("rsi_high",    53.0, 58.0, step=1.0),
         "sl_atr_mult":  trial.suggest_float("sl_atr_mult",  1.0,  1.5, step=0.1),
         "sr_proximity": trial.suggest_float("sr_proximity", 0.3,  0.7, step=0.1),
+        "ob_lookback":  trial.suggest_int("ob_lookback",   20,   60,   step=5),
+        "ob_proximity": trial.suggest_float("ob_proximity", 0.2,  0.6, step=0.1),
+        "fvg_min_size": trial.suggest_float("fvg_min_size", 0.2,  0.5, step=0.05),
     }
 
 
@@ -248,6 +251,9 @@ class BacktestWorker:
             "rsi_high":     strategy.RSI_HIGH,
             "sl_atr_mult":  strategy.SL_ATR_MULT,
             "sr_proximity": strategy.SR_PROXIMITY_ATR,
+            "ob_lookback":  strategy.OB_LOOKBACK,
+            "ob_proximity": strategy.OB_PROXIMITY_ATR,
+            "fvg_min_size": strategy.FVG_MIN_SIZE_ATR,
         }
 
         trial_metadata: Dict[int, Dict] = {}
@@ -262,6 +268,9 @@ class BacktestWorker:
             strategy.RSI_HIGH = params["rsi_high"]
             strategy.SL_ATR_MULT = params["sl_atr_mult"]
             strategy.SR_PROXIMITY_ATR = params["sr_proximity"]
+            strategy.OB_LOOKBACK = int(params["ob_lookback"])
+            strategy.OB_PROXIMITY_ATR = params["ob_proximity"]
+            strategy.FVG_MIN_SIZE_ATR = params["fvg_min_size"]
 
             try:
                 report = run_backtest(bt_cfg, preloaded_data=shared_data)
@@ -286,6 +295,9 @@ class BacktestWorker:
                 strategy.RSI_HIGH = _orig["rsi_high"]
                 strategy.SL_ATR_MULT = _orig["sl_atr_mult"]
                 strategy.SR_PROXIMITY_ATR = _orig["sr_proximity"]
+                strategy.OB_LOOKBACK = _orig["ob_lookback"]
+                strategy.OB_PROXIMITY_ATR = _orig["ob_proximity"]
+                strategy.FVG_MIN_SIZE_ATR = _orig["fvg_min_size"]
 
         study = optuna.create_study(direction="minimize")
         study.optimize(objective, n_trials=n_trials, n_jobs=1, show_progress_bar=False)

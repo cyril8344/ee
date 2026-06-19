@@ -48,6 +48,9 @@ PARAM_MAP: Dict[str, str] = {
     "rsi_high":     "RSI_HIGH",
     "sl_atr_mult":  "SL_ATR_MULT",
     "sr_proximity": "SR_PROXIMITY_ATR",
+    "ob_lookback":  "OB_LOOKBACK",
+    "ob_proximity": "OB_PROXIMITY_ATR",
+    "fvg_min_size": "FVG_MIN_SIZE_ATR",
 }
 
 
