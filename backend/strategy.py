@@ -397,14 +397,14 @@ def near_fvg(price: float, bias: str, fvgs: List[Dict[str, Any]]) -> bool:
 # Bias / confirmation / entry primitives
 # --------------------------------------------------------------------------- #
 def compute_bias(h1: pd.DataFrame) -> str:
-    """LONG / SHORT from H1 EMA200 only."""
+    """LONG / SHORT selon EMA50 H1 (plus réactif que EMA200)."""
     if len(h1) < 1:
         return "NEUTRE"
     row = h1.iloc[-1]
-    price, ema200 = row["close"], row["ema200"]
-    if pd.isna(ema200):
+    price, ema50 = row["close"], row.get("ema50", float("nan"))
+    if pd.isna(ema50):
         return "NEUTRE"
-    return "LONG" if price > ema200 else "SHORT"
+    return "LONG" if price > ema50 else "SHORT"
 
 
 def confirm_m15(m15: pd.DataFrame, bias: str) -> bool:

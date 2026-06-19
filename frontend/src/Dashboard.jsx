@@ -796,7 +796,7 @@ export default function Dashboard({ onLogout }) {
                     )}
                   </div>
                   {[
-                    { label: "Biais H1 EMA200", ok: mkt.conditions.h1_bias !== "NEUTRE", val: mkt.conditions.h1_bias },
+                    { label: "Biais H1 EMA50", ok: mkt.conditions.h1_bias !== "NEUTRE", val: mkt.conditions.h1_bias },
                     { label: "M15 EMA9>EMA21", ok: mkt.conditions.m15_ema_aligned,
                       val: mkt.conditions.m15_ema_aligned == null ? "—"
                         : mkt.conditions.m15_ema_aligned ? "✓"
