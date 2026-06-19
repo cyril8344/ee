@@ -175,6 +175,9 @@ class BotState:
             if ms is None or ms.position is not None:
                 continue
             try:
+                # Inject trade_id into meta so _finalize_trade can update the
+                # correct DB row (trade_id is only held in memory normally).
+                recovered_meta = {**t.get("meta", {}), "trade_id": t["id"]}
                 ms.position = Position(
                     ticket=t.get("meta", {}).get("ticket", t["id"]),
                     direction=t["direction"],
@@ -184,7 +187,7 @@ class BotState:
                     take_profit1=float(t["take_profit1"]),
                     take_profit2=float(t["take_profit2"]),
                     open_time=datetime.fromisoformat(t["entry_time"]),
-                    meta=t.get("meta", {}),
+                    meta=recovered_meta,
                     session=t.get("session", ""),
                 )
                 logger.info("[BotState] position restaurée: %s %s @ %s (trade_id=%s)",
@@ -397,6 +400,11 @@ def _open_trade(ms: MarketState, sig, decision, now):
         "mode": state.settings.get("mode", "paper"),
         "meta": {"ticket": pos.ticket, "reason": sig.reason, **sig.meta},
     })
+    # Persist trade_id back into meta in DB so recovery after restart works
+    db.update_trade(trade_id, {"meta": json.dumps({
+        "ticket": pos.ticket, "reason": sig.reason,
+        "trade_id": trade_id, **sig.meta,
+    })})
     pos.meta["trade_id"] = trade_id
     db.update_daily(db.today_utc(), {"trade_count": state.risk.trades_today})
     arrow = "🟢 LONG" if sig.direction == "long" else "🔴 SHORT"

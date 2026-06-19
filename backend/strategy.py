@@ -53,6 +53,11 @@ SR_PROXIMITY_ATR = 0.7
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
 SL_ATR_MULT = 1.2
 SWING_LOOKBACK = 5          # bars each side for swing detection
+
+# SMC parameters (optimised by Agent IA)
+OB_LOOKBACK       = 40      # bougies analysées pour détecter les Order Blocks
+OB_PROXIMITY_ATR  = 0.4     # tolérance de proximité OB en multiples d'ATR
+FVG_MIN_SIZE_ATR  = 0.3     # taille minimale d'un FVG pour être valide
 MICRO_RANGE_BARS = 3        # micro-consolidation length
 MAX_TRADE_MINUTES = 45
 
@@ -295,8 +300,10 @@ def find_fair_value_gaps(df: pd.DataFrame, lookback: int = 40) -> List[Dict[str,
     return fvgs
 
 
-def find_order_blocks(df: pd.DataFrame, lookback: int = 40) -> List[Dict[str, Any]]:
+def find_order_blocks(df: pd.DataFrame, lookback: int = None) -> List[Dict[str, Any]]:
     """Last bearish candle before a bullish impulse (bullish OB) and vice-versa."""
+    if lookback is None:
+        lookback = OB_LOOKBACK
     sub = df.tail(lookback)
     atr_val = float(sub["atr"].iloc[-1]) if "atr" in sub.columns else 1.0
     obs: List[Dict[str, Any]] = []
@@ -305,15 +312,47 @@ def find_order_blocks(df: pd.DataFrame, lookback: int = 40) -> List[Dict[str, An
         impulse = abs(nxt["close"] - nxt["open"])
         if impulse < 0.5 * atr_val:
             continue
-        # Bullish OB: bearish candle before bullish impulse
         if c["close"] < c["open"] and nxt["close"] > nxt["open"]:
             obs.append({"type": "bullish",
                         "low": float(c["close"]), "high": float(c["open"])})
-        # Bearish OB: bullish candle before bearish impulse
         elif c["close"] > c["open"] and nxt["close"] < nxt["open"]:
             obs.append({"type": "bearish",
                         "low": float(c["open"]), "high": float(c["close"])})
     return obs
+
+
+def find_fvgs(df: pd.DataFrame, lookback: int = None) -> List[Dict[str, Any]]:
+    """
+    Détecte les Fair Value Gaps (imbalances à 3 bougies).
+    Filtre les FVG trop petits (< FVG_MIN_SIZE_ATR * ATR).
+
+    Bullish FVG : lows[i] > highs[i-2]
+    Bearish FVG : highs[i] < lows[i-2]
+    """
+    if lookback is None:
+        lookback = OB_LOOKBACK
+    sub = df.tail(lookback)
+    if len(sub) < 3:
+        return []
+    atr_val = float(sub["atr"].iloc[-1]) if "atr" in sub.columns else 1.0
+    min_size = FVG_MIN_SIZE_ATR * atr_val
+    fvgs: List[Dict[str, Any]] = []
+    for i in range(2, len(sub)):
+        hi_prev2 = float(sub["high"].iloc[i - 2])
+        lo_prev2 = float(sub["low"].iloc[i - 2])
+        hi_cur   = float(sub["high"].iloc[i])
+        lo_cur   = float(sub["low"].iloc[i])
+        # Bullish FVG : gap entre le haut de i-2 et le bas de i
+        if lo_cur > hi_prev2 and (lo_cur - hi_prev2) >= min_size:
+            mid = (hi_prev2 + lo_cur) / 2
+            fvgs.append({"type": "bullish", "low": hi_prev2, "high": lo_cur,
+                         "midpoint": mid, "pct50": mid, "pct100": lo_cur})
+        # Bearish FVG : gap entre le bas de i-2 et le haut de i
+        elif hi_cur < lo_prev2 and (lo_prev2 - hi_cur) >= min_size:
+            mid = (hi_cur + lo_prev2) / 2
+            fvgs.append({"type": "bearish", "low": hi_cur, "high": lo_prev2,
+                         "midpoint": mid, "pct50": mid, "pct100": hi_cur})
+    return fvgs
 
 
 def liquidity_swept(df: pd.DataFrame, bias: str, lookback: int = 20) -> bool:
@@ -334,14 +373,22 @@ def liquidity_swept(df: pd.DataFrame, bias: str, lookback: int = 20) -> bool:
 
 def near_orderblock(price: float, bias: str,
                     obs: List[Dict[str, Any]], atr_val: float) -> bool:
-    """True if price is inside or touching a matching order block."""
-    tol = 0.4 * atr_val
+    """True if price is inside or within OB_PROXIMITY_ATR of a matching order block."""
+    tol = OB_PROXIMITY_ATR * atr_val
     for ob in obs:
-        if ob["type"] == bias.upper() if False else ob["type"]:
-            pass
         match = (ob["type"] == "bullish" and bias == "LONG") or \
                 (ob["type"] == "bearish" and bias == "SHORT")
         if match and ob["low"] - tol <= price <= ob["high"] + tol:
+            return True
+    return False
+
+
+def near_fvg(price: float, bias: str, fvgs: List[Dict[str, Any]]) -> bool:
+    """True if price is inside a matching Fair Value Gap."""
+    for fvg in fvgs:
+        match = (fvg["type"] == "bullish" and bias == "LONG") or \
+                (fvg["type"] == "bearish" and bias == "SHORT")
+        if match and fvg["low"] <= price <= fvg["high"]:
             return True
     return False
 
@@ -743,14 +790,20 @@ def evaluate(
     if triggers and near_orderblock(entry, bias, obs, atr_val):
         triggers.append("near_order_block")
 
-    # Any single pattern is sufficient (weighted score ≥ 1.0)
+    # FVG confluence — add weight if price is inside a matching Fair Value Gap
+    fvgs = find_fvgs(m5)
+    if triggers and near_fvg(entry, bias, fvgs):
+        triggers.append("near_fvg")
+
+    # Entry gating: sum of weights >= 1.0 AND average weight >= 0.45
     def _w(t: str) -> float:
         if pattern_weights is None:
             return 1.0
         info = pattern_weights.get(t)
         return info["weight"] if isinstance(info, dict) else float(info) if info else 1.0
 
-    if sum(_w(t) for t in triggers) < 1.0:
+    weights = [_w(t) for t in triggers]
+    if sum(weights) < 1.0:
         return None
 
     # 7) Build trade levels

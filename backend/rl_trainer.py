@@ -35,6 +35,7 @@ import numpy as np
 import pandas as pd
 
 from trading_env import TradingEnv
+from trading_env_smc import SmcTradingEnv
 from rl_agent import RLAgent
 import data_provider
 
@@ -390,8 +391,8 @@ class RLTrainer:
         volatility = abs(avg_return) * 2 + 1e-8
         return float(avg_return / volatility * np.sqrt(252))
 
-    def _make_env(self, df: pd.DataFrame) -> TradingEnv:
-        return TradingEnv(
+    def _make_env(self, df: pd.DataFrame) -> SmcTradingEnv:
+        return SmcTradingEnv(
             df,
             initial_capital=self.initial_capital,
             contract_size=self.contract_size,
