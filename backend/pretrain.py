@@ -125,6 +125,8 @@ def run_pretrain(
         open_trade = None
         n_trades   = 0
         n_wins     = 0
+        pnl_wins   = []   # PnL $ des trades gagnants
+        pnl_losses = []   # PnL $ (abs) des trades perdants
         mae_wins   = []   # MAE en R des trades gagnants
         mfe_wins   = []   # MFE en R des trades gagnants
         mae_loss   = []   # MAE en R des trades perdants
@@ -151,6 +153,9 @@ def run_pretrain(
                     n_trades += 1
                     if won:
                         n_wins += 1
+                        pnl_wins.append(pnl)
+                    else:
+                        pnl_losses.append(abs(pnl))
 
                     # Collecter MAE/MFE en multiples de R
                     risk = open_trade.get("risk", 0.0)
@@ -235,10 +240,23 @@ def run_pretrain(
         import statistics as _stats
         def _avg(lst): return round(_stats.mean(lst), 3) if lst else 0.0
 
+        gross_profit = round(sum(pnl_wins),   2)
+        gross_loss   = round(sum(pnl_losses), 2)
+        net_pnl      = round(gross_profit - gross_loss, 2)
+        profit_factor = round(gross_profit / gross_loss, 3) if gross_loss else 0.0
+        avg_win  = round(_stats.mean(pnl_wins),   2) if pnl_wins   else 0.0
+        avg_loss = round(_stats.mean(pnl_losses), 2) if pnl_losses else 0.0
+
         result = {
             "n_trades":      n_trades,
             "n_wins":        n_wins,
             "win_rate":      win_rate,
+            "gross_profit":  gross_profit,
+            "gross_loss":    gross_loss,
+            "net_pnl":       net_pnl,
+            "profit_factor": profit_factor,
+            "avg_win":       avg_win,
+            "avg_loss":      avg_loss,
             "period":        f"{start} → {end}",
             "symbol":        symbol,
             "atr_min_final": round(adaptive.atr_min, 4),
