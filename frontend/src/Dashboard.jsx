@@ -329,6 +329,10 @@ export default function Dashboard({ onLogout }) {
   const [newsFeed, setNewsFeed] = useState(null);
   const [pretrainStatus, setPretrainStatus]   = useState(null);
   const [pretrainLoading, setPretrainLoading] = useState(false);
+  const [pretrainTrades, setPretrainTrades]   = useState(null);
+  const [pretrainFilter, setPretrainFilter]   = useState("losses");
+  const [pretrainPage, setPretrainPage]       = useState(0);
+  const PRETRAIN_PAGE = 20;
   const [agentStatus, setAgentStatus] = useState(null);
   const [agentHistory, setAgentHistory] = useState([]);
   const [rlStatus, setRlStatus] = useState(null);
@@ -464,6 +468,15 @@ export default function Dashboard({ onLogout }) {
         setPretrainStatus({ running: false, status: "error", error: "Impossible de contacter le serveur" });
         setPretrainLoading(false);
       });
+  };
+
+  const loadPretrainTrades = (filter, page) => {
+    const f = filter ?? pretrainFilter;
+    const p = page  ?? pretrainPage;
+    fetch(`${API}/api/pretrain/trades?filter=${f}&offset=${p * PRETRAIN_PAGE}&limit=${PRETRAIN_PAGE}`, { headers: authHeaders() })
+      .then(r => r.json())
+      .then(d => { setPretrainTrades(d); setPretrainFilter(f); setPretrainPage(p); })
+      .catch(() => {});
   };
 
   /* Agent IA status + history polling — every 30 seconds */
@@ -1004,10 +1017,81 @@ export default function Dashboard({ onLogout }) {
                             </div>
                           );
                         })()}
+                        {/* Analyse trade par trade */}
+                        <div style={{ marginTop: 6, borderTop: `1px solid ${COLORS.border}`, paddingTop: 6 }}>
+                          {/* Filtres */}
+                          <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
+                            {["losses", "wins", "all"].map(f => (
+                              <button key={f}
+                                onClick={() => { loadPretrainTrades(f, 0); }}
+                                style={{
+                                  flex: 1, fontSize: 10, padding: "2px 0", cursor: "pointer", borderRadius: 3,
+                                  border: `1px solid ${f === "losses" ? COLORS.red : f === "wins" ? COLORS.green : COLORS.sub}`,
+                                  background: pretrainFilter === f && pretrainTrades
+                                    ? (f === "losses" ? COLORS.red + "33" : f === "wins" ? COLORS.green + "33" : COLORS.sub + "33")
+                                    : "transparent",
+                                  color: f === "losses" ? COLORS.red : f === "wins" ? COLORS.green : COLORS.sub,
+                                }}>
+                                {f === "losses" ? "Pertes" : f === "wins" ? "Gains" : "Tous"}
+                              </button>
+                            ))}
+                          </div>
+                          {/* Table */}
+                          {pretrainTrades && (
+                            <>
+                              <div style={{ overflowY: "auto", maxHeight: 260, fontSize: 10 }}>
+                                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                                  <thead>
+                                    <tr style={{ color: COLORS.sub, textAlign: "left" }}>
+                                      <th style={{ paddingBottom: 2 }}>Date</th>
+                                      <th>Sess</th>
+                                      <th>Dir</th>
+                                      <th>Sortie</th>
+                                      <th style={{ textAlign: "right" }}>PnL</th>
+                                      <th style={{ textAlign: "right" }}>MAE/R</th>
+                                      <th style={{ textAlign: "right" }}>MFE/R</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {pretrainTrades.trades.map((t, idx) => (
+                                      <tr key={idx}
+                                        style={{ borderTop: `1px solid ${COLORS.border}`, color: t.won ? COLORS.green : COLORS.red }}
+                                        title={t.patterns?.join(", ") || "—"}>
+                                        <td style={{ paddingTop: 2, paddingBottom: 2, color: COLORS.sub }}>
+                                          {t.entry_ts?.slice(5, 16).replace("T", " ")}
+                                        </td>
+                                        <td style={{ color: COLORS.sub }}>{t.session?.slice(0, 2)}</td>
+                                        <td>{t.direction === "long" ? "↑" : "↓"}</td>
+                                        <td style={{ color: COLORS.sub, fontSize: 9 }}>{t.exit_reason}</td>
+                                        <td style={{ textAlign: "right" }}>{t.pnl >= 0 ? "+" : ""}{t.pnl?.toFixed(2)}</td>
+                                        <td style={{ textAlign: "right", color: COLORS.sub }}>{t.mae_r?.toFixed(2)}</td>
+                                        <td style={{ textAlign: "right", color: COLORS.sub }}>{t.mfe_r?.toFixed(2)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                              {/* Pagination */}
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+                                <button onClick={() => loadPretrainTrades(pretrainFilter, pretrainPage - 1)}
+                                  disabled={pretrainPage === 0}
+                                  style={{ fontSize: 10, background: "transparent", border: `1px solid ${COLORS.border}`,
+                                    color: COLORS.sub, borderRadius: 3, padding: "1px 6px", cursor: "pointer" }}>‹</button>
+                                <span style={{ fontSize: 10, color: COLORS.sub }}>
+                                  {pretrainPage * PRETRAIN_PAGE + 1}–{Math.min((pretrainPage + 1) * PRETRAIN_PAGE, pretrainTrades.total)} / {pretrainTrades.total}
+                                </span>
+                                <button onClick={() => loadPretrainTrades(pretrainFilter, pretrainPage + 1)}
+                                  disabled={(pretrainPage + 1) * PRETRAIN_PAGE >= pretrainTrades.total}
+                                  style={{ fontSize: 10, background: "transparent", border: `1px solid ${COLORS.border}`,
+                                    color: COLORS.sub, borderRadius: 3, padding: "1px 6px", cursor: "pointer" }}>›</button>
+                              </div>
+                            </>
+                          )}
+                        </div>
                         <button
                           onClick={() => launchPretrain(activeMarket)}
                           disabled={pretrainLoading}
-                          style={{ marginTop: 2, width: "100%", background: COLORS.blue + "22",
+                          style={{ marginTop: 6, width: "100%", background: COLORS.blue + "22",
                             border: `1px solid ${COLORS.blue}`, borderRadius: 4,
                             color: COLORS.blue, padding: "4px 0", cursor: "pointer", fontSize: 11 }}>
                           Relancer (6 mois)

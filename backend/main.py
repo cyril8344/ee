@@ -1095,6 +1095,29 @@ def pretrain_status(_user: dict = Depends(get_current_user)):
     return _pretrain_module.get_progress()
 
 
+@app.get("/api/pretrain/trades")
+def pretrain_trades(
+    filter: str = "all",
+    offset: int = 0,
+    limit: int = 50,
+    _user: dict = Depends(get_current_user),
+):
+    """Log détaillé des trades du dernier pré-entraînement, avec pagination."""
+    prog = _pretrain_module.get_progress()
+    result = prog.get("last_result") or {}
+    log = result.get("trades_log", [])
+    if filter == "losses":
+        log = [t for t in log if not t["won"]]
+    elif filter == "wins":
+        log = [t for t in log if t["won"]]
+    return {
+        "total":  len(log),
+        "offset": offset,
+        "limit":  limit,
+        "trades": log[offset: offset + limit],
+    }
+
+
 @app.post("/api/pattern-stats/reset")
 def reset_pattern_stats(keep_symbol: Optional[str] = None,
                         _user: dict = Depends(get_current_user)):
