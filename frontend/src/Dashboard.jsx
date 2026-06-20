@@ -332,6 +332,8 @@ export default function Dashboard({ onLogout }) {
   const [pretrainTrades, setPretrainTrades]   = useState(null);
   const [pretrainFilter, setPretrainFilter]   = useState("losses");
   const [pretrainPage, setPretrainPage]       = useState(0);
+  const [pretrainStats, setPretrainStats]     = useState(null);
+  const [pretrainDiag, setPretrainDiag]       = useState(false);
   const PRETRAIN_PAGE = 20;
   const [agentStatus, setAgentStatus] = useState(null);
   const [agentHistory, setAgentHistory] = useState([]);
@@ -476,6 +478,13 @@ export default function Dashboard({ onLogout }) {
     fetch(`${API}/api/pretrain/trades?filter=${f}&offset=${p * PRETRAIN_PAGE}&limit=${PRETRAIN_PAGE}`, { headers: authHeaders() })
       .then(r => r.json())
       .then(d => { setPretrainTrades(d); setPretrainFilter(f); setPretrainPage(p); })
+      .catch(() => {});
+  };
+
+  const loadPretrainStats = () => {
+    fetch(`${API}/api/pretrain/stats`, { headers: authHeaders() })
+      .then(r => r.json())
+      .then(d => { setPretrainStats(d); setPretrainDiag(true); })
       .catch(() => {});
   };
 
@@ -1088,6 +1097,102 @@ export default function Dashboard({ onLogout }) {
                             </>
                           )}
                         </div>
+
+                        {/* ── Diagnostics stratégie ── */}
+                        <div style={{ marginTop: 6, borderTop: `1px solid ${COLORS.border}`, paddingTop: 6 }}>
+                          <button
+                            onClick={() => pretrainDiag ? setPretrainDiag(false) : loadPretrainStats()}
+                            style={{ width: "100%", fontSize: 10, padding: "3px 0", cursor: "pointer",
+                              background: pretrainDiag ? COLORS.amber + "22" : "transparent",
+                              border: `1px solid ${COLORS.amber}`, borderRadius: 3, color: COLORS.amber }}>
+                            {pretrainDiag ? "▲ Masquer le diagnostic" : "▼ Diagnostic stratégie"}
+                          </button>
+
+                          {pretrainDiag && pretrainStats && !pretrainStats.error && (() => {
+                            const sd  = pretrainStats.by_session_dir || {};
+                            const er  = pretrainStats.exit_reasons   || {};
+                            const keys = ["London_long", "London_short", "NY_long", "NY_short"];
+                            const erOrder = ["sl", "sl_after_tp1", "timeout", "tp1", "tp2"];
+                            const erLabel = { sl: "SL direct", sl_after_tp1: "SL après TP1", timeout: "Timeout", tp1: "TP1 seul", tp2: "TP2 ✓" };
+                            const sessLabel = { London_long: "Lo ↑", London_short: "Lo ↓", NY_long: "NY ↑", NY_short: "NY ↓" };
+
+                            return (
+                              <div style={{ marginTop: 6, fontSize: 10 }}>
+
+                                {/* Near-wins & lucky wins */}
+                                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, gap: 4 }}>
+                                  <div style={{ flex: 1, background: COLORS.red + "18", borderRadius: 4, padding: "4px 6px", textAlign: "center" }}>
+                                    <div style={{ color: COLORS.red, fontWeight: 600, fontSize: 13 }}>{pretrainStats.near_wins_pct}%</div>
+                                    <div style={{ color: COLORS.sub }}>pertes "near-win"</div>
+                                    <div style={{ color: COLORS.sub, fontSize: 9 }}>MFE ≥ 0.5R avant SL</div>
+                                  </div>
+                                  <div style={{ flex: 1, background: COLORS.amber + "18", borderRadius: 4, padding: "4px 6px", textAlign: "center" }}>
+                                    <div style={{ color: COLORS.amber, fontWeight: 600, fontSize: 13 }}>{pretrainStats.lucky_wins_pct}%</div>
+                                    <div style={{ color: COLORS.sub }}>gains "chanceux"</div>
+                                    <div style={{ color: COLORS.sub, fontSize: 9 }}>MAE ≥ 0.5R avant TP</div>
+                                  </div>
+                                </div>
+
+                                {/* Grille session × direction */}
+                                <div style={{ color: COLORS.sub, marginBottom: 3 }}>WR par session / direction</div>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 3, marginBottom: 8 }}>
+                                  {keys.map(k => {
+                                    const d = sd[k];
+                                    if (!d) return <div key={k} style={{ background: COLORS.border + "44", borderRadius: 3, padding: "3px 0", textAlign: "center", color: COLORS.sub }}>—</div>;
+                                    const wr = d.wr * 100;
+                                    const col = wr >= 35 ? COLORS.green : wr >= 25 ? COLORS.amber : COLORS.red;
+                                    return (
+                                      <div key={k} style={{ background: col + "22", borderRadius: 3, padding: "3px 4px", textAlign: "center", border: `1px solid ${col}44` }}>
+                                        <div style={{ color: col, fontWeight: 600 }}>{wr.toFixed(0)}%</div>
+                                        <div style={{ color: COLORS.sub, fontSize: 9 }}>{sessLabel[k]}</div>
+                                        <div style={{ color: COLORS.sub, fontSize: 9 }}>{d.n} trades</div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+
+                                {/* Décomposition raisons de sortie */}
+                                <div style={{ color: COLORS.sub, marginBottom: 3 }}>Raisons de sortie</div>
+                                {erOrder.filter(k => er[k]).map(k => {
+                                  const d = er[k];
+                                  const barColor = k.startsWith("sl") ? COLORS.red : k === "timeout" ? COLORS.amber : COLORS.green;
+                                  return (
+                                    <div key={k} style={{ marginBottom: 3 }}>
+                                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 1 }}>
+                                        <span style={{ color: COLORS.sub }}>{erLabel[k] || k}</span>
+                                        <span style={{ color: barColor }}>{d.pct}% ({d.count}) — moy {d.avg_pnl >= 0 ? "+" : ""}{d.avg_pnl}$</span>
+                                      </div>
+                                      <div style={{ background: COLORS.border, borderRadius: 2, height: 3 }}>
+                                        <div style={{ background: barColor, width: `${d.pct}%`, height: 3, borderRadius: 2 }} />
+                                      </div>
+                                      <div style={{ color: COLORS.sub, fontSize: 9, marginTop: 1 }}>
+                                        MAE moy {d.avg_mae_r}R · MFE moy {d.avg_mfe_r}R
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+
+                                {/* Patterns dominants dans les pertes */}
+                                {pretrainStats.top_patterns_losses?.length > 0 && (
+                                  <div style={{ marginTop: 6 }}>
+                                    <div style={{ color: COLORS.sub, marginBottom: 3 }}>Patterns fréquents dans les pertes</div>
+                                    {pretrainStats.top_patterns_losses.map(([p, n]) => (
+                                      <div key={p} style={{ display: "flex", justifyContent: "space-between", color: COLORS.red, marginBottom: 1 }}>
+                                        <span style={{ color: COLORS.sub }}>{p}</span>
+                                        <span>{n}×</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+
+                          {pretrainDiag && pretrainStats?.error && (
+                            <div style={{ color: COLORS.sub, fontSize: 10, marginTop: 4 }}>{pretrainStats.error}</div>
+                          )}
+                        </div>
+
                         <button
                           onClick={() => launchPretrain(activeMarket)}
                           disabled={pretrainLoading}

@@ -1118,6 +1118,79 @@ def pretrain_trades(
     }
 
 
+@app.get("/api/pretrain/stats")
+def pretrain_stats(_user: dict = Depends(get_current_user)):
+    """Stats agrégées du dernier pré-entraînement pour diagnostic stratégie."""
+    from collections import defaultdict
+    import statistics as _st
+
+    prog = _pretrain_module.get_progress()
+    result = prog.get("last_result") or {}
+    log = result.get("trades_log", [])
+    if not log:
+        return {"error": "Pas de trades disponibles — lancez un pré-entraînement"}
+
+    total = len(log)
+    losses = [t for t in log if not t["won"]]
+    wins   = [t for t in log if t["won"]]
+
+    # ── Décomposition par raison de sortie ──────────────────────────────────
+    buckets: dict = defaultdict(lambda: {"count": 0, "pnl": 0.0, "mae_r": [], "mfe_r": []})
+    for t in log:
+        b = buckets[t["exit_reason"]]
+        b["count"] += 1
+        b["pnl"]   += t["pnl"]
+        b["mae_r"].append(t["mae_r"])
+        b["mfe_r"].append(t["mfe_r"])
+
+    exit_reasons = {
+        er: {
+            "count":     d["count"],
+            "pct":       round(d["count"] / total * 100, 1),
+            "avg_pnl":   round(d["pnl"] / d["count"], 2),
+            "avg_mae_r": round(_st.mean(d["mae_r"]), 2) if d["mae_r"] else 0.0,
+            "avg_mfe_r": round(_st.mean(d["mfe_r"]), 2) if d["mfe_r"] else 0.0,
+        }
+        for er, d in sorted(buckets.items(), key=lambda x: -x[1]["count"])
+    }
+
+    # ── WR par session × direction ───────────────────────────────────────────
+    sd: dict = defaultdict(lambda: {"n": 0, "wins": 0})
+    for t in log:
+        key = f"{t.get('session', '?')}_{t['direction']}"
+        sd[key]["n"]    += 1
+        sd[key]["wins"] += int(t["won"])
+
+    by_session_dir = {
+        k: {"n": v["n"], "wins": v["wins"], "wr": round(v["wins"] / v["n"], 3)}
+        for k, v in sorted(sd.items())
+    }
+
+    # ── Patterns les plus fréquents dans pertes vs gains ────────────────────
+    pat_loss: dict = defaultdict(int)
+    pat_win:  dict = defaultdict(int)
+    for t in log:
+        bucket = pat_win if t["won"] else pat_loss
+        for p in (t.get("patterns") or []):
+            bucket[p] += 1
+
+    # ── Near-wins & lucky wins ───────────────────────────────────────────────
+    near_wins_pct  = round(sum(1 for t in losses if t["mfe_r"] >= 0.5) / len(losses) * 100, 1) if losses else 0.0
+    lucky_wins_pct = round(sum(1 for t in wins   if t["mae_r"] >= 0.5) / len(wins)   * 100, 1) if wins   else 0.0
+
+    return {
+        "total":               total,
+        "n_wins":              len(wins),
+        "n_losses":            len(losses),
+        "exit_reasons":        exit_reasons,
+        "by_session_dir":      by_session_dir,
+        "top_patterns_losses": sorted(pat_loss.items(), key=lambda x: -x[1])[:6],
+        "top_patterns_wins":   sorted(pat_win.items(),  key=lambda x: -x[1])[:6],
+        "near_wins_pct":       near_wins_pct,
+        "lucky_wins_pct":      lucky_wins_pct,
+    }
+
+
 @app.post("/api/pattern-stats/reset")
 def reset_pattern_stats(keep_symbol: Optional[str] = None,
                         _user: dict = Depends(get_current_user)):
