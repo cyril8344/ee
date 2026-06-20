@@ -1,109 +1,139 @@
-# XAU/USD Scalping Bot — Guide Claude
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+XAU/USD (Gold) scalping bot trading London (8–12h CET) and NY (14–18h CET) sessions only. Multi-timeframe strategy: H1 bias → M15 confirmation → M5 entry. Deployed on Railway; frontend served via nginx inside the same Docker build.
+
+## Commands
+
+```bash
+# Install everything
+make install          # pip install -r requirements.txt + npm install in frontend/
+
+# Run locally (two terminals)
+make backend          # uvicorn backend/main:app --reload --port 8000
+make frontend         # vite dev server on :5173, proxies /api and /ws to :8000
+
+# Tests (always use synthetic data, no network needed)
+make test             # pytest backend/tests -q
+XAU_DATA_PROVIDER=synthetic python -m pytest backend/tests/test_strategy.py -q  # single file
+XAU_DATA_PROVIDER=synthetic python -m pytest backend/tests -k "test_risk" -q     # single test
+
+# Docker (full stack)
+make docker-up        # builds and starts backend + frontend via docker-compose
+make docker-down
+
+# Utilities
+make clean            # removes __pycache__, .pyc, SQLite DB
+python backend/news_filter.py   # print today's economic calendar
+python backend/backtest.py      # quick 45-day backtest with summary
+```
 
 ## Architecture
 
+### Signal Pipeline (`strategy.py → evaluate()`)
+
+The 10-stage filter runs in strict order — a rejection at any stage short-circuits the rest:
+
+1. Bad timing (Mon < 10h, Fri > 16h CET)
+2. Session gate (London 8–12h, NY 14–18h CET)
+3. H1 EMA200 bias — NEUTRAL if EMA50 and EMA200 disagree
+4. M15 EMA9/21 trend + RSI 35–65
+5. M5 ATR ≥ 3.0 (volatility gate)
+6. H1 ADX ≥ 25 (trend strength)
+7. M5 EMA9 alignment (adaptive tolerance)
+8. M5 RSI momentum (LONG > 45, SHORT < 55)
+9. Candle patterns (≥ 2 patterns, each weight ≥ 0.60, sum ≥ 1.0)
+10. ML Gate — logistic regression, activates after 15 trades
+
+### ML Gate (`ml_gate.py`)
+
+Online logistic regression with 6 features:
+
+| Feature | Encoding |
+|---------|---------|
+| `atr_norm` | ATR / price |
+| `rsi_norm` | (RSI−50) / 50 → [−1, +1] |
+| `ema200_bias` | +1 LONG / −1 SHORT |
+| `pattern_w_norm` | avg pattern weight / 2 |
+| `adx_norm` | ADX H1 / 50 |
+| `session_enc` | London=1.0, NY=0.5 |
+
+Entry threshold: 0.55 (boosted when on a losing streak). **Reset ML weights (pass `reset=True`) whenever filters or features change.**
+
+### Trade Management
+
+- TP1 = 1R → exits 60% of position, SL moves to breakeven
+- TP2 = 2.5R → exits remaining 40%
+- SL = 1.2 × ATR; timeout at 30 minutes
+- Risk: 1% capital per trade (configurable), max 4 trades/day, daily stop at −2%
+
+### Data Flow
+
 ```
-backend/
-  strategy.py      — Signal generation (evaluate, patterns, bias, filters)
-  ml_gate.py       — Online logistic regression (6 features) + adaptive thresholds
-  pretrain.py      — Historical replay engine (bar-by-bar, feeds ML systems)
-  backtest.py      — Backtesting engine (BTTrade, _try_exit, _build_report)
-  broker.py        — PaperBroker / live execution
-  risk_manager.py  — Position sizing (1% risk), daily stop, max trades/day
-  database.py      — SQLite persistence (trades, ML weights, pattern stats, equity)
-  data_provider.py — Data sources (yfinance GC=F, synthetic fallback)
-  main.py          — FastAPI app, WebSocket, trading loop, pretrain API
-  news_filter.py   — Economic calendar filter (±30min around events)
-
-frontend/
-  src/Dashboard.jsx — React dashboard (statut bot + pré-entraînement uniquement)
-  src/BacktestPanel.jsx — Removed from nav (kept in code but unused)
+data_provider.py  →  broker.py (M5 OHLCV, yfinance GC=F)
+                  →  strategy.py (multi-TF indicators)
+                  →  ml_gate.py (online learning)
+                  →  risk_manager.py (position size)
+                  →  broker.py (PaperBroker or MT5Broker)
+                  →  database.py (SQLite)
+                  →  main.py (WebSocket broadcast)
 ```
 
-## Paramètres stratégie actuels (strategy.py)
+`data_provider.py` tries providers in order: Twelve Data → Polygon → Alpha Vantage → yfinance → synthetic fallback. Tests always force `XAU_DATA_PROVIDER=synthetic` (set in `conftest.py`).
 
-| Paramètre | Valeur | Notes |
-|-----------|--------|-------|
-| ATR_MIN | 3.0 | Volatilité min M5 (XAU/USD ~$4150, ATR réel ~3.5$) |
-| ADX_MIN | 25.0 | Force tendance H1 minimale |
-| RSI_LOW | 35.0 | Borne basse M15 RSI (confirmation) |
-| RSI_HIGH | 65.0 | Borne haute M15 RSI |
-| RSI M5 LONG | > 45 | Momentum M5 (bloque si RSI < 45 pour LONG) |
-| RSI M5 SHORT | < 55 | Momentum M5 (bloque si RSI > 55 pour SHORT) |
-| SL_ATR_MULT | 1.2 | Stop loss = 1.2 × ATR |
-| MAX_TRADE_MINUTES | 30 | Timeout trade |
-| PATTERN_FLOOR | 0.60 | Poids pattern min (en dessous = ignoré) |
-| Patterns requis | ≥ 2 | + sum(weights) ≥ 1.0 |
+### Pre-training (`pretrain.py`)
 
-## ML Gate (ml_gate.py)
+Bar-by-bar historical replay that trains the ML gate offline before live trading. Runs **without** the ML gate (so win-rate reported is the raw signal quality). Fixed lot size 0.01 in pretrain — multiply PnL by ~24 to estimate 1% risk equivalent. Always re-run with `reset=True` after any strategy or feature change.
 
-6 features :
-1. `atr_norm` — ATR/prix (volatilité normalisée)
-2. `rsi_norm` — (RSI-50)/50 centré [-1, +1]
-3. `ema200_bias` — +1 LONG, -1 SHORT
-4. `pattern_w_norm` — poids moyen patterns / 2 (qualité signal)
-5. `adx_norm` — ADX H1 / 50 (force tendance)
-6. `session_enc` — London=1.0, NY=0.5
+### Backend Entry Point (`main.py`)
 
-Seuil entrée : 0.55 (+ streak boost si séries noires)
-Activation : après 15 trades minimum
+FastAPI app with a background asyncio trading loop. Key endpoints:
 
-## Pipeline evaluate() (ordre des filtres)
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/state` | current bot state snapshot |
+| `GET /api/chart?tf=M5\|M15\|H1` | OHLCV + indicator data |
+| `GET /api/trades?scope=today\|all` | trade history + equity curve |
+| `GET/POST /api/settings` | read / update bot config (stored in SQLite key-value) |
+| `POST /api/bot/toggle` | pause / resume |
+| `POST /api/mode` | switch paper ↔ live (requires double confirmation) |
+| `POST /api/backtest` | trigger backtest run |
+| `WebSocket /ws` | real-time state stream to dashboard |
 
-1. Bad timing (lundi < 10h, vendredi > 16h CET)
-2. Session gate (London 8-12h, NY 14-18h CET)
-3. H1 EMA200 bias (NEUTRE si EMA50 et EMA200 en désaccord)
-4. M15 EMA9/21 + RSI 35-65
-5. M5 ATR ≥ 3.0
-6. H1 ADX ≥ 25
-7. M5 EMA9 alignement (tolérance adaptative)
-8. M5 RSI momentum (LONG: >45, SHORT: <55)
-9. Patterns chandelier (≥ 2, PATTERN_FLOOR ≥ 0.60, sum ≥ 1.0)
-10. ML Gate (après 15 trades)
+### Frontend (`frontend/src/`)
 
-## Gestion des trades
+- **Dashboard.jsx** — the only active page: live bot status, EMA chart (lightweight-charts), RSI/ATR gauges, news countdown, active trade, trade history, equity curve, settings panel, pretrain panel
+- **BacktestPanel.jsx** — kept in code but **removed from navigation**
+- **LoginPage.jsx** — JWT auth (token stored in localStorage)
+- Vite dev server proxies `/api` and `/ws` to `:8000`; production nginx does the same
 
-- TP1 = 1R (sortie 60%), SL → breakeven
-- TP2 = 2.5R (sortie 40% restant)
-- Risque : 1% du capital par trade (configurable dashboard)
-- Max 4 trades/jour, stop journalier -2%
+### Deployment
 
-## Performance cible (données réelles Railway)
+Railway auto-deploys from `main` via nixpacks. Build: Python 3.12 venv + `npm run build` in `frontend/`. Start: `uvicorn --app-dir backend main:app`. Frontend static files are served by nginx inside the frontend container; nginx also reverse-proxies `/api/` and `/ws` to the backend container.
 
-| Métrique | Cible | Actuel (déc25-juin26) |
-|----------|-------|----------------------|
-| Trades/6 mois | 100-150 | ~127 |
-| Win Rate | ≥ 28% | 26% |
-| Profit Factor | ≥ 1.10 | 0.97 |
-| Net PnL (1% risque) | +400$+ | ~-$210 |
+After merging to `main`:
+1. Wait ~2–3 min for Railway deploy
+2. Re-run pretrain (with `reset=True`) if filters or ML features changed
+3. Monitor WR/PF in the "Statut bot" panel
 
-## Pré-entraînement
+## Key Architecture Decisions
 
-- Toujours lancer avec `reset=True` après changement de filtres ou de features ML
-- Le pré-entraînement tourne SANS ML gate → WR brut (live sera meilleur)
-- Sizing fixe 0.01 lot dans pretrain → multiplier par ~24 pour estimer 1% risque réel
+- **BacktestPanel removed from nav** — only the pretrain panel is exposed in the dashboard
+- **Synthetic data** uses `vol=0.0004` (realistic for XAU/USD) — avoid drawing conclusions from synthetic backtest results
+- **Volume filter removed** — unreliable across data sources
+- **RSI M15 history**: 33/67 (original) → 40/60 (broke everything) → **35/65 (current)**
+- **Pattern floor 0.60** blocks patterns that lose 70%+ of the time
+- **ML Gate: 3 → 6 features** (June 2026) — ML weights must be reset after any feature count change
+- `MT5Broker` in `broker.py` requires MetaTrader5 (Windows only, manual install); `PaperBroker` is the default everywhere else
 
-## Règles de sécurité ABSOLUES
+## Secrets — Never Commit
 
-**Ne jamais committer ces variables — uniquement dans Railway Variables :**
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_CHAT_ID`
+Store only in Railway Variables (not in `.env` files committed to git):
+
+- `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`
 - `FRED_API_KEY`
 - `ADMIN_USERNAME` / `ADMIN_PASSWORD`
 - `JWT_SECRET`
-
-## Décisions architecturales importantes
-
-- **Backtest tab supprimé** du dashboard — user utilise uniquement le panneau pré-entraînement
-- **Données synthétiques** vol=0.0004 (réaliste) — éviter les conclusions du backtest synthétique
-- **ML Gate 3→6 features** (juin 2026) — reset obligatoire après changement
-- **RSI M15 : 33/67 original → 40/60 cassait tout → 35/65 actuel**
-- **Volume filter supprimé** (peu fiable selon source données)
-- **Pattern floor 0.60** = bloque les patterns perdant 70%+ du temps
-
-## Déploiement
-
-Railway auto-déploie depuis `main`. Après merge :
-1. Attendre ~2-3 min le déploiement
-2. Relancer le pré-entraînement si changement de filtres ou ML
-3. Observer WR/PF dans panneau "Statut bot"

@@ -133,6 +133,7 @@ def run_pretrain(
         mfe_wins   = []   # MFE en R des trades gagnants
         mae_loss   = []   # MAE en R des trades perdants
         mfe_loss   = []   # MFE en R des trades perdants
+        trades_log = []   # log détaillé par trade (pour analyse erreur/erreur)
 
         _set(bars_total=total, status="Analyse des trades historiques…")
 
@@ -150,7 +151,7 @@ def run_pretrain(
             if open_trade is not None:
                 exit_info = _try_exit(open_trade, bar, ts, slippage, contract_size)
                 if exit_info is not None:
-                    pnl, _, _ = exit_info
+                    pnl, exit_price, exit_reason = exit_info
                     won = pnl > 0
                     n_trades += 1
                     equity += pnl
@@ -163,9 +164,9 @@ def run_pretrain(
 
                     # Collecter MAE/MFE en multiples de R
                     risk = open_trade.get("risk", 0.0)
+                    mae_r = round(open_trade.get("mae", 0.0) / risk, 3) if risk > 0 else 0.0
+                    mfe_r = round(open_trade.get("mfe", 0.0) / risk, 3) if risk > 0 else 0.0
                     if risk > 0:
-                        mae_r = open_trade.get("mae", 0.0) / risk
-                        mfe_r = open_trade.get("mfe", 0.0) / risk
                         if won:
                             mae_wins.append(mae_r)
                             mfe_wins.append(mfe_r)
@@ -181,6 +182,21 @@ def run_pretrain(
                     triggers = open_trade.get("triggers", [])
                     if triggers:
                         db.update_pattern_stats(triggers, won)
+
+                    trades_log.append({
+                        "entry_ts":    open_trade["entry_time"].isoformat(),
+                        "exit_ts":     ts.isoformat(),
+                        "session":     open_trade.get("session", "?"),
+                        "direction":   open_trade["direction"],
+                        "entry":       round(open_trade["entry"], 3),
+                        "exit_price":  round(float(exit_price), 3),
+                        "exit_reason": exit_reason,
+                        "pnl":         round(pnl, 2),
+                        "won":         won,
+                        "mae_r":       mae_r,
+                        "mfe_r":       mfe_r,
+                        "patterns":    triggers,
+                    })
 
                     open_trade = None
 
@@ -210,6 +226,7 @@ def run_pretrain(
             fill = sig.entry + (spread + slippage) * (1 if sig.direction == "long" else -1)
             open_trade = {
                 "direction":    sig.direction,
+                "session":      sess,
                 "entry_time":   ts.to_pydatetime(),
                 "entry":        fill,
                 "stop_loss":    sig.stop_loss,
@@ -267,6 +284,8 @@ def run_pretrain(
             "ema9_mult_final": round(adaptive.ema9_mult, 3),
             "m15_mult_final":  round(adaptive.m15_mult, 3),
             "ml_samples":    gate.n_samples,
+            "equity_curve":  equity_curve,
+            "trades_log":    trades_log,
             "excursion": {
                 "avg_mae_r_wins": _avg(mae_wins),
                 "avg_mfe_r_wins": _avg(mfe_wins),
