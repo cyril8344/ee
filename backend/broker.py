@@ -223,6 +223,8 @@ class PaperBroker(BaseBroker):
             hit = price >= pos.take_profit1 if direction == "long" else price <= pos.take_profit1
             if hit:
                 lots50 = round(min(pos.volume * 0.5, pos.remaining), 2)
+                if lots50 < 0.01:
+                    lots50 = pos.remaining  # trop petit pour spliter → close total
                 pos.realised += pnl_for(pos.take_profit1 - self.slippage * sign, lots50)
                 pos.remaining = round(pos.remaining - lots50, 2)
                 pos.tp1_done = True

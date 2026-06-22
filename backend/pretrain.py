@@ -127,6 +127,8 @@ def run_pretrain(
         n_wins       = 0
         equity       = 10_000.0
         equity_curve = [{"ts": m5.index[warmup].isoformat(), "equity": equity}]
+        n_false_stops        = 0   # SL direct → prix aurait atteint TP1 dans les 10 bougies suivantes
+        n_sl_for_false_check = 0   # total SL directs analysés
         pnl_wins   = []   # PnL $ des trades gagnants
         pnl_losses = []   # PnL $ (abs) des trades perdants
         mae_wins   = []   # MAE en R des trades gagnants
@@ -183,6 +185,22 @@ def run_pretrain(
                     if triggers:
                         db.update_pattern_stats(triggers, won)
 
+                    # ---- Analyse false stop ----
+                    # Sur un SL direct : est-ce que le prix aurait atteint TP1
+                    # dans les 10 bougies suivantes (50 min) ?
+                    false_stop = False
+                    if exit_reason == "sl":
+                        n_sl_for_false_check += 1
+                        tp1_level  = open_trade["tp1"]
+                        direction  = open_trade["direction"]
+                        future     = m5.iloc[i + 1 : i + 11]
+                        if direction == "long":
+                            false_stop = bool((future["high"] >= tp1_level).any())
+                        else:
+                            false_stop = bool((future["low"] <= tp1_level).any())
+                        if false_stop:
+                            n_false_stops += 1
+
                     trades_log.append({
                         "entry_ts":    open_trade["entry_time"].isoformat(),
                         "exit_ts":     ts.isoformat(),
@@ -196,6 +214,7 @@ def run_pretrain(
                         "mae_r":       mae_r,
                         "mfe_r":       mfe_r,
                         "patterns":    triggers,
+                        "false_stop":  false_stop,
                     })
 
                     open_trade = None
@@ -299,6 +318,14 @@ def run_pretrain(
                 "pct_win_mae_gt_half_r": round(
                     sum(1 for v in mae_wins if v >= 0.5) / len(mae_wins) * 100, 1
                 ) if mae_wins else 0.0,
+            },
+            "false_stops": {
+                "n_sl_direct":   n_sl_for_false_check,
+                "n_false_stops": n_false_stops,
+                # % de SL directs où le prix aurait atteint TP1 dans les 10 bougies suivantes
+                "pct_false_stops": round(
+                    n_false_stops / n_sl_for_false_check * 100, 1
+                ) if n_sl_for_false_check else 0.0,
             },
         }
         _set(running=False, pct=100, bars_done=total, trades=n_trades,
