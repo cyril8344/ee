@@ -218,53 +218,21 @@ class PaperBroker(BaseBroker):
                 return {"closed": True, "reason": "emergency_stop",
                         "exit_price": price, "pnl": pos.realised}
 
-        # TP1 partial (60%)
-        if not pos.tp1_done:
-            hit = price >= pos.take_profit1 if direction == "long" else price <= pos.take_profit1
-            if hit:
-                lots60 = round(min(pos.volume * 0.6, pos.remaining), 2)
-                pos.realised += pnl_for(pos.take_profit1 - self.slippage * sign, lots60)
-                pos.remaining = round(pos.remaining - lots60, 2)
-                pos.tp1_done = True
-                # Move stop loss to breakeven after TP1
-                pos.stop_loss = pos.entry
-                if pos.remaining < 0.01:
-                    return {"closed": True, "reason": "tp1",
-                            "exit_price": pos.take_profit1, "pnl": pos.realised}
-                return {"closed": False, "reason": "tp1_partial",
-                        "exit_price": pos.take_profit1, "pnl": pos.realised}
+        # TP1 — sortie 100% à 0.5R
+        hit = price >= pos.take_profit1 if direction == "long" else price <= pos.take_profit1
+        if hit:
+            pos.realised += pnl_for(pos.take_profit1 - self.slippage * sign, pos.remaining)
+            pos.remaining = 0.0
+            pos.tp1_done = True
+            return {"closed": True, "reason": "tp1",
+                    "exit_price": pos.take_profit1, "pnl": pos.realised}
 
         # Stop loss
         hit_sl = price <= pos.stop_loss if direction == "long" else price >= pos.stop_loss
         if hit_sl:
             pos.realised += pnl_for(pos.stop_loss - self.slippage * sign, pos.remaining)
-            return {"closed": True,
-                    "reason": "sl" if not pos.tp1_done else "sl_after_tp1",
+            return {"closed": True, "reason": "sl",
                     "exit_price": pos.stop_loss, "pnl": pos.realised}
-
-        # TP2 + trailing stop after TP1
-        if pos.tp1_done:
-            hit_tp2 = price >= pos.take_profit2 if direction == "long" else price <= pos.take_profit2
-            if hit_tp2:
-                pos.realised += pnl_for(pos.take_profit2 - self.slippage * sign, pos.remaining)
-                return {"closed": True, "reason": "tp2",
-                        "exit_price": pos.take_profit2, "pnl": pos.realised}
-
-            # Trailing stop: if price moved 0.5×ATR in our favour, trail SL at 0.3×ATR behind price
-            atr_val = pos.meta.get("atr", 0) or 0
-            if atr_val > 0:
-                if direction == "long":
-                    trail_trigger = pos.entry + 0.5 * atr_val
-                    if price >= trail_trigger:
-                        new_sl = price - 0.3 * atr_val
-                        if new_sl > pos.stop_loss:
-                            pos.stop_loss = new_sl
-                else:
-                    trail_trigger = pos.entry - 0.5 * atr_val
-                    if price <= trail_trigger:
-                        new_sl = price + 0.3 * atr_val
-                        if new_sl < pos.stop_loss:
-                            pos.stop_loss = new_sl
 
         return None
 
@@ -380,45 +348,18 @@ class MT5Broker(BaseBroker):
         price = self.get_price()
         sign = 1.0 if pos.direction == "long" else -1.0
 
-        # TP1 partial close (60%) — sent as real MT5 order
-        if not pos.tp1_done:
-            hit = price >= pos.take_profit1 if pos.direction == "long" else price <= pos.take_profit1
-            if hit:
-                lots60 = round(min(pos.volume * 0.6, pos.remaining), 2)
-                tick = self._mt5.symbol_info_tick(self.symbol)
-                fill_price = tick.bid if pos.direction == "long" else tick.ask
-                self._send_partial_close(pos, lots60, fill_price)
-                pnl60 = (fill_price - pos.entry) * sign * CONTRACT_SIZE * lots60
-                pos.realised += pnl60
-                pos.remaining = round(pos.remaining - lots60, 2)
-                pos.tp1_done = True
-                # Move SL to breakeven on MT5 server
-                pos.stop_loss = pos.entry
-                self._update_sl(pos, pos.entry)
-                if pos.remaining < 0.01:
-                    return {"closed": True, "reason": "tp1",
-                            "exit_price": fill_price, "pnl": pos.realised}
-                return {"closed": False, "reason": "tp1_partial",
-                        "exit_price": fill_price, "pnl": pos.realised}
-
-        # Trailing stop after TP1 — update SL on MT5 server
-        if pos.tp1_done:
-            atr_val = pos.meta.get("atr", 0) or 0
-            if atr_val > 0:
-                if pos.direction == "long":
-                    trail_trigger = pos.entry + 0.5 * atr_val
-                    if price >= trail_trigger:
-                        new_sl = price - 0.3 * atr_val
-                        if new_sl > pos.stop_loss:
-                            pos.stop_loss = new_sl
-                            self._update_sl(pos, new_sl)
-                else:
-                    trail_trigger = pos.entry - 0.5 * atr_val
-                    if price <= trail_trigger:
-                        new_sl = price + 0.3 * atr_val
-                        if new_sl < pos.stop_loss:
-                            pos.stop_loss = new_sl
-                            self._update_sl(pos, new_sl)
+        # TP1 — sortie 100% à 0.5R (close complet sur MT5)
+        hit = price >= pos.take_profit1 if pos.direction == "long" else price <= pos.take_profit1
+        if hit:
+            tick = self._mt5.symbol_info_tick(self.symbol)
+            fill_price = tick.bid if pos.direction == "long" else tick.ask
+            self._send_partial_close(pos, pos.remaining, fill_price)
+            pnl = (fill_price - pos.entry) * sign * CONTRACT_SIZE * pos.remaining
+            pos.realised += pnl
+            pos.remaining = 0.0
+            pos.tp1_done = True
+            return {"closed": True, "reason": "tp1",
+                    "exit_price": fill_price, "pnl": pos.realised}
 
         return None
 
