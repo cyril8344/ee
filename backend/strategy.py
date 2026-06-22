@@ -59,7 +59,8 @@ OB_LOOKBACK       = 40      # bougies analysées pour détecter les Order Blocks
 OB_PROXIMITY_ATR  = 0.4     # tolérance de proximité OB en multiples d'ATR
 FVG_MIN_SIZE_ATR  = 0.3     # taille minimale d'un FVG pour être valide
 MICRO_RANGE_BARS = 3        # micro-consolidation length
-MAX_TRADE_MINUTES = 30
+MAX_TRADE_MINUTES = 45
+TREND_BIAS_DISTANCE = 0.5  # multiples d'ATR H1 — bloque SHORT si prix > EMA200 + 0.5 ATR
 
 CET = pytz.timezone("Europe/Paris")  # CET/CEST
 
@@ -758,6 +759,18 @@ def evaluate(
     if bias == "NEUTRE":
         return None
 
+    # 2b) Distance EMA200 — bloquer SHORT si prix trop haut au-dessus EMA200 (uptrend fort)
+    if len(h1) > 0:
+        h1_last = h1.iloc[-1]
+        h1_ema200_val = float(h1_last.get("ema200", float("nan")))
+        h1_atr_val = float(h1_last.get("atr", 0) or 0)
+        if not pd.isna(h1_ema200_val) and h1_atr_val > 0:
+            price_vs_ema200 = (float(h1_last["close"]) - h1_ema200_val) / h1_atr_val
+            if price_vs_ema200 > TREND_BIAS_DISTANCE and bias == "SHORT":
+                return None
+            if price_vs_ema200 < -TREND_BIAS_DISTANCE and bias == "LONG":
+                return None
+
     # Seuils adaptatifs (si disponibles et entraînés)
     _adapt = adaptive_thresholds
     _adapt_ready = _adapt is not None and _adapt.is_ready
@@ -776,7 +789,8 @@ def evaluate(
 
     # 4b) H1 ADX trend strength — ne trader qu'en vraie tendance
     h1_adx = float(h1.iloc[-1].get("adx", 0)) if len(h1) else 0.0
-    if h1_adx < ADX_MIN:
+    adx_required = ADX_MIN if bias == "LONG" else ADX_MIN + 5.0
+    if h1_adx < adx_required:
         return None
 
     # 5) M5 EMA9 alignment — tolérance adaptative (défaut 0.5 ATR)
@@ -842,7 +856,7 @@ def evaluate(
         return info["weight"] if isinstance(info, dict) else float(info) if info else 1.0
 
     # Exclure les patterns vraiment nuls (perdent 70%+ du temps)
-    PATTERN_FLOOR = 0.60
+    PATTERN_FLOOR = 0.65
     triggers = [t for t in triggers if _w(t) >= PATTERN_FLOOR]
 
     weights = [_w(t) for t in triggers]
@@ -868,10 +882,10 @@ def evaluate(
 
     if direction == "long":
         tp1 = entry + 0.5 * risk
-        tp2 = entry + 2.5 * risk
+        tp2 = entry + 2.0 * risk
     else:
         tp1 = entry - 0.5 * risk
-        tp2 = entry - 2.5 * risk
+        tp2 = entry - 2.0 * risk
 
     # Extraction des features ML — toujours calculées (gate live + pré-entraînement)
     ml_prob: float = -1.0

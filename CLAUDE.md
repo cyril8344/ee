@@ -66,8 +66,8 @@ Entry threshold: 0.55 (boosted when on a losing streak). **Reset ML weights (pas
 ### Trade Management
 
 - TP1 = 0.5R → exits 60% of position, SL moves to breakeven
-- TP2 = 2.5R → exits remaining 40%
-- SL = 1.2 × ATR; timeout at 30 minutes
+- TP2 = 2.0R → exits remaining 40%
+- SL = 1.2 × ATR; timeout at 45 minutes
 - Risk: 1% capital per trade (configurable), max 4 trades/day, daily stop at −2%
 
 ### Data Flow
@@ -125,7 +125,10 @@ After merging to `main`:
 - **Synthetic data** uses `vol=0.0004` (realistic for XAU/USD) — avoid drawing conclusions from synthetic backtest results
 - **Volume filter removed** — unreliable across data sources
 - **RSI M15 history**: 33/67 (original) → 40/60 (broke everything) → **35/65 (current)**
-- **Pattern floor 0.60** blocks patterns that lose 70%+ of the time
+- **Pattern floor 0.65** blocks patterns that lose 65%+ of the time (was 0.60)
+- **TREND_BIAS_DISTANCE = 0.5 ATR H1** blocks SHORT when price > EMA200 + 0.5×ATR and LONG when price < EMA200 − 0.5×ATR
+- **ADX SHORT minimum = 30** (ADX_MIN + 5) vs 25 for LONG — stricter filter against shorting in uptrend
+- **MAX_TRADE_MINUTES = 45** (was 30) — more time for TP targets to be reached
 - **ML Gate: 3 → 6 features** (June 2026) — ML weights must be reset after any feature count change
 - `MT5Broker` in `broker.py` requires MetaTrader5 (Windows only, manual install); `PaperBroker` is the default everywhere else
 
