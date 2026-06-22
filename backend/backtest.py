@@ -126,8 +126,8 @@ class BacktestConfig:
     end: str
     capital: float = 10000.0
     risk_pct: float = 1.0
-    spread_pips: float = 0.3
-    slippage_pips: float = 0.1
+    spread_pips: float = 2.0   # 2.0 × $0.10/pip = $0.20 spread réaliste XAU/USD
+    slippage_pips: float = 0.5  # $0.05 de slippage par côté
     max_trades_per_day: int = 4
     daily_stop_pct: float = 2.0
     symbol: str = "XAUUSD"
@@ -289,7 +289,7 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
                             direction=direction,
                             entry=entry_p,
                             stop_loss=sl,
-                            take_profit1=entry_p + risk     if direction == "long" else entry_p - risk,
+                            take_profit1=entry_p + 0.5*risk if direction == "long" else entry_p - 0.5*risk,
                             take_profit2=entry_p + 2.5*risk if direction == "long" else entry_p - 2.5*risk,
                             risk_distance=risk,
                             session=active_session(ts.to_pydatetime()) or "London",
