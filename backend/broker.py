@@ -218,21 +218,36 @@ class PaperBroker(BaseBroker):
                 return {"closed": True, "reason": "emergency_stop",
                         "exit_price": price, "pnl": pos.realised}
 
-        # TP1 — sortie 100% à 0.5R
-        hit = price >= pos.take_profit1 if direction == "long" else price <= pos.take_profit1
-        if hit:
-            pos.realised += pnl_for(pos.take_profit1 - self.slippage * sign, pos.remaining)
-            pos.remaining = 0.0
-            pos.tp1_done = True
-            return {"closed": True, "reason": "tp1",
-                    "exit_price": pos.take_profit1, "pnl": pos.realised}
+        # TP1 — sortie 50% à 0.5R, SL → breakeven
+        if not pos.tp1_done:
+            hit = price >= pos.take_profit1 if direction == "long" else price <= pos.take_profit1
+            if hit:
+                lots50 = round(min(pos.volume * 0.5, pos.remaining), 2)
+                pos.realised += pnl_for(pos.take_profit1 - self.slippage * sign, lots50)
+                pos.remaining = round(pos.remaining - lots50, 2)
+                pos.tp1_done = True
+                pos.stop_loss = pos.entry  # breakeven
+                if pos.remaining < 0.01:
+                    return {"closed": True, "reason": "tp1",
+                            "exit_price": pos.take_profit1, "pnl": pos.realised}
+                return {"closed": False, "reason": "tp1_partial",
+                        "exit_price": pos.take_profit1, "pnl": pos.realised}
 
-        # Stop loss
+        # Stop loss (initial ou breakeven)
         hit_sl = price <= pos.stop_loss if direction == "long" else price >= pos.stop_loss
         if hit_sl:
             pos.realised += pnl_for(pos.stop_loss - self.slippage * sign, pos.remaining)
-            return {"closed": True, "reason": "sl",
+            return {"closed": True,
+                    "reason": "sl" if not pos.tp1_done else "sl_after_tp1",
                     "exit_price": pos.stop_loss, "pnl": pos.realised}
+
+        # TP2 — sortie 50% restants à 1.0R
+        if pos.tp1_done:
+            hit_tp2 = price >= pos.take_profit2 if direction == "long" else price <= pos.take_profit2
+            if hit_tp2:
+                pos.realised += pnl_for(pos.take_profit2 - self.slippage * sign, pos.remaining)
+                return {"closed": True, "reason": "tp2",
+                        "exit_price": pos.take_profit2, "pnl": pos.realised}
 
         return None
 
@@ -348,18 +363,36 @@ class MT5Broker(BaseBroker):
         price = self.get_price()
         sign = 1.0 if pos.direction == "long" else -1.0
 
-        # TP1 — sortie 100% à 0.5R (close complet sur MT5)
-        hit = price >= pos.take_profit1 if pos.direction == "long" else price <= pos.take_profit1
-        if hit:
-            tick = self._mt5.symbol_info_tick(self.symbol)
-            fill_price = tick.bid if pos.direction == "long" else tick.ask
-            self._send_partial_close(pos, pos.remaining, fill_price)
-            pnl = (fill_price - pos.entry) * sign * CONTRACT_SIZE * pos.remaining
-            pos.realised += pnl
-            pos.remaining = 0.0
-            pos.tp1_done = True
-            return {"closed": True, "reason": "tp1",
-                    "exit_price": fill_price, "pnl": pos.realised}
+        # TP1 — sortie 50% à 0.5R, SL → breakeven sur MT5
+        if not pos.tp1_done:
+            hit = price >= pos.take_profit1 if pos.direction == "long" else price <= pos.take_profit1
+            if hit:
+                lots50 = round(min(pos.volume * 0.5, pos.remaining), 2)
+                tick = self._mt5.symbol_info_tick(self.symbol)
+                fill_price = tick.bid if pos.direction == "long" else tick.ask
+                self._send_partial_close(pos, lots50, fill_price)
+                pos.realised += (fill_price - pos.entry) * sign * CONTRACT_SIZE * lots50
+                pos.remaining = round(pos.remaining - lots50, 2)
+                pos.tp1_done = True
+                pos.stop_loss = pos.entry
+                self._update_sl(pos, pos.entry)
+                if pos.remaining < 0.01:
+                    return {"closed": True, "reason": "tp1",
+                            "exit_price": fill_price, "pnl": pos.realised}
+                return {"closed": False, "reason": "tp1_partial",
+                        "exit_price": fill_price, "pnl": pos.realised}
+
+        # TP2 — sortie 50% restants à 1.0R
+        if pos.tp1_done:
+            hit_tp2 = price >= pos.take_profit2 if pos.direction == "long" else price <= pos.take_profit2
+            if hit_tp2:
+                tick = self._mt5.symbol_info_tick(self.symbol)
+                fill_price = tick.bid if pos.direction == "long" else tick.ask
+                self._send_partial_close(pos, pos.remaining, fill_price)
+                pos.realised += (fill_price - pos.entry) * sign * CONTRACT_SIZE * pos.remaining
+                pos.remaining = 0.0
+                return {"closed": True, "reason": "tp2",
+                        "exit_price": fill_price, "pnl": pos.realised}
 
         return None
 

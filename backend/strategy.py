@@ -12,8 +12,8 @@ M5  : entry trigger    -> engulfing candle / EMA9 pullback bounce /
                           micro-consolidation breakout, ATR(14) > 0.8
 
 Trade management parameters are produced with the signal:
-    - stop loss at last M5 swing (capped at 1.0x ATR)
-    - TP = 0.5R (close 100%)
+    - stop loss at last M5 swing (capped at 1.2x ATR)
+    - TP1 = 0.5R (close 50%), TP2 = 1.0R (close 50%), SL breakeven après TP1
     - max duration 45 minutes
 
 Sessions: London (08-12 CET) and New York (14-18 CET) only.
@@ -51,7 +51,7 @@ ATR_MIN = 3.0
 ADX_MIN = 25.0
 SR_PROXIMITY_ATR = 0.7
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
-SL_ATR_MULT = 1.0
+SL_ATR_MULT = 1.2
 SWING_LOOKBACK = 5          # bars each side for swing detection
 
 # SMC parameters (optimised by Agent IA)
@@ -816,7 +816,7 @@ def evaluate(
         if is_hammer(cur, atr_val):                   triggers.append("hammer")
         if is_pin_bar_bullish(cur, atr_val):          triggers.append("pin_bar")
         if is_marubozu_bullish(cur, atr_val):         triggers.append("marubozu")
-        if is_morning_star(m5.iloc[-3:], atr_val):    triggers.append("morning_star")
+        # morning_star exclu (WR 42.9% sur données historiques)
         if is_bullish_harami(prev, cur):              triggers.append("harami")
         if is_three_white_soldiers(m5.iloc[-3:], atr_val): triggers.append("three_white_soldiers")
         if is_tweezer_bottom(prev, cur, atr_val):     triggers.append("tweezer_bottom")
@@ -882,10 +882,10 @@ def evaluate(
 
     if direction == "long":
         tp1 = entry + 0.5 * risk
-        tp2 = entry + 2.0 * risk
+        tp2 = entry + 1.0 * risk
     else:
         tp1 = entry - 0.5 * risk
-        tp2 = entry - 2.0 * risk
+        tp2 = entry - 1.0 * risk
 
     # Extraction des features ML — toujours calculées (gate live + pré-entraînement)
     ml_prob: float = -1.0
@@ -1135,7 +1135,7 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
             if is_hammer(cur5, atr_val): patterns_detected.append("hammer")
             if is_pin_bar_bullish(cur5, atr_val): patterns_detected.append("pin_bar")
             if is_marubozu_bullish(cur5, atr_val): patterns_detected.append("marubozu")
-            if is_morning_star(m5.iloc[-3:], atr_val): patterns_detected.append("morning_star")
+            # morning_star exclu (WR 42.9% sur données historiques)
             if is_bullish_harami(prev5, cur5): patterns_detected.append("harami")
             if is_three_white_soldiers(m5.iloc[-3:], atr_val): patterns_detected.append("three_white_soldiers")
             if is_tweezer_bottom(prev5, cur5, atr_val): patterns_detected.append("tweezer_bottom")

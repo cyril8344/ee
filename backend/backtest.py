@@ -330,7 +330,7 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
 
 def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Optional[tuple]:
     """
-    Full-TP exit model: sortie 100% à TP1 (0.5R), SL ou timeout.
+    Split-TP exit model: 50% à TP1 (0.5R), SL breakeven, puis 50% à TP2 (1.0R).
     Returns (pnl, exit_price, reason) quand la position est fermée, sinon None.
     """
     direction = t["direction"]
@@ -348,21 +348,39 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
         t["mfe"] = max(t.get("mfe", 0.0), t["entry"] - low)
         t["mae"] = max(t.get("mae", 0.0), high - t["entry"])
 
-    # 1) TP1 — sortie 100% à 0.5R
-    hit_tp1 = (high >= t["tp1"]) if direction == "long" else (low <= t["tp1"])
-    if hit_tp1:
-        fill = t["tp1"] - slippage * sign
-        return pnl_for(fill, t["remaining"]), t["tp1"], "tp1"
+    # 1) TP1 — sortie 50% à 0.5R, SL → breakeven
+    if not t["tp1_done"]:
+        hit_tp1 = (high >= t["tp1"]) if direction == "long" else (low <= t["tp1"])
+        if hit_tp1:
+            lots50 = _round_lot(t["volume"] * 0.5)
+            lots50 = min(lots50, t["remaining"])
+            fill = t["tp1"] - slippage * sign
+            t["realised"] += pnl_for(fill, lots50)
+            t["remaining"] = round(t["remaining"] - lots50, 2)
+            t["tp1_done"] = True
+            t["stop_loss"] = t["entry"]  # breakeven
+            if t["remaining"] < MIN_LOT:
+                return t["realised"], t["tp1"], "tp1"
 
-    # 2) Stop loss
+    # 2) Stop loss (initial ou breakeven)
     hit_sl = (low <= t["stop_loss"]) if direction == "long" else (high >= t["stop_loss"])
     if hit_sl:
         fill = t["stop_loss"] - slippage * sign
-        return pnl_for(fill, t["remaining"]), t["stop_loss"], "sl"
+        t["realised"] += pnl_for(fill, t["remaining"])
+        return t["realised"], t["stop_loss"], "sl" if not t["tp1_done"] else "sl_after_tp1"
 
-    # 3) Timeout
+    # 3) TP2 — sortie 50% restants à 1.0R
+    if t["tp1_done"]:
+        hit_tp2 = (high >= t["tp2"]) if direction == "long" else (low <= t["tp2"])
+        if hit_tp2:
+            fill = t["tp2"] - slippage * sign
+            t["realised"] += pnl_for(fill, t["remaining"])
+            return t["realised"], t["tp2"], "tp2"
+
+    # 4) Timeout
     if ts.to_pydatetime() >= t["max_exit_time"]:
-        return pnl_for(close, t["remaining"]), close, "timeout"
+        t["realised"] += pnl_for(close, t["remaining"])
+        return t["realised"], close, "timeout"
 
     return None
 
