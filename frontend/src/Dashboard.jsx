@@ -645,6 +645,16 @@ export default function Dashboard({ onLogout }) {
     }).then((r) => { if (r.status === 401) logout401(onLogout); });
   };
 
+  const strategyMode = state?.settings?.strategy ?? "A";
+  const toggleStrategy = () => {
+    const next = strategyMode === "A" ? "B" : "A";
+    fetch(`${API}/api/settings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ strategy: next }),
+    }).then((r) => { if (r.status === 401) logout401(onLogout); });
+  };
+
   const switchLive = () => {
     if (state?.mode === "live") {
       fetch(`${API}/api/mode`, {
@@ -1589,6 +1599,15 @@ export default function Dashboard({ onLogout }) {
                     borderColor: !sessionFilterOn ? COLORS.green : COLORS.border,
                     color: !sessionFilterOn ? "#fff" : COLORS.text }}>
                   {!sessionFilterOn ? "24/7 ON" : "Sessions"}
+                </button>
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                <button onClick={toggleStrategy}
+                  style={{ ...tabBtn(false), flex: 1,
+                    background: strategyMode === "B" ? COLORS.blue : "transparent",
+                    borderColor: strategyMode === "B" ? COLORS.blue : COLORS.border,
+                    color: strategyMode === "B" ? "#fff" : COLORS.text }}>
+                  Stratégie {strategyMode === "A" ? "A (EMA)" : "B (ICT)"}
                 </button>
               </div>
 

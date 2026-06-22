@@ -63,17 +63,35 @@ def _set(**kwargs):
 # --------------------------------------------------------------------------- #
 # Moteur de pré-entraînement
 # --------------------------------------------------------------------------- #
+MIN_LOT  = 0.01
+LOT_STEP = 0.01
+
+
+def _size_lots(capital: float, risk_pct: float, sl_distance: float,
+               contract_size: float) -> float:
+    """Même formule que le live : risk_amount / (sl_distance × contract_size)."""
+    if sl_distance <= 0 or contract_size <= 0:
+        return MIN_LOT
+    risk_amount = capital * (risk_pct / 100.0)
+    raw = risk_amount / (sl_distance * contract_size)
+    steps = round(raw / LOT_STEP)
+    return max(MIN_LOT, round(steps * LOT_STEP, 2))
+
+
 def run_pretrain(
     start: str,
     end: str,
     symbol: str = "XAUUSD",
     atr_min: Optional[float] = None,
     reset: bool = True,
+    capital: float = 1_000.0,
+    risk_pct: float = 5.0,
 ) -> Dict[str, Any]:
     """
     Lance le pré-entraînement en mode bloquant.
     Appelé depuis un thread via launch_pretrain().
 
+    capital / risk_pct : reproduisent le sizing du live (plus de lot 0.01 fixe).
     reset=True  : repart de zéro (recommandé la 1ère fois)
     reset=False : accumule sur l'historique existant
     """
@@ -125,7 +143,7 @@ def run_pretrain(
         open_trade   = None
         n_trades     = 0
         n_wins       = 0
-        equity       = 10_000.0
+        equity       = float(capital)
         equity_curve = [{"ts": m5.index[warmup].isoformat(), "equity": equity}]
         n_false_stops        = 0   # SL direct → prix aurait atteint TP1 dans les 10 bougies suivantes
         n_sl_for_false_check = 0   # total SL directs analysés
@@ -243,6 +261,8 @@ def run_pretrain(
                 continue
 
             fill = sig.entry + (spread + slippage) * (1 if sig.direction == "long" else -1)
+            sl_dist = abs(fill - sig.stop_loss)
+            volume = _size_lots(equity, risk_pct, sl_dist, contract_size)
             open_trade = {
                 "direction":    sig.direction,
                 "session":      sess,
@@ -251,14 +271,14 @@ def run_pretrain(
                 "stop_loss":    sig.stop_loss,
                 "tp1":          sig.take_profit1,
                 "tp2":          sig.take_profit2,
-                "volume":       0.01,
+                "volume":       volume,
                 "tp1_done":     False,
-                "remaining":    0.01,
+                "remaining":    volume,
                 "realised":     0.0,
                 "max_exit_time": ts.to_pydatetime() + timedelta(minutes=MAX_TRADE_MINUTES),
                 "triggers":     sig.meta.get("triggers", []),
                 "ml_features":  sig.meta.get("ml_features"),
-                "risk":         abs(fill - sig.stop_loss),
+                "risk":         sl_dist,
                 "mae":          0.0,
                 "mfe":          0.0,
             }
@@ -346,6 +366,8 @@ def launch_pretrain(
     symbol: str = "XAUUSD",
     atr_min: Optional[float] = None,
     reset: bool = True,
+    capital: float = 1_000.0,
+    risk_pct: float = 5.0,
 ) -> None:
     """Lance le pré-entraînement dans un thread daemon (non-bloquant)."""
     if get_progress()["running"]:
@@ -358,7 +380,8 @@ def launch_pretrain(
 
     def _run():
         try:
-            run_pretrain(start, end, symbol=symbol, atr_min=atr_min, reset=reset)
+            run_pretrain(start, end, symbol=symbol, atr_min=atr_min, reset=reset,
+                         capital=capital, risk_pct=risk_pct)
         except Exception as exc:
             _set(running=False, status="error", error=str(exc))
 
