@@ -185,7 +185,7 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
     # ── Signal pre-computation ────────────────────────────────────────────────
     # Standard mode: vectorised O(n) lookup via batch_signals().
     # ICT mode: per-bar evaluate_ict() — slower but correct for context-heavy logic.
-    if cfg.strategy_mode == "ict":
+    if cfg.strategy_mode in ("ict", "B"):
         from strategy_ict import evaluate_ict as _evaluate_ict
         precomputed_signals = None
     else:
@@ -251,7 +251,7 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
 
         # ---- Look for a new entry (only if flat & allowed) ----
         if open_trade is None and not day_blocked and trades_today < cfg.max_trades_per_day:
-            if cfg.strategy_mode == "ict":
+            if cfg.strategy_mode in ("ict", "B"):
                 # Pre-filter by session (London 8-12 CET / NY 14-18 CET) before
                 # the expensive per-bar evaluate_ict() call — reduces ~26k bars to ~4k.
                 from strategy import CET as _CET

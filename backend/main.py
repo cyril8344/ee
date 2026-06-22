@@ -72,6 +72,7 @@ from macro_filter import MacroFilter
 from broker import make_broker, Position
 import strategy
 from strategy import add_indicators, evaluate, snapshot, swing_levels, active_session, find_order_blocks
+import feature_logger as _feat_log
 from backtest import BacktestConfig, run_backtest
 from optimizer import OptimizeConfig, run_optimize
 from auth import create_access_token, get_current_user, verify_credentials
@@ -354,11 +355,17 @@ def trading_tick() -> Dict[str, Any]:
                         and not state.risk.blocked and not news_status["blocked"]
                         and not macro_blocked
                         and state.settings.get("bot_enabled", True)):
-                    sig = evaluate(m5, m15, h1, now=now, check_session=session_filter,
-                                   atr_min=ms.config["atr_min"],
-                                   pattern_weights=state.pattern_weights,
-                                   ml_gate=state.ml_gate,
-                                   adaptive_thresholds=ms.adaptive)
+                    if state.settings.get("strategy", "A") == "B":
+                        from strategy_ict import evaluate_ict as _eval_ict
+                        sig = _eval_ict(m5, m15, h1, now=now,
+                                        check_session=session_filter,
+                                        atr_min=ms.config["atr_min"])
+                    else:
+                        sig = evaluate(m5, m15, h1, now=now, check_session=session_filter,
+                                       atr_min=ms.config["atr_min"],
+                                       pattern_weights=state.pattern_weights,
+                                       ml_gate=state.ml_gate,
+                                       adaptive_thresholds=ms.adaptive)
                     if sig is not None:
                         ms.last_signal = sig.to_dict()
                         decision = state.risk.can_open_trade(
@@ -422,6 +429,15 @@ def _open_trade(ms: MarketState, sig, decision, now):
         "trade_id": trade_id, **sig.meta,
     })})
     pos.meta["trade_id"] = trade_id
+
+    # Logging ML — stratégie B uniquement
+    if sig.meta.get("strategy") == "ICT_B":
+        sess_start_h = {"London": 7, "NY": 13}.get(sig.session, 7)
+        session_hour = (ts.hour + ts.minute / 60.0) - sess_start_h
+        _feat_log.log_entry(trade_id, sig.meta,
+                            ts_utc=pos.open_time.isoformat(),
+                            session=sig.session,
+                            session_hour=round(session_hour, 2))
     db.update_daily(db.today_utc(), {"trade_count": state.risk.trades_today})
     arrow = "🟢 LONG" if sig.direction == "long" else "🔴 SHORT"
     msg = (f"{arrow} <b>{ms.config['name']} ouvert</b>\n"
@@ -457,6 +473,13 @@ def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], 
 
     duration = (now - pos.open_time).total_seconds() / 60.0
     trade_id = pos.meta.get("trade_id")
+
+    # Logging ML — stratégie B uniquement
+    if trade_id and pos.meta.get("strategy") == "ICT_B":
+        risk_amount = pos.meta.get("risk_amount") or abs(pos.entry - pos.stop_loss) * pos.volume * 100.0
+        _feat_log.log_exit(trade_id, pnl=pnl, risk_amount=risk_amount,
+                           exit_reason=close_info.get("reason", ""),
+                           duration_min=duration)
     start_eq = state.risk.start_equity_today or state.risk.capital
     if trade_id:
         db.update_trade(trade_id, {
@@ -761,6 +784,7 @@ class SettingsPatch(BaseModel):
     slippage_pips: Optional[float] = None
     session_filter: Optional[bool] = None
     active_markets: Optional[List[str]] = None
+    strategy: Optional[str] = None   # "A" (défaut) | "B" (ICT/SMC)
 
 
 @app.post("/api/settings")
