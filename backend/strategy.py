@@ -13,7 +13,7 @@ M5  : entry trigger    -> engulfing candle / EMA9 pullback bounce /
 
 Trade management parameters are produced with the signal:
     - stop loss at last M5 swing (capped at 1.2x ATR)
-    - TP1 = 1R (close 60%), TP2 = 2R (close 40%)
+    - TP1 = 0.5R (close 60%), TP2 = 2.5R (close 40%)
     - max duration 45 minutes
 
 Sessions: London (08-12 CET) and New York (14-18 CET) only.
@@ -867,10 +867,10 @@ def evaluate(
         return None
 
     if direction == "long":
-        tp1 = entry + risk
+        tp1 = entry + 0.5 * risk
         tp2 = entry + 2.5 * risk
     else:
-        tp1 = entry - risk
+        tp1 = entry - 0.5 * risk
         tp2 = entry - 2.5 * risk
 
     # Extraction des features ML — toujours calculées (gate live + pré-entraînement)
