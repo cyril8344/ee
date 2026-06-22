@@ -334,6 +334,8 @@ export default function Dashboard({ onLogout }) {
   const [pretrainPage, setPretrainPage]       = useState(0);
   const [pretrainStats, setPretrainStats]     = useState(null);
   const [pretrainDiag, setPretrainDiag]       = useState(false);
+  const [pretrainStart, setPretrainStart]     = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 6); return d.toISOString().slice(0, 10); });
+  const [pretrainEnd, setPretrainEnd]         = useState(() => new Date().toISOString().slice(0, 10));
   const PRETRAIN_PAGE = 20;
   const [agentStatus, setAgentStatus] = useState(null);
   const [agentHistory, setAgentHistory] = useState([]);
@@ -448,21 +450,26 @@ export default function Dashboard({ onLogout }) {
     return () => clearInterval(id);
   }, []);
 
+  const setPretrainPeriod = (months) => {
+    const end = new Date();
+    const start = new Date(end);
+    start.setMonth(start.getMonth() - months);
+    setPretrainStart(start.toISOString().slice(0, 10));
+    setPretrainEnd(end.toISOString().slice(0, 10));
+  };
+
   const launchPretrain = (symbol) => {
     const sym = symbol || activeMarket;
     setPretrainLoading(true);
-    // Optimistic update so the UI shows "in progress" immediately
+    setPretrainTrades(null);
+    setPretrainStats(null);
+    setPretrainDiag(false);
     setPretrainStatus({ running: true, pct: 0, bars_done: 0, bars_total: 0,
       trades: 0, status: "Démarrage…", error: null, last_result: null });
-    const now = new Date();
-    const end = now.toISOString().slice(0, 10);
-    const sixMonthsAgo = new Date(now);
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-    const start = sixMonthsAgo.toISOString().slice(0, 10);
     fetch(`${API}/api/pretrain`, {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ start, end, symbol: sym, reset: true }),
+      body: JSON.stringify({ start: pretrainStart, end: pretrainEnd, symbol: sym, reset: true }),
     })
       .then(r => r.json())
       .then(d => { if (d.progress) setPretrainStatus(d.progress); setPretrainLoading(false); })
@@ -934,6 +941,34 @@ export default function Dashboard({ onLogout }) {
                   </div>
                   {/* Pré-entraînement */}
                   <div style={{ marginTop: 6, borderTop: `1px solid ${COLORS.border}`, paddingTop: 6 }}>
+                    {/* Sélecteur de période */}
+                    {!pretrainStatus?.running && (
+                      <div style={{ marginBottom: 6 }}>
+                        <div style={{ display: "flex", gap: 3, marginBottom: 4 }}>
+                          {[1, 3, 6].map(m => {
+                            const s = new Date(); s.setMonth(s.getMonth() - m);
+                            const active = pretrainStart === s.toISOString().slice(0, 10);
+                            return (
+                              <button key={m} onClick={() => setPretrainPeriod(m)}
+                                style={{ flex: 1, fontSize: 10, padding: "2px 0", cursor: "pointer",
+                                  borderRadius: 3, border: `1px solid ${COLORS.blue}`,
+                                  background: active ? COLORS.blue + "44" : "transparent",
+                                  color: COLORS.blue }}>
+                                {m}M
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <input type="date" value={pretrainStart} onChange={e => setPretrainStart(e.target.value)}
+                            style={{ flex: 1, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                              borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                          <input type="date" value={pretrainEnd} onChange={e => setPretrainEnd(e.target.value)}
+                            style={{ flex: 1, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                              borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                        </div>
+                      </div>
+                    )}
                     {pretrainStatus?.running ? (
                       <div>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
@@ -1205,7 +1240,7 @@ export default function Dashboard({ onLogout }) {
                     ) : (
                       <div>
                         <div style={{ color: COLORS.sub, fontSize: 11, marginBottom: 6 }}>
-                          Pré-entraîner le bot sur les 6 derniers mois de données historiques
+                          Pré-entraîner le bot sur la période sélectionnée ({pretrainStart} → {pretrainEnd})
                         </div>
                         <button
                           onClick={() => launchPretrain(activeMarket)}
