@@ -1205,9 +1205,14 @@ def pretrain_stats(_user: dict = Depends(get_current_user)):
     near_wins_pct  = round(sum(1 for t in losses if t["mfe_r"] >= 0.5) / len(losses) * 100, 1) if losses else 0.0
     lucky_wins_pct = round(sum(1 for t in wins   if t["mae_r"] >= 0.5) / len(wins)   * 100, 1) if wins   else 0.0
 
-    # ── False stops (SL hit → prix atteint TP1 dans les 10 bougies suivantes) ─
+    # ── False stops (SL direct → prix atteint TP1 dans les 10 bougies) ────────
     false_stops_data = result.get("false_stops", {})
     false_stops_pct  = false_stops_data.get("pct_false_stops", 0.0)
+
+    # ── False breakevens (sl_after_tp1 → prix atteint TP2 dans les 20 bougies)
+    false_be_data = result.get("false_breakevens", {})
+    false_be_pct  = false_be_data.get("pct_false_bes", None)   # None = données absentes (ancien pretrain)
+    false_be_n    = false_be_data.get("n_sl_after_tp1", 0)
 
     return {
         "total":               total,
@@ -1220,6 +1225,8 @@ def pretrain_stats(_user: dict = Depends(get_current_user)):
         "near_wins_pct":       near_wins_pct,
         "lucky_wins_pct":      lucky_wins_pct,
         "false_stops_pct":     false_stops_pct,
+        "false_be_pct":        false_be_pct,
+        "false_be_n":          false_be_n,
     }
 
 

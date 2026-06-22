@@ -147,6 +147,8 @@ def run_pretrain(
         equity_curve = [{"ts": m5.index[warmup].isoformat(), "equity": equity}]
         n_false_stops        = 0   # SL direct → prix aurait atteint TP1 dans les 10 bougies suivantes
         n_sl_for_false_check = 0   # total SL directs analysés
+        n_false_bes          = 0   # sl_after_tp1 → prix aurait atteint TP2 dans les 20 bougies suivantes
+        n_be_for_false_check = 0   # total sl_after_tp1 analysés
         pnl_wins   = []   # PnL $ des trades gagnants
         pnl_losses = []   # PnL $ (abs) des trades perdants
         mae_wins   = []   # MAE en R des trades gagnants
@@ -219,6 +221,22 @@ def run_pretrain(
                         if false_stop:
                             n_false_stops += 1
 
+                    # ---- Analyse false breakeven ----
+                    # Sur un sl_after_tp1 : est-ce que le prix aurait atteint TP2
+                    # dans les 20 bougies suivantes (100 min) ?
+                    false_be = False
+                    if exit_reason == "sl_after_tp1":
+                        n_be_for_false_check += 1
+                        tp2_level = open_trade["tp2"]
+                        direction = open_trade["direction"]
+                        future_be = m5.iloc[i + 1 : i + 21]
+                        if direction == "long":
+                            false_be = bool((future_be["high"] >= tp2_level).any())
+                        else:
+                            false_be = bool((future_be["low"] <= tp2_level).any())
+                        if false_be:
+                            n_false_bes += 1
+
                     trades_log.append({
                         "entry_ts":    open_trade["entry_time"].isoformat(),
                         "exit_ts":     ts.isoformat(),
@@ -233,6 +251,7 @@ def run_pretrain(
                         "mfe_r":       mfe_r,
                         "patterns":    triggers,
                         "false_stop":  false_stop,
+                        "false_be":    false_be,
                     })
 
                     open_trade = None
@@ -342,10 +361,17 @@ def run_pretrain(
             "false_stops": {
                 "n_sl_direct":   n_sl_for_false_check,
                 "n_false_stops": n_false_stops,
-                # % de SL directs où le prix aurait atteint TP1 dans les 10 bougies suivantes
                 "pct_false_stops": round(
                     n_false_stops / n_sl_for_false_check * 100, 1
                 ) if n_sl_for_false_check else 0.0,
+            },
+            "false_breakevens": {
+                "n_sl_after_tp1": n_be_for_false_check,
+                "n_false_bes":    n_false_bes,
+                # % de sl_after_tp1 où le prix aurait atteint TP2 dans les 20 bougies suivantes
+                "pct_false_bes": round(
+                    n_false_bes / n_be_for_false_check * 100, 1
+                ) if n_be_for_false_check else 0.0,
             },
         }
         _set(running=False, pct=100, bars_done=total, trades=n_trades,
