@@ -349,11 +349,15 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
         t["mae"] = max(t.get("mae", 0.0), high - t["entry"])
 
     # 1) TP1 — sortie 50% à 0.5R, SL → breakeven
+    # Si la position est trop petite pour être splitée (ex: 0.01 lot en pretrain),
+    # on ferme 100% à TP1 pour éviter le bug "lots=0 mais SL déplacé au breakeven".
     if not t["tp1_done"]:
         hit_tp1 = (high >= t["tp1"]) if direction == "long" else (low <= t["tp1"])
         if hit_tp1:
             lots50 = _round_lot(t["volume"] * 0.5)
             lots50 = min(lots50, t["remaining"])
+            if lots50 < MIN_LOT:
+                lots50 = t["remaining"]  # trop petit pour spliter → close total à TP1
             fill = t["tp1"] - slippage * sign
             t["realised"] += pnl_for(fill, lots50)
             t["remaining"] = round(t["remaining"] - lots50, 2)

@@ -1166,6 +1166,11 @@ export default function Dashboard({ onLogout }) {
                                     <div style={{ color: COLORS.sub }}>gains "chanceux"</div>
                                     <div style={{ color: COLORS.sub, fontSize: 9 }}>MAE ≥ 0.5R avant TP</div>
                                   </div>
+                                  <div style={{ flex: 1, background: COLORS.orange + "18", borderRadius: 4, padding: "4px 6px", textAlign: "center" }}>
+                                    <div style={{ color: COLORS.orange || "#f97316", fontWeight: 600, fontSize: 13 }}>{pretrainStats.false_stops_pct ?? "—"}%</div>
+                                    <div style={{ color: COLORS.sub }}>false stops</div>
+                                    <div style={{ color: COLORS.sub, fontSize: 9 }}>SL → TP1 dans 10 bougies</div>
+                                  </div>
                                 </div>
 
                                 {/* Grille session × direction */}

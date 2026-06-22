@@ -1178,6 +1178,10 @@ def pretrain_stats(_user: dict = Depends(get_current_user)):
     near_wins_pct  = round(sum(1 for t in losses if t["mfe_r"] >= 0.5) / len(losses) * 100, 1) if losses else 0.0
     lucky_wins_pct = round(sum(1 for t in wins   if t["mae_r"] >= 0.5) / len(wins)   * 100, 1) if wins   else 0.0
 
+    # ── False stops (SL hit → prix atteint TP1 dans les 10 bougies suivantes) ─
+    false_stops_data = result.get("false_stops", {})
+    false_stops_pct  = false_stops_data.get("pct_false_stops", 0.0)
+
     return {
         "total":               total,
         "n_wins":              len(wins),
@@ -1188,6 +1192,7 @@ def pretrain_stats(_user: dict = Depends(get_current_user)):
         "top_patterns_wins":   sorted(pat_win.items(),  key=lambda x: -x[1])[:6],
         "near_wins_pct":       near_wins_pct,
         "lucky_wins_pct":      lucky_wins_pct,
+        "false_stops_pct":     false_stops_pct,
     }
 
 
