@@ -28,3 +28,6 @@ frontend/dist/
 .vscode/
 *.log
 data_cache/
+
+# Runtime data (feature logs, etc.)
+data/
