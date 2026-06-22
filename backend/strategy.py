@@ -12,7 +12,7 @@ M5  : entry trigger    -> engulfing candle / EMA9 pullback bounce /
                           micro-consolidation breakout, ATR(14) > 0.8
 
 Trade management parameters are produced with the signal:
-    - stop loss at last M5 swing (capped at 1.2x ATR)
+    - stop loss at last M5 swing (capped at 1.0x ATR)
     - TP = 0.5R (close 100%)
     - max duration 45 minutes
 
@@ -51,7 +51,7 @@ ATR_MIN = 3.0
 ADX_MIN = 25.0
 SR_PROXIMITY_ATR = 0.7
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
-SL_ATR_MULT = 1.2
+SL_ATR_MULT = 1.0
 SWING_LOOKBACK = 5          # bars each side for swing detection
 
 # SMC parameters (optimised by Agent IA)
