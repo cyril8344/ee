@@ -112,6 +112,10 @@ def run_pretrain(
         if len(m5_raw) < 300:
             raise ValueError("Pas assez de données pour la période sélectionnée.")
 
+        data_start_actual = m5_raw.index[0].isoformat()[:10]
+        data_end_actual   = m5_raw.index[-1].isoformat()[:10]
+        data_bars_total   = len(m5_raw)
+
         m5       = add_indicators(m5_raw)
         m15_full = add_indicators(resample(m5_raw, "15min"))
         h1_full  = add_indicators(resample(m5_raw, "60min"))
@@ -337,6 +341,14 @@ def run_pretrain(
             "avg_win":       avg_win,
             "avg_loss":      avg_loss,
             "period":        f"{start} → {end}",
+            "data_coverage": {
+                "requested_start": start,
+                "requested_end":   end,
+                "actual_start":    data_start_actual,
+                "actual_end":      data_end_actual,
+                "bars":            data_bars_total,
+                "full_coverage":   data_start_actual <= start,
+            },
             "symbol":        symbol,
             "atr_min_final": round(adaptive.atr_min, 4),
             "ema9_mult_final": round(adaptive.ema9_mult, 3),

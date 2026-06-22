@@ -1161,8 +1161,24 @@ export default function Dashboard({ onLogout }) {
                             const erLabel = { sl: "SL direct", sl_after_tp1: "SL après TP1", timeout: "Timeout", tp1: "TP1 seul", tp2: "TP2 ✓" };
                             const sessLabel = { London_long: "Lo ↑", London_short: "Lo ↓", NY_long: "NY ↑", NY_short: "NY ↓" };
 
+                            const cov = pretrainStats.data_coverage || {};
+                            const covOk = cov.full_coverage !== false;
+
                             return (
                               <div style={{ marginTop: 6, fontSize: 10 }}>
+
+                                {/* Couverture données */}
+                                {cov.actual_start && (
+                                  <div style={{
+                                    marginBottom: 6, padding: "3px 6px", borderRadius: 3,
+                                    background: covOk ? COLORS.green + "18" : COLORS.red + "18",
+                                    border: `1px solid ${covOk ? COLORS.green : COLORS.red}44`,
+                                    color: covOk ? COLORS.green : COLORS.red,
+                                  }}>
+                                    {covOk ? "✓" : "⚠"} Données réelles : {cov.actual_start} → {cov.actual_end} ({cov.bars} bougies)
+                                    {!covOk && <span style={{ color: COLORS.sub }}> — demandé depuis {cov.requested_start}</span>}
+                                  </div>
+                                )}
 
                                 {/* Near-wins & lucky wins */}
                                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, gap: 4 }}>
