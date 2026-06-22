@@ -67,7 +67,7 @@ Entry threshold: 0.55 (boosted when on a losing streak). **Reset ML weights (pas
 
 - TP1 = 0.7R → exits 60% of position, SL moves to breakeven
 - TP2 = 1.4R → exits remaining 40%
-- SL = 1.2 × ATR; timeout at 45 minutes
+- SL = 1.4 × ATR; timeout at 45 minutes
 - Risk: 1% capital per trade (configurable), max 4 trades/day, daily stop at −2%
 
 ### Data Flow
