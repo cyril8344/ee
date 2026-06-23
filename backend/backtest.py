@@ -289,7 +289,7 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
                             direction=direction,
                             entry=entry_p,
                             stop_loss=sl,
-                            take_profit1=entry_p + 1.0*risk if direction == "long" else entry_p - 1.0*risk,
+                            take_profit1=entry_p + 0.7*risk if direction == "long" else entry_p - 0.7*risk,
                             take_profit2=entry_p + 1.4*risk if direction == "long" else entry_p - 1.4*risk,
                             risk_distance=risk,
                             session=active_session(ts.to_pydatetime()) or "London",
