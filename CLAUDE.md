@@ -65,9 +65,9 @@ Entry threshold: 0.55 (boosted when on a losing streak). **Reset ML weights (pas
 
 ### Trade Management
 
-- TP1 = 0.7R → exits 60% of position, SL → ATR trailing (starts at TP1 − 1×ATR, follows price)
-- TP2 = 1.4R → exits remaining 40%
-- SL = 1.4 × ATR; ATR trailing (TRAIL_ATR_MULT=1.0) after TP1; timeout at 45 minutes
+- TP1 = 0.7R → exits 50% of position, SL → ATR trailing (starts at TP1 − 0.5×ATR ≈ +0.34R above entry, follows price)
+- TP2 = 1.4R → exits remaining 50%
+- SL = 1.4 × ATR; ATR trailing (TRAIL_ATR_MULT=0.5) after TP1; timeout at 45 minutes
 - Risk: 1% capital per trade (configurable), max 4 trades/day, daily stop at −2%
 
 ### Data Flow
@@ -86,7 +86,7 @@ data_provider.py  →  broker.py (M5 OHLCV, yfinance GC=F)
 
 ### Pre-training (`pretrain.py`)
 
-Bar-by-bar historical replay that trains the ML gate offline before live trading. Runs **without** the ML gate (so win-rate reported is the raw signal quality). Uses realistic lot sizing matching the live formula: `volume = capital × risk_pct% / (SL_dist × contract_size)`. Always re-run with `reset=True` after any strategy or feature change.
+Bar-by-bar historical replay that trains the ML gate offline before live trading. Runs **without** the ML gate (so win-rate reported is the raw signal quality). Uses realistic lot sizing matching the live formula: `volume = capital × risk_pct% / (SL_dist × contract_size)`. Supports `strategy_mode="A"` (EMA/pattern) and `strategy_mode="B"` (ICT) — the dashboard automatically passes the current active strategy. Always re-run with `reset=True` after any strategy or feature change.
 
 ### Backend Entry Point (`main.py`)
 
@@ -130,7 +130,7 @@ After merging to `main`:
 - **ADX SHORT minimum = 30** (ADX_MIN + 5) vs 25 for LONG — stricter filter against shorting in uptrend
 - **MAX_TRADE_MINUTES = 45** (was 30) — more time for TP targets to be reached
 - **TP1 = 0.7R** (was 0.5R), **TP2 = 1.4R** (was 2.0R) — raises EV from ~0 to +0.14R per trade at 67% WR
-- **ATR trailing stop** (TRAIL_ATR_MULT=1.0) after TP1 — SL starts at TP1 − 1×ATR, then follows price on each bar; replaces fixed soft-BE (was entry − 0.3R)
+- **ATR trailing stop** (TRAIL_ATR_MULT=0.5) after TP1 — SL starts at TP1 − 0.5×ATR ≈ +0.34R above entry, then follows price on each bar; replaces fixed soft-BE (was entry − 0.3R). Was 1.0 but that placed stop at breakeven (TP1 ≈ 1×ATR).
 - **ML Gate: 3 → 6 features** (June 2026) — ML weights must be reset after any feature count change
 - **Strategy B (ICT)** selectable via `strategy` setting ("A" or "B"); "A" is default EMA/pattern strategy, "B" is SMC/ICT via `strategy_ict.py`
 - `MT5Broker` in `broker.py` requires MetaTrader5 (Windows only, manual install); `PaperBroker` is the default everywhere else

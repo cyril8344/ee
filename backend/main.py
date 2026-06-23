@@ -1093,13 +1093,14 @@ def pattern_stats():
 
 # ── Pré-entraînement ─────────────────────────────────────────────────────────
 class PretrainRequest(BaseModel):
-    start:    str = "2024-01-01"
-    end:      str = "2024-12-31"
-    symbol:   str = "XAUUSD"
-    atr_min:  Optional[float] = None
-    reset:    bool = True
-    capital:  float = 1_000.0
-    risk_pct: float = 5.0
+    start:         str = "2024-01-01"
+    end:           str = "2024-12-31"
+    symbol:        str = "XAUUSD"
+    atr_min:       Optional[float] = None
+    reset:         bool = True
+    capital:       float = 1_000.0
+    risk_pct:      float = 5.0
+    strategy_mode: str = "A"
 
 
 @app.post("/api/pretrain")
@@ -1112,6 +1113,7 @@ def start_pretrain(req: PretrainRequest, _user: dict = Depends(get_current_user)
         start=req.start, end=req.end,
         symbol=req.symbol, atr_min=req.atr_min, reset=req.reset,
         capital=req.capital, risk_pct=req.risk_pct,
+        strategy_mode=req.strategy_mode,
     )
     return {"ok": True, "message": "Pré-entraînement lancé", "progress": _pretrain_module.get_progress()}
 

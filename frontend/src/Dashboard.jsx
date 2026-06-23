@@ -479,7 +479,7 @@ export default function Dashboard({ onLogout }) {
     fetch(`${API}/api/pretrain`, {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ start: pretrainStart, end: pretrainEnd, symbol: sym, reset: true }),
+      body: JSON.stringify({ start: pretrainStart, end: pretrainEnd, symbol: sym, reset: true, strategy_mode: strategyMode }),
     })
       .then(r => r.json())
       .then(d => { if (d.progress) setPretrainStatus(d.progress); setPretrainLoading(false); })
