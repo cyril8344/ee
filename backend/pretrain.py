@@ -278,7 +278,12 @@ def run_pretrain(
 
             # evaluate() / evaluate_ict() SANS ml_gate ni adaptive → signal brut
             if strategy_mode == "B":
-                sig = evaluate_ict(m5.iloc[:i + 1], m15_s, h1_s, now=ts.to_pydatetime())
+                # evaluate_ict n'a besoin que des barres récentes (VWAP intraday + ICT
+                # lookbacks de 30-40 bars). Limiter le slice évite un calcul VWAP O(N²)
+                # sur toute l'histoire — couvre 2 jours complets pour que VWAP soit correct.
+                ICT_M5_WINDOW = 576
+                m5_win = m5.iloc[max(0, i - ICT_M5_WINDOW + 1): i + 1]
+                sig = evaluate_ict(m5_win, m15_s, h1_s, now=ts.to_pydatetime())
             else:
                 sig = evaluate(
                     m5.iloc[:i + 1], m15_s, h1_s,
