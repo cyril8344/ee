@@ -45,8 +45,8 @@ ATR_PERIOD = 14
 ADX_PERIOD = 14
 VOL_AVG_PERIOD = 20
 
-RSI_LOW = 35.0
-RSI_HIGH = 65.0
+RSI_LOW = 40.0
+RSI_HIGH = 60.0
 ATR_MIN = 3.0
 ADX_MIN = 25.0
 SR_PROXIMITY_ATR = 0.7
@@ -802,9 +802,9 @@ def evaluate(
 
     # 5b) M5 RSI momentum confirmation — évite les entrées à contre-courant M5
     rsi_m5 = float(cur.get("rsi", 50) or 50)
-    if bias == "LONG"  and rsi_m5 < 50:
+    if bias == "LONG"  and rsi_m5 < 45:
         return None
-    if bias == "SHORT" and rsi_m5 > 50:
+    if bias == "SHORT" and rsi_m5 > 55:
         return None
 
     # 6) Candlestick pattern trigger (any single pattern is enough)
