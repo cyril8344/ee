@@ -349,7 +349,7 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
         t["mfe"] = max(t.get("mfe", 0.0), t["entry"] - low)
         t["mae"] = max(t.get("mae", 0.0), high - t["entry"])
 
-    # 1) TP1 — sortie 60% à 0.7R, SL → ATR trailing (démarre depuis TP1 − TRAIL_ATR_MULT×ATR)
+    # 1) TP1 — sortie 50% à 0.7R, SL → trailing basé sur le risque initial (démarre à TP1 − TRAIL_ATR_MULT×risk = +0.2R)
     if not t["tp1_done"]:
         hit_tp1 = (high >= t["tp1"]) if direction == "long" else (low <= t["tp1"])
         if hit_tp1:
@@ -361,19 +361,17 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
             t["realised"] += pnl_for(fill, lots50)
             t["remaining"] = round(t["remaining"] - lots50, 2)
             t["tp1_done"] = True
-            bar_atr = float(bar.get("atr") or abs(t["entry"] - t["stop_loss"]))
-            t["stop_loss"] = t["tp1"] - TRAIL_ATR_MULT * bar_atr * sign
+            t["stop_loss"] = t["tp1"] - TRAIL_ATR_MULT * t["risk"] * sign
             if t["remaining"] < MIN_LOT:
                 return t["realised"], t["tp1"], "tp1"
     else:
-        # ATR trailing : suit le prix vers le haut (LONG) / bas (SHORT), jamais en arrière
-        bar_atr = float(bar.get("atr") or abs(t["entry"] - t["stop_loss"]))
+        # Trailing basé sur le risque initial : suit le prix, jamais en arrière
         if direction == "long":
-            candidate = close - TRAIL_ATR_MULT * bar_atr
+            candidate = close - TRAIL_ATR_MULT * t["risk"]
             if candidate > t["stop_loss"]:
                 t["stop_loss"] = candidate
         else:
-            candidate = close + TRAIL_ATR_MULT * bar_atr
+            candidate = close + TRAIL_ATR_MULT * t["risk"]
             if candidate < t["stop_loss"]:
                 t["stop_loss"] = candidate
 
