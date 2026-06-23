@@ -842,6 +842,13 @@ export default function Dashboard({ onLogout }) {
                     background: statusColor + "22", color: statusColor }}>
                     {state?.bot_status || "—"}
                   </span>
+                  <span style={{ padding: "3px 8px", borderRadius: 4, fontWeight: 700, fontSize: 11,
+                    background: strategyMode === "B" ? COLORS.blue + "33" : COLORS.amber + "22",
+                    color: strategyMode === "B" ? COLORS.blue : COLORS.amber,
+                    border: `1px solid ${strategyMode === "B" ? COLORS.blue : COLORS.amber}88`,
+                    letterSpacing: "0.5px" }}>
+                    Strat {strategyMode === "A" ? "A EMA" : "B ICT"}
+                  </span>
                   {state?.bot_status === "BLOQUE" && (
                     <button onClick={() => {
                       if (!window.confirm("Réinitialiser la journée ? Les compteurs sont remis à zéro mais l'historique est conservé.")) return;
