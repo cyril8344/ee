@@ -36,6 +36,7 @@ from risk_manager import CONTRACT_SIZE, MIN_LOT, LOT_STEP
 import data_provider
 
 PIP = 0.1  # 1 pip for gold = 0.1 price units
+TRAIL_ATR_MULT = 1.0  # multiplicateur ATR pour le trailing stop après TP1
 
 
 # --------------------------------------------------------------------------- #
@@ -330,7 +331,7 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
 
 def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Optional[tuple]:
     """
-    Split-TP exit model: 60% à TP1 (0.7R), SL → soft-BE (entrée−0.3R), puis 40% à TP2 (1.4R).
+    Split-TP exit model: 60% à TP1 (0.7R), SL → ATR trailing (TP1 − TRAIL_ATR_MULT×ATR), puis 40% à TP2 (1.4R).
     Returns (pnl, exit_price, reason) quand la position est fermée, sinon None.
     """
     direction = t["direction"]
@@ -348,9 +349,7 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
         t["mfe"] = max(t.get("mfe", 0.0), t["entry"] - low)
         t["mae"] = max(t.get("mae", 0.0), high - t["entry"])
 
-    # 1) TP1 — sortie 60% à 0.7R, SL → "soft breakeven" (entrée − 0.3R)
-    # Le SL ne remonte pas jusqu'au prix exact d'entrée mais reste légèrement
-    # en dessous pour absorber le pullback typique après TP1.
+    # 1) TP1 — sortie 60% à 0.7R, SL → ATR trailing (démarre depuis TP1 − TRAIL_ATR_MULT×ATR)
     if not t["tp1_done"]:
         hit_tp1 = (high >= t["tp1"]) if direction == "long" else (low <= t["tp1"])
         if hit_tp1:
@@ -362,12 +361,23 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
             t["realised"] += pnl_for(fill, lots50)
             t["remaining"] = round(t["remaining"] - lots50, 2)
             t["tp1_done"] = True
-            risk = abs(t["entry"] - t["stop_loss"])  # SL pas encore modifié ici
-            t["stop_loss"] = t["entry"] - 0.3 * risk * sign  # soft BE : 0.3R sous l'entrée
+            bar_atr = float(bar.get("atr") or abs(t["entry"] - t["stop_loss"]))
+            t["stop_loss"] = t["tp1"] - TRAIL_ATR_MULT * bar_atr * sign
             if t["remaining"] < MIN_LOT:
                 return t["realised"], t["tp1"], "tp1"
+    else:
+        # ATR trailing : suit le prix vers le haut (LONG) / bas (SHORT), jamais en arrière
+        bar_atr = float(bar.get("atr") or abs(t["entry"] - t["stop_loss"]))
+        if direction == "long":
+            candidate = close - TRAIL_ATR_MULT * bar_atr
+            if candidate > t["stop_loss"]:
+                t["stop_loss"] = candidate
+        else:
+            candidate = close + TRAIL_ATR_MULT * bar_atr
+            if candidate < t["stop_loss"]:
+                t["stop_loss"] = candidate
 
-    # 2) Stop loss (initial ou breakeven)
+    # 2) Stop loss (initial ou trailing)
     hit_sl = (low <= t["stop_loss"]) if direction == "long" else (high >= t["stop_loss"])
     if hit_sl:
         fill = t["stop_loss"] - slippage * sign
