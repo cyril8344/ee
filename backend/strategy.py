@@ -802,9 +802,9 @@ def evaluate(
 
     # 5b) M5 RSI momentum confirmation — évite les entrées à contre-courant M5
     rsi_m5 = float(cur.get("rsi", 50) or 50)
-    if bias == "LONG"  and rsi_m5 < 45:
+    if bias == "LONG"  and rsi_m5 < 50:
         return None
-    if bias == "SHORT" and rsi_m5 > 55:
+    if bias == "SHORT" and rsi_m5 > 50:
         return None
 
     # 6) Candlestick pattern trigger (any single pattern is enough)
@@ -894,10 +894,10 @@ def evaluate(
         return None
 
     if direction == "long":
-        tp1 = entry + 0.7 * risk
+        tp1 = entry + 1.0 * risk
         tp2 = entry + 1.4 * risk
     else:
-        tp1 = entry - 0.7 * risk
+        tp1 = entry - 1.0 * risk
         tp2 = entry - 1.4 * risk
 
     # Extraction des features ML — toujours calculées (gate live + pré-entraînement)
