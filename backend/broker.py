@@ -218,7 +218,7 @@ class PaperBroker(BaseBroker):
                 return {"closed": True, "reason": "emergency_stop",
                         "exit_price": price, "pnl": pos.realised}
 
-        # TP1 — sortie 50% à 0.7R, SL → breakeven
+        # TP1 — sortie 50% à 0.7R, SL reste au niveau initial (pas de déplacement BE)
         if not pos.tp1_done:
             hit = price >= pos.take_profit1 if direction == "long" else price <= pos.take_profit1
             if hit:
@@ -228,14 +228,13 @@ class PaperBroker(BaseBroker):
                 pos.realised += pnl_for(pos.take_profit1 - self.slippage * sign, lots50)
                 pos.remaining = round(pos.remaining - lots50, 2)
                 pos.tp1_done = True
-                pos.stop_loss = pos.entry  # breakeven
                 if pos.remaining < 0.01:
                     return {"closed": True, "reason": "tp1",
                             "exit_price": pos.take_profit1, "pnl": pos.realised}
                 return {"closed": False, "reason": "tp1_partial",
                         "exit_price": pos.take_profit1, "pnl": pos.realised}
 
-        # Stop loss (initial ou breakeven)
+        # Stop loss (SL initial — pas de déplacement après TP1)
         hit_sl = price <= pos.stop_loss if direction == "long" else price >= pos.stop_loss
         if hit_sl:
             pos.realised += pnl_for(pos.stop_loss - self.slippage * sign, pos.remaining)
@@ -365,7 +364,7 @@ class MT5Broker(BaseBroker):
         price = self.get_price()
         sign = 1.0 if pos.direction == "long" else -1.0
 
-        # TP1 — sortie 50% à 0.7R, SL → breakeven sur MT5
+        # TP1 — sortie 50% à 0.7R, SL reste au niveau initial (pas de déplacement BE)
         if not pos.tp1_done:
             hit = price >= pos.take_profit1 if pos.direction == "long" else price <= pos.take_profit1
             if hit:
@@ -376,8 +375,6 @@ class MT5Broker(BaseBroker):
                 pos.realised += (fill_price - pos.entry) * sign * CONTRACT_SIZE * lots50
                 pos.remaining = round(pos.remaining - lots50, 2)
                 pos.tp1_done = True
-                pos.stop_loss = pos.entry
-                self._update_sl(pos, pos.entry)
                 if pos.remaining < 0.01:
                     return {"closed": True, "reason": "tp1",
                             "exit_price": fill_price, "pnl": pos.realised}
