@@ -44,7 +44,7 @@ The 10-stage filter runs in strict order — a rejection at any stage short-circ
 5. M5 ATR ≥ 3.0 (volatility gate)
 6. H1 ADX ≥ 25 (trend strength)
 7. M5 EMA9 alignment (adaptive tolerance)
-8. M5 RSI momentum (LONG > 45, SHORT < 55)
+8. M5 RSI momentum (LONG > 50, SHORT < 50)
 9. Candle patterns (≥ 2 patterns, each weight ≥ 0.60, sum ≥ 1.0)
 10. ML Gate — logistic regression, activates after 15 trades
 
