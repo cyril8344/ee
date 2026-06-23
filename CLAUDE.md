@@ -44,7 +44,7 @@ The 10-stage filter runs in strict order — a rejection at any stage short-circ
 5. M5 ATR ≥ 3.0 (volatility gate)
 6. H1 ADX ≥ 25 (trend strength)
 7. M5 EMA9 alignment (adaptive tolerance)
-8. M5 RSI momentum (LONG > 50, SHORT < 50)
+8. M5 RSI momentum (LONG > 45, SHORT < 55)
 9. Candle patterns (≥ 2 patterns, each weight ≥ 0.60, sum ≥ 1.0)
 10. ML Gate — logistic regression, activates after 15 trades
 
@@ -124,7 +124,7 @@ After merging to `main`:
 - **BacktestPanel removed from nav** — only the pretrain panel is exposed in the dashboard
 - **Synthetic data** uses `vol=0.0004` (realistic for XAU/USD) — avoid drawing conclusions from synthetic backtest results
 - **Volume filter removed** — unreliable across data sources
-- **RSI M15 history**: 33/67 (original) → 40/60 (broke everything) → **35/65 (current)**
+- **RSI M15 history**: 33/67 (original) → 40/60 (broke everything) → 35/65 → **40/60 (current)** — retesté avec RSI M5 45/55, résultats à valider
 - **Pattern floor 0.65** blocks patterns that lose 65%+ of the time (was 0.60)
 - **TREND_BIAS_DISTANCE = 0.5 ATR H1** blocks SHORT when price > EMA200 + 0.5×ATR and LONG when price < EMA200 − 0.5×ATR
 - **ADX SHORT minimum = 30** (ADX_MIN + 5 = 25+5) vs 25 for LONG — stricter filter against shorting in uptrend (was mistakenly set to ADX_MIN+13=38, fixed)
