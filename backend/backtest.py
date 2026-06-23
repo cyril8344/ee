@@ -36,7 +36,6 @@ from risk_manager import CONTRACT_SIZE, MIN_LOT, LOT_STEP
 import data_provider
 
 PIP = 0.1  # 1 pip for gold = 0.1 price units
-TRAIL_ATR_MULT = 0.5  # multiplicateur ATR pour le trailing stop après TP1
 
 
 # --------------------------------------------------------------------------- #
@@ -361,7 +360,7 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
             t["realised"] += pnl_for(fill, lots50)
             t["remaining"] = round(t["remaining"] - lots50, 2)
             t["tp1_done"] = True
-            t["stop_loss"] = t["tp1"] - TRAIL_ATR_MULT * t["risk"] * sign  # +0.2R fixe
+            t["stop_loss"] = t["entry"]  # breakeven, identique au broker live
             if t["remaining"] < MIN_LOT:
                 return t["realised"], t["tp1"], "tp1"
 

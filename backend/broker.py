@@ -218,7 +218,7 @@ class PaperBroker(BaseBroker):
                 return {"closed": True, "reason": "emergency_stop",
                         "exit_price": price, "pnl": pos.realised}
 
-        # TP1 — sortie 50% à 0.5R, SL → breakeven
+        # TP1 — sortie 50% à 0.7R, SL → breakeven
         if not pos.tp1_done:
             hit = price >= pos.take_profit1 if direction == "long" else price <= pos.take_profit1
             if hit:
@@ -365,7 +365,7 @@ class MT5Broker(BaseBroker):
         price = self.get_price()
         sign = 1.0 if pos.direction == "long" else -1.0
 
-        # TP1 — sortie 50% à 0.5R, SL → breakeven sur MT5
+        # TP1 — sortie 50% à 0.7R, SL → breakeven sur MT5
         if not pos.tp1_done:
             hit = price >= pos.take_profit1 if pos.direction == "long" else price <= pos.take_profit1
             if hit:
