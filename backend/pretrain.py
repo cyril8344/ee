@@ -29,6 +29,7 @@ from strategy import (
     add_indicators, evaluate, active_session,
     MAX_TRADE_MINUTES, SL_ATR_MULT,
 )
+from strategy_ict import evaluate_ict
 from backtest import load_m5_data, resample, _try_exit
 import database as db
 import data_provider as _dp
@@ -87,6 +88,7 @@ def run_pretrain(
     reset: bool = True,
     capital: float = 1_000.0,
     risk_pct: float = 5.0,
+    strategy_mode: str = "A",
 ) -> Dict[str, Any]:
     """
     Lance le pré-entraînement en mode bloquant.
@@ -274,13 +276,16 @@ def run_pretrain(
             m15_s = m15_full.iloc[:m15_full.index.searchsorted(ts, side="right")]
             h1_s  = h1_full.iloc[:h1_full.index.searchsorted(ts, side="right")]
 
-            # evaluate() SANS ml_gate ni adaptive → signal brut non filtré
-            sig = evaluate(
-                m5.iloc[:i + 1], m15_s, h1_s,
-                now=ts.to_pydatetime(),
-                check_session=True,
-                atr_min=effective_atr,
-            )
+            # evaluate() / evaluate_ict() SANS ml_gate ni adaptive → signal brut
+            if strategy_mode == "B":
+                sig = evaluate_ict(m5.iloc[:i + 1], m15_s, h1_s, now=ts.to_pydatetime())
+            else:
+                sig = evaluate(
+                    m5.iloc[:i + 1], m15_s, h1_s,
+                    now=ts.to_pydatetime(),
+                    check_session=True,
+                    atr_min=effective_atr,
+                )
 
             if sig is None:
                 continue
@@ -300,7 +305,7 @@ def run_pretrain(
                 "tp1_done":     False,
                 "remaining":    volume,
                 "realised":     0.0,
-                "max_exit_time": ts.to_pydatetime() + timedelta(minutes=MAX_TRADE_MINUTES),
+                "max_exit_time": ts.to_pydatetime() + timedelta(minutes=sig.max_duration_min),
                 "triggers":     sig.meta.get("triggers", []),
                 "ml_features":  sig.meta.get("ml_features"),
                 "risk":         sl_dist,
@@ -409,6 +414,7 @@ def launch_pretrain(
     reset: bool = True,
     capital: float = 1_000.0,
     risk_pct: float = 5.0,
+    strategy_mode: str = "A",
 ) -> None:
     """Lance le pré-entraînement dans un thread daemon (non-bloquant)."""
     if get_progress()["running"]:
@@ -422,7 +428,7 @@ def launch_pretrain(
     def _run():
         try:
             run_pretrain(start, end, symbol=symbol, atr_min=atr_min, reset=reset,
-                         capital=capital, risk_pct=risk_pct)
+                         capital=capital, risk_pct=risk_pct, strategy_mode=strategy_mode)
         except Exception as exc:
             _set(running=False, status="error", error=str(exc))
 

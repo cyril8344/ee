@@ -36,7 +36,7 @@ from risk_manager import CONTRACT_SIZE, MIN_LOT, LOT_STEP
 import data_provider
 
 PIP = 0.1  # 1 pip for gold = 0.1 price units
-TRAIL_ATR_MULT = 1.0  # multiplicateur ATR pour le trailing stop après TP1
+TRAIL_ATR_MULT = 0.5  # multiplicateur ATR pour le trailing stop après TP1
 
 
 # --------------------------------------------------------------------------- #

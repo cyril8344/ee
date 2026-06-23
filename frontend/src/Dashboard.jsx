@@ -479,7 +479,7 @@ export default function Dashboard({ onLogout }) {
     fetch(`${API}/api/pretrain`, {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ start: pretrainStart, end: pretrainEnd, symbol: sym, reset: true }),
+      body: JSON.stringify({ start: pretrainStart, end: pretrainEnd, symbol: sym, reset: true, strategy_mode: strategyMode }),
     })
       .then(r => r.json())
       .then(d => { if (d.progress) setPretrainStatus(d.progress); setPretrainLoading(false); })
@@ -841,6 +841,13 @@ export default function Dashboard({ onLogout }) {
                   <span style={{ padding: "3px 10px", borderRadius: 4, fontWeight: 600, fontSize: 12,
                     background: statusColor + "22", color: statusColor }}>
                     {state?.bot_status || "—"}
+                  </span>
+                  <span style={{ padding: "3px 8px", borderRadius: 4, fontWeight: 700, fontSize: 11,
+                    background: strategyMode === "B" ? COLORS.blue + "33" : COLORS.amber + "22",
+                    color: strategyMode === "B" ? COLORS.blue : COLORS.amber,
+                    border: `1px solid ${strategyMode === "B" ? COLORS.blue : COLORS.amber}88`,
+                    letterSpacing: "0.5px" }}>
+                    Strat {strategyMode === "A" ? "A EMA" : "B ICT"}
                   </span>
                   {state?.bot_status === "BLOQUE" && (
                     <button onClick={() => {
