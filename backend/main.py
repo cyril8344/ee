@@ -1211,8 +1211,11 @@ def pretrain_stats(_user: dict = Depends(get_current_user)):
 
     # ── False breakevens (sl_after_tp1 → prix atteint TP2 dans les 20 bougies)
     false_be_data = result.get("false_breakevens", {})
-    false_be_pct  = false_be_data.get("pct_false_bes", None)   # None = données absentes (ancien pretrain)
+    false_be_pct  = false_be_data.get("pct_false_bes", None)
     false_be_n    = false_be_data.get("n_sl_after_tp1", 0)
+
+    # ── Couverture réelle des données ──────────────────────────────────────────
+    data_cov = result.get("data_coverage", {})
 
     return {
         "total":               total,
@@ -1227,6 +1230,7 @@ def pretrain_stats(_user: dict = Depends(get_current_user)):
         "false_stops_pct":     false_stops_pct,
         "false_be_pct":        false_be_pct,
         "false_be_n":          false_be_n,
+        "data_coverage":       data_cov,
     }
 
 
