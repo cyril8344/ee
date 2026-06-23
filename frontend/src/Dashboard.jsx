@@ -349,6 +349,8 @@ export default function Dashboard({ onLogout }) {
   const beep = useBeep();
   const lastAlertTs = useRef(null);
 
+  const pendingSettingsRef = useRef(null);
+
   /* WebSocket live state */
   useEffect(() => {
     let ws;
@@ -363,7 +365,15 @@ export default function Dashboard({ onLogout }) {
       ws.onmessage = (ev) => {
         try {
           const msg = JSON.parse(ev.data);
-          if (msg.type === "state") setState(msg.data);
+          if (msg.type === "state") {
+            const pending = pendingSettingsRef.current;
+            if (pending && Date.now() < pending.until) {
+              setState({ ...msg.data, settings: pending.settings });
+            } else {
+              pendingSettingsRef.current = null;
+              setState(msg.data);
+            }
+          }
         } catch (e) {}
       };
     };
@@ -655,7 +665,7 @@ export default function Dashboard({ onLogout }) {
     })
       .then((r) => { if (r.status === 401) logout401(onLogout); return r.json(); })
       .then((newSettings) => {
-        // Mise à jour immédiate sans attendre le prochain message WebSocket
+        pendingSettingsRef.current = { settings: newSettings, until: Date.now() + 6000 };
         setState(prev => prev ? { ...prev, settings: newSettings } : prev);
       })
       .catch(() => {});

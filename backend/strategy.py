@@ -871,6 +871,18 @@ def evaluate(
     if len(triggers) < 2 or sum(weights) < min_weight_sum:
         return None
 
+    # Filtre corps de bougie : rejette les bougies indécises (corps < 40% de la range)
+    # Exempt pour les patterns conçus avec petite bougie (hammer, pin_bar, doji, tweezer)
+    SMALL_BODY_EXEMPT = {
+        "hammer", "pin_bar", "doji_reversal", "shooting_star",
+        "tweezer_bottom", "tweezer_top", "piercing_line", "dark_cloud_cover",
+    }
+    if not set(triggers) & SMALL_BODY_EXEMPT:
+        bar_range = float(cur["high"]) - float(cur["low"])
+        bar_body  = abs(float(cur["close"]) - float(cur["open"]))
+        if bar_range > 0 and bar_body / bar_range < 0.4:
+            return None
+
     # 7) Build trade levels
     if bias == "LONG":
         swing = last_swing_low(m5, lookback=10)
