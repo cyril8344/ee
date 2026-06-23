@@ -290,6 +290,7 @@ def _fetch_twelvedata_range(start: str, end: str, symbol: str = "XAUUSD") -> pd.
         r.raise_for_status()
         data = r.json()
         if data.get("status") == "error" or "values" not in data:
+            _last_errors["twelvedata:range"] = data.get("message", str(data))
             break
         df = pd.DataFrame(data["values"])
         df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
@@ -499,9 +500,15 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
         try:
             df = _fetch_twelvedata_range(start, end, symbol)
             if df is not None and len(df) > 0:
-                if _is_range:
+                # Ne pas cacher si la couverture est insuffisante (rate limit partiel)
+                req_days = (pd.Timestamp(end, tz="UTC") - pd.Timestamp(start, tz="UTC")).days
+                got_days = (df.index.max() - df.index.min()).days if len(df) > 1 else 0
+                coverage_ok = got_days >= req_days * 0.8
+                if _is_range and coverage_ok:
                     _cache_save(symbol, start, end, df)
-                return df, "twelvedata"
+                if coverage_ok:
+                    return df, "twelvedata"
+                # Couverture insuffisante → on tombe dans les autres providers
         except Exception:  # noqa: BLE001 - fall through to normal providers
             pass
 

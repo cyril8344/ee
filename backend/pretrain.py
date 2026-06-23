@@ -31,6 +31,7 @@ from strategy import (
 )
 from backtest import load_m5_data, resample, _try_exit
 import database as db
+import data_provider as _dp
 from ml_gate import OnlineLogisticRegression, AdaptiveThresholds
 
 # --------------------------------------------------------------------------- #
@@ -115,6 +116,7 @@ def run_pretrain(
         data_start_actual = m5_raw.index[0].isoformat()[:10]
         data_end_actual   = m5_raw.index[-1].isoformat()[:10]
         data_bars_total   = len(m5_raw)
+        data_provider_errors = _dp.get_last_errors()
 
         m5       = add_indicators(m5_raw)
         m15_full = add_indicators(resample(m5_raw, "15min"))
@@ -348,6 +350,7 @@ def run_pretrain(
                 "actual_end":      data_end_actual,
                 "bars":            data_bars_total,
                 "full_coverage":   data_start_actual <= start,
+                "provider_errors": data_provider_errors or None,
             },
             "symbol":        symbol,
             "atr_min_final": round(adaptive.atr_min, 4),
