@@ -652,7 +652,13 @@ export default function Dashboard({ onLogout }) {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ strategy: next }),
-    }).then((r) => { if (r.status === 401) logout401(onLogout); });
+    })
+      .then((r) => { if (r.status === 401) logout401(onLogout); return r.json(); })
+      .then((newSettings) => {
+        // Mise à jour immédiate sans attendre le prochain message WebSocket
+        setState(prev => prev ? { ...prev, settings: newSettings } : prev);
+      })
+      .catch(() => {});
   };
 
   const switchLive = () => {
