@@ -23,6 +23,7 @@ Set credentials in a `.env` file (see .env.example) or the real environment.
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List
@@ -57,13 +58,9 @@ def _td_throttle() -> None:
         _td_last_call[0] = _time_mod.monotonic()
 
 # --------------------------------------------------------------------------- #
-# Disk cache for historical M5 data
-# Avoids re-downloading on every backtest/optimize run.
-# Files stored in backend/data_cache/ as parquet.
+# Cache OHLCV dans SQLite (Railway Volume /data/xau_bot.db)
+# Persiste entre les redéploiements — TTL 7 jours (données historiques immuables)
 # --------------------------------------------------------------------------- #
-_CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data_cache")
-_CACHE_MAX_AGE_HOURS = 6  # refresh after 6 hours
-
 
 # Global error tracker — dernière erreur par (symbol, provider) pour diagnostic
 _last_errors: dict = {}
@@ -79,20 +76,13 @@ def _cache_key(symbol: str, start: str, end: str) -> str:
     return hashlib.md5(raw.encode()).hexdigest()
 
 
-def _cache_path(key: str) -> str:
-    os.makedirs(_CACHE_DIR, exist_ok=True)
-    return os.path.join(_CACHE_DIR, f"{key}.parquet")
-
-
 def _cache_load(symbol: str, start: str, end: str) -> Optional[pd.DataFrame]:
     try:
-        path = _cache_path(_cache_key(symbol, start, end))
-        if not os.path.exists(path):
+        from database import ohlcv_cache_load
+        raw = ohlcv_cache_load(_cache_key(symbol, start, end))
+        if raw is None:
             return None
-        age_hours = (datetime.now().timestamp() - os.path.getmtime(path)) / 3600
-        if age_hours > _CACHE_MAX_AGE_HOURS:
-            return None
-        df = pd.read_parquet(path)
+        df = pd.read_parquet(io.BytesIO(raw))
         if df.index.tz is None:
             df.index = df.index.tz_localize("UTC")
         return df
@@ -102,8 +92,10 @@ def _cache_load(symbol: str, start: str, end: str) -> Optional[pd.DataFrame]:
 
 def _cache_save(symbol: str, start: str, end: str, df: pd.DataFrame) -> None:
     try:
-        path = _cache_path(_cache_key(symbol, start, end))
-        df.to_parquet(path)
+        from database import ohlcv_cache_save
+        buf = io.BytesIO()
+        df.to_parquet(buf)
+        ohlcv_cache_save(_cache_key(symbol, start, end), symbol, start, end, buf.getvalue())
     except Exception:
         pass
 
@@ -287,6 +279,12 @@ def _fetch_twelvedata_range(start: str, end: str, symbol: str = "XAUUSD") -> pd.
         _td_throttle()
         r = requests.get("https://api.twelvedata.com/time_series",
                          params=params, timeout=REQUEST_TIMEOUT)
+        if r.status_code == 429:
+            _time_mod.sleep(30)
+            r = requests.get("https://api.twelvedata.com/time_series",
+                             params=params, timeout=REQUEST_TIMEOUT)
+        if r.status_code == 429:
+            break  # épuisé → retourne les chunks déjà collectés
         r.raise_for_status()
         data = r.json()
         if data.get("status") == "error" or "values" not in data:
