@@ -130,7 +130,7 @@ After merging to `main`:
 - **ADX SHORT minimum = 30** (ADX_MIN + 5 = 25+5) vs 25 for LONG — stricter filter against shorting in uptrend (was mistakenly set to ADX_MIN+13=38, fixed)
 - **MAX_TRADE_MINUTES = 45** (was 30) — more time for TP targets to be reached
 - **TP1 = 0.7R** (was 0.5R), **TP2 = 1.4R** (was 2.0R) — raises EV from ~0 to +0.14R per trade at 67% WR
-- **Risk trailing stop** (TRAIL_ATR_MULT=0.5) after TP1 — SL starts at TP1 − 0.5×risk = +0.2R above entry, then follows close − 0.5×risk upward; uses fixed initial risk (not live ATR) so stop is stable even if ATR expands after entry.
+- **Soft-BE fixe après TP1** (TRAIL_ATR_MULT=0.5) — SL se place à TP1 − 0.5×risk = +0.2R au-dessus de l'entrée et **ne bouge plus** (pas de trailing). 77.4% des SL-after-TP1 auraient atteint TP2 → trailing trop serré coupait les winners.
 - **ML Gate: 3 → 6 features** (June 2026) — ML weights must be reset after any feature count change
 - **Strategy B (ICT)** selectable via `strategy` setting ("A" or "B"); "A" is default EMA/pattern strategy, "B" is SMC/ICT via `strategy_ict.py`
 - `MT5Broker` in `broker.py` requires MetaTrader5 (Windows only, manual install); `PaperBroker` is the default everywhere else
