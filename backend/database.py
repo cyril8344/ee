@@ -140,6 +140,15 @@ def init_db() -> None:
                 data        TEXT NOT NULL,
                 updated_at  TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS ohlcv_cache (
+                key       TEXT PRIMARY KEY,
+                symbol    TEXT NOT NULL,
+                start     TEXT NOT NULL,
+                end       TEXT NOT NULL,
+                data      BLOB NOT NULL,
+                saved_at  TEXT NOT NULL
+            );
             """
         )
 
@@ -487,6 +496,41 @@ def load_ml_weights() -> dict:
         return json.loads(row[0])
     except Exception:
         return {}
+
+
+# --------------------------------------------------------------------------- #
+# OHLCV cache (persiste dans le volume Railway /data)
+# --------------------------------------------------------------------------- #
+_OHLCV_CACHE_TTL_HOURS = 168  # 7 jours — données historiques immuables
+
+
+def ohlcv_cache_load(key: str) -> Optional[bytes]:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT data, saved_at FROM ohlcv_cache WHERE key = ?", (key,)
+        ).fetchone()
+    if row is None:
+        return None
+    saved = datetime.fromisoformat(row["saved_at"])
+    if saved.tzinfo is None:
+        saved = saved.replace(tzinfo=timezone.utc)
+    age_h = (datetime.now(timezone.utc) - saved).total_seconds() / 3600
+    if age_h > _OHLCV_CACHE_TTL_HOURS:
+        return None
+    return row["data"]
+
+
+def ohlcv_cache_save(key: str, symbol: str, start: str, end: str, data: bytes) -> None:
+    now = _utcnow_iso()
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO ohlcv_cache (key, symbol, start, end, data, saved_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET data = ?, saved_at = ?
+            """,
+            (key, symbol, start, end, data, now, data, now),
+        )
 
 
 if __name__ == "__main__":
