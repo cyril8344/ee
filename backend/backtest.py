@@ -348,7 +348,7 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
         t["mfe"] = max(t.get("mfe", 0.0), t["entry"] - low)
         t["mae"] = max(t.get("mae", 0.0), high - t["entry"])
 
-    # 1) TP1 — sortie 50% à 0.7R, SL fixe à +0.2R au-dessus de l'entrée (TP1 − 0.5×risk)
+    # 1) TP1 — sortie 50% à 0.7R, SL reste au niveau initial (pas de déplacement BE)
     if not t["tp1_done"]:
         hit_tp1 = (high >= t["tp1"]) if direction == "long" else (low <= t["tp1"])
         if hit_tp1:
@@ -360,11 +360,10 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
             t["realised"] += pnl_for(fill, lots50)
             t["remaining"] = round(t["remaining"] - lots50, 2)
             t["tp1_done"] = True
-            t["stop_loss"] = t["entry"]  # breakeven, identique au broker live
             if t["remaining"] < MIN_LOT:
                 return t["realised"], t["tp1"], "tp1"
 
-    # 2) Stop loss (initial ou soft-BE fixe après TP1)
+    # 2) Stop loss (SL initial — pas de déplacement après TP1)
     hit_sl = (low <= t["stop_loss"]) if direction == "long" else (high >= t["stop_loss"])
     if hit_sl:
         fill = t["stop_loss"] - slippage * sign

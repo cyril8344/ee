@@ -130,7 +130,7 @@ After merging to `main`:
 - **ADX SHORT minimum = 30** (ADX_MIN + 5 = 25+5) vs 25 for LONG — stricter filter against shorting in uptrend (was mistakenly set to ADX_MIN+13=38, fixed)
 - **MAX_TRADE_MINUTES = 45** (was 30) — more time for TP targets to be reached
 - **TP1 = 0.7R** (was 0.5R), **TP2 = 1.4R** (was 2.0R) — raises EV from ~0 to +0.14R per trade at 67% WR
-- **Breakeven après TP1** — SL se déplace à l'entrée (0R) après TP1, identique dans backtest.py et broker.py. 72.8% des SL-after-TP1 auraient atteint TP2 avec le stop à +0.2R → alignement sur 0R réduit les fausses sorties.
+- **Pas de déplacement SL après TP1** — l'or pullback régulièrement sous l'entrée après TP1 (69.1% fausse BE à 0R). Le SL reste au niveau initial (−1.4R). Pire cas : +0.7R×50% − 1.4R×50% = −0.35R net, mais 69.1% des trades récupèrent vers TP2.
 - **ML Gate: 3 → 6 features** (June 2026) — ML weights must be reset after any feature count change
 - **Strategy B (ICT)** selectable via `strategy` setting ("A" or "B"); "A" is default EMA/pattern strategy, "B" is SMC/ICT via `strategy_ict.py`
 - `MT5Broker` in `broker.py` requires MetaTrader5 (Windows only, manual install); `PaperBroker` is the default everywhere else
