@@ -127,7 +127,7 @@ After merging to `main`:
 - **RSI M15 history**: 33/67 (original) → 40/60 (broke everything) → **35/65 (current)**
 - **Pattern floor 0.65** blocks patterns that lose 65%+ of the time (was 0.60)
 - **TREND_BIAS_DISTANCE = 0.5 ATR H1** blocks SHORT when price > EMA200 + 0.5×ATR and LONG when price < EMA200 − 0.5×ATR
-- **ADX SHORT minimum = 30** (ADX_MIN + 5) vs 25 for LONG — stricter filter against shorting in uptrend
+- **ADX SHORT minimum = 30** (ADX_MIN + 5 = 25+5) vs 25 for LONG — stricter filter against shorting in uptrend (was mistakenly set to ADX_MIN+13=38, fixed)
 - **MAX_TRADE_MINUTES = 45** (was 30) — more time for TP targets to be reached
 - **TP1 = 0.7R** (was 0.5R), **TP2 = 1.4R** (was 2.0R) — raises EV from ~0 to +0.14R per trade at 67% WR
 - **Risk trailing stop** (TRAIL_ATR_MULT=0.5) after TP1 — SL starts at TP1 − 0.5×risk = +0.2R above entry, then follows close − 0.5×risk upward; uses fixed initial risk (not live ATR) so stop is stable even if ATR expands after entry.

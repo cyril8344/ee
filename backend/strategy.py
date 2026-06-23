@@ -782,12 +782,6 @@ def evaluate(
     if not confirm_m15(m15, bias, ema_mult=effective_m15_mult):
         return None
 
-    # 3b) SHORT en uptrend : RSI M15 doit être clairement suracheté (> 58)
-    if bias == "SHORT":
-        m15_rsi = float(m15.iloc[-1].get("rsi", 50) or 50)
-        if m15_rsi < 58.0:
-            return None
-
     # 4) M5 volatility floor
     atr_val = float(cur["atr"]) if not pd.isna(cur["atr"]) else 0.0
     if atr_val < effective_atr_min:
@@ -795,7 +789,7 @@ def evaluate(
 
     # 4b) H1 ADX trend strength — ne trader qu'en vraie tendance
     h1_adx = float(h1.iloc[-1].get("adx", 0)) if len(h1) else 0.0
-    adx_required = ADX_MIN if bias == "LONG" else ADX_MIN + 13.0  # SHORT exige ADX >= 38
+    adx_required = ADX_MIN if bias == "LONG" else ADX_MIN + 5.0  # SHORT exige ADX >= 30
     if h1_adx < adx_required:
         return None
 
