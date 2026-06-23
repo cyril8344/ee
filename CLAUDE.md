@@ -65,9 +65,9 @@ Entry threshold: 0.55 (boosted when on a losing streak). **Reset ML weights (pas
 
 ### Trade Management
 
-- TP1 = 0.7R → exits 60% of position, SL moves to soft-BE (entry − 0.3R)
+- TP1 = 0.7R → exits 60% of position, SL → ATR trailing (starts at TP1 − 1×ATR, follows price)
 - TP2 = 1.4R → exits remaining 40%
-- SL = 1.4 × ATR; soft-BE at entry − 0.3R after TP1; timeout at 45 minutes
+- SL = 1.4 × ATR; ATR trailing (TRAIL_ATR_MULT=1.0) after TP1; timeout at 45 minutes
 - Risk: 1% capital per trade (configurable), max 4 trades/day, daily stop at −2%
 
 ### Data Flow
@@ -130,7 +130,7 @@ After merging to `main`:
 - **ADX SHORT minimum = 30** (ADX_MIN + 5) vs 25 for LONG — stricter filter against shorting in uptrend
 - **MAX_TRADE_MINUTES = 45** (was 30) — more time for TP targets to be reached
 - **TP1 = 0.7R** (was 0.5R), **TP2 = 1.4R** (was 2.0R) — raises EV from ~0 to +0.14R per trade at 67% WR
-- **Soft-BE = entry − 0.3R** after TP1 (was exact entry) — absorbs pullback; 71% false-BE rate on 6m data justified this change
+- **ATR trailing stop** (TRAIL_ATR_MULT=1.0) after TP1 — SL starts at TP1 − 1×ATR, then follows price on each bar; replaces fixed soft-BE (was entry − 0.3R)
 - **ML Gate: 3 → 6 features** (June 2026) — ML weights must be reset after any feature count change
 - **Strategy B (ICT)** selectable via `strategy` setting ("A" or "B"); "A" is default EMA/pattern strategy, "B" is SMC/ICT via `strategy_ict.py`
 - `MT5Broker` in `broker.py` requires MetaTrader5 (Windows only, manual install); `PaperBroker` is the default everywhere else
