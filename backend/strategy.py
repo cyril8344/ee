@@ -782,6 +782,12 @@ def evaluate(
     if not confirm_m15(m15, bias, ema_mult=effective_m15_mult):
         return None
 
+    # 3b) SHORT en uptrend : RSI M15 doit être clairement suracheté (> 58)
+    if bias == "SHORT":
+        m15_rsi = float(m15.iloc[-1].get("rsi", 50) or 50)
+        if m15_rsi < 58.0:
+            return None
+
     # 4) M5 volatility floor
     atr_val = float(cur["atr"]) if not pd.isna(cur["atr"]) else 0.0
     if atr_val < effective_atr_min:
@@ -789,7 +795,7 @@ def evaluate(
 
     # 4b) H1 ADX trend strength — ne trader qu'en vraie tendance
     h1_adx = float(h1.iloc[-1].get("adx", 0)) if len(h1) else 0.0
-    adx_required = ADX_MIN if bias == "LONG" else ADX_MIN + 5.0
+    adx_required = ADX_MIN if bias == "LONG" else ADX_MIN + 13.0  # SHORT exige ADX >= 38
     if h1_adx < adx_required:
         return None
 
@@ -860,8 +866,9 @@ def evaluate(
     triggers = [t for t in triggers if _w(t) >= PATTERN_FLOOR]
 
     weights = [_w(t) for t in triggers]
-    # Exige au moins 2 patterns ET poids cumulé >= 1.0
-    if len(triggers) < 2 or sum(weights) < 1.0:
+    # Exige au moins 2 patterns ET poids cumulé >= 1.0 (>= 1.5 pour SHORT — plus sélectif)
+    min_weight_sum = 1.0 if bias == "LONG" else 1.5
+    if len(triggers) < 2 or sum(weights) < min_weight_sum:
         return None
 
     # 7) Build trade levels
