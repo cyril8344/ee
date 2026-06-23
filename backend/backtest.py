@@ -330,7 +330,7 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
 
 def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Optional[tuple]:
     """
-    Split-TP exit model: 50% à TP1 (0.5R), SL breakeven, puis 50% à TP2 (1.0R).
+    Split-TP exit model: 60% à TP1 (0.7R), SL → soft-BE (entrée−0.3R), puis 40% à TP2 (1.4R).
     Returns (pnl, exit_price, reason) quand la position est fermée, sinon None.
     """
     direction = t["direction"]
@@ -348,9 +348,9 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
         t["mfe"] = max(t.get("mfe", 0.0), t["entry"] - low)
         t["mae"] = max(t.get("mae", 0.0), high - t["entry"])
 
-    # 1) TP1 — sortie 50% à 0.5R, SL → breakeven
-    # Si la position est trop petite pour être splitée (ex: 0.01 lot en pretrain),
-    # on ferme 100% à TP1 pour éviter le bug "lots=0 mais SL déplacé au breakeven".
+    # 1) TP1 — sortie 60% à 0.7R, SL → "soft breakeven" (entrée − 0.3R)
+    # Le SL ne remonte pas jusqu'au prix exact d'entrée mais reste légèrement
+    # en dessous pour absorber le pullback typique après TP1.
     if not t["tp1_done"]:
         hit_tp1 = (high >= t["tp1"]) if direction == "long" else (low <= t["tp1"])
         if hit_tp1:
@@ -362,7 +362,8 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
             t["realised"] += pnl_for(fill, lots50)
             t["remaining"] = round(t["remaining"] - lots50, 2)
             t["tp1_done"] = True
-            t["stop_loss"] = t["entry"]  # breakeven
+            risk = abs(t["entry"] - t["stop_loss"])  # SL pas encore modifié ici
+            t["stop_loss"] = t["entry"] - 0.3 * risk * sign  # soft BE : 0.3R sous l'entrée
             if t["remaining"] < MIN_LOT:
                 return t["realised"], t["tp1"], "tp1"
 
