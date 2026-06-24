@@ -130,6 +130,7 @@ After merging to `main`:
 - **EMA200_MIN_DIST = 0.3 ATR H1** requires price to be ≥ 0.3×ATR on the correct side of EMA200 (filters ambiguous zone — SL direct avg dist was 0.03 vs TP2 avg −0.5)
 - **BAD_HOURS_CET = {10}** blocks 10h00-10h59 CET (London) — WR 38% over 37 trades in 6M backtest
 - **ADX SHORT minimum = 30** (ADX_MIN + 5 = 25+5) vs 25 for LONG — stricter filter against shorting in uptrend (was mistakenly set to ADX_MIN+13=38, fixed)
+- **Mode momentum fort** : ADX H1 > 40 + RSI M5 > 65 (LONG) / < 35 (SHORT) → 1 pattern suffit (vs 2), poids minimum 0.7 (vs 1.0). Permet d'entrer pendant un breakout directionnel fort ET après pullback EMA9.
 - **MAX_TRADE_MINUTES = 45** (was 30) — more time for TP targets to be reached
 - **TP1 = 0.7R**, **TP2 = 1.4R** — gap TP1→TP2 = 0.7R; TP1=1.0R testé mais a empiré PF (1.07→0.95) car trop difficile à atteindre
 - **Pas de déplacement SL après TP1** — l'or pullback régulièrement sous l'entrée après TP1. Le SL reste au niveau initial (−1.4R). Pire cas après TP1=0.7R : +0.7×50% − 1.4×50% = −0.35R net.

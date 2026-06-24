@@ -875,9 +875,14 @@ def evaluate(
     triggers = [t for t in triggers if _w(t) >= PATTERN_FLOOR]
 
     weights = [_w(t) for t in triggers]
-    # Exige au moins 2 patterns ET poids cumulé >= 1.0 (>= 1.5 pour SHORT — plus sélectif)
-    min_weight_sum = 1.0 if bias == "LONG" else 1.5
-    if len(triggers) < 2 or sum(weights) < min_weight_sum:
+    # Mode momentum fort : ADX H1 > 40 + RSI M5 extrême → 1 pattern suffit
+    strong_trend = h1_adx > 40 and (
+        (bias == "LONG"  and rsi_m5 > 65) or
+        (bias == "SHORT" and rsi_m5 < 35)
+    )
+    min_patterns   = 1   if strong_trend else 2
+    min_weight_sum = 0.7 if strong_trend else (1.0 if bias == "LONG" else 1.5)
+    if len(triggers) < min_patterns or sum(weights) < min_weight_sum:
         return None
 
     # Filtre corps de bougie : rejette les bougies indécises (corps < 40% de la range)
