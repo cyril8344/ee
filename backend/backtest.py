@@ -364,8 +364,10 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
             if t["remaining"] < MIN_LOT:
                 return t["realised"], t["tp1"], "tp1"
             # Déplacer SL à l'entrée (breakeven) si demandé par la stratégie
+            # Return None pour ne pas checker le SL sur la même bougie que TP1
             if t.get("be_after_tp1"):
                 t["stop_loss"] = t["entry"]
+                return None
 
     # 2) Stop loss
     hit_sl = (low <= t["stop_loss"]) if direction == "long" else (high >= t["stop_loss"])
