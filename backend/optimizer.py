@@ -21,7 +21,7 @@ class OptimizeConfig:
     symbol: str = "XAUUSD"
     capital: float = 10000.0
     risk_pct: float = 1.0
-    spread_pips: float = 0.3
+    spread_pips: float = 0.5   # aligné avec BacktestConfig (broker standard conservateur)
     slippage_pips: float = 0.1
     max_trades_per_day: int = 4
     daily_stop_pct: float = 2.0

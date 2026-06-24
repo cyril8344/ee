@@ -63,6 +63,8 @@ MAX_TRADE_MINUTES = 45
 TREND_BIAS_DISTANCE = 0.5  # multiples d'ATR H1 — bloque SHORT si prix > EMA200 + 0.5 ATR
 EMA200_MIN_DIST     = 0.3  # prix doit être à ≥ 0.3×ATR H1 du bon côté de EMA200 (zone ambiguë filtrée)
 BAD_HOURS_CET       = {10} # 10h00-10h59 CET : WR 38% sur 37 trades (6M) — pire créneau London
+PATTERN_FLOOR = 0.67        # exclut les patterns avec WR historique < 67%
+MIN_WEIGHT_SUM_LONG = 1.1   # confluence minimale côté LONG (SHORT reste à 1.5)
 
 CET = pytz.timezone("Europe/Paris")  # CET/CEST
 
@@ -817,9 +819,9 @@ def evaluate(
 
     # 5b) M5 RSI momentum confirmation — évite les entrées à contre-courant M5
     rsi_m5 = float(cur.get("rsi", 50) or 50)
-    if bias == "LONG"  and rsi_m5 < 45:
+    if bias == "LONG"  and rsi_m5 < 47:
         return None
-    if bias == "SHORT" and rsi_m5 > 55:
+    if bias == "SHORT" and rsi_m5 > 53:
         return None
 
     # 6) Candlestick pattern trigger (any single pattern is enough)
@@ -870,13 +872,12 @@ def evaluate(
         info = pattern_weights.get(t)
         return info["weight"] if isinstance(info, dict) else float(info) if info else 1.0
 
-    # Exclure les patterns vraiment nuls (perdent 70%+ du temps)
-    PATTERN_FLOOR = 0.65
+    # Exclure les patterns sous le seuil de qualité
     triggers = [t for t in triggers if _w(t) >= PATTERN_FLOOR]
 
     weights = [_w(t) for t in triggers]
-    # Exige au moins 2 patterns ET poids cumulé >= 1.0 (>= 1.5 pour SHORT — plus sélectif)
-    min_weight_sum = 1.0 if bias == "LONG" else 1.5
+    # Exige au moins 2 patterns ET poids cumulé >= MIN_WEIGHT_SUM_LONG (>= 1.5 pour SHORT)
+    min_weight_sum = MIN_WEIGHT_SUM_LONG if bias == "LONG" else 1.5
     if len(triggers) < 2 or sum(weights) < min_weight_sum:
         return None
 
@@ -929,10 +930,25 @@ def evaluate(
     ml_features = None
     try:
         from ml_gate import extract_features
+
+        # Fraction horaire dans la session (0=début, 1=fin)
+        _cet_ts = ts.astimezone(CET)
+        _cet_h = _cet_ts.hour + _cet_ts.minute / 60.0
+        if session == "London":
+            _sess_frac = (_cet_h - LONDON[0].hour) / 4.0
+        elif session == "NewYork":
+            _sess_frac = (_cet_h - NEWYORK[0].hour) / 4.0
+        else:
+            _sess_frac = 0.5
+        _sess_frac = max(0.0, min(1.0, _sess_frac))
+
+        h1_rsi_val = float(h1.iloc[-1].get("rsi", 50) or 50) if len(h1) > 0 else 50.0
+
         weight_sum = sum([_w(t) for t in triggers])
         ml_features = extract_features(
             m5, m15, bias, session, weight_sum, ts,
-            h1_adx=h1_adx, n_patterns=len(triggers),
+            h1_adx=h1_adx, h1_rsi=h1_rsi_val,
+            n_patterns=len(triggers), session_hour_frac=_sess_frac,
         )
         if ml_gate is not None:
             allowed, ml_prob = ml_gate.gate(ml_features)
