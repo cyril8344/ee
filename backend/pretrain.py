@@ -338,6 +338,7 @@ def run_pretrain(
                 "tp2":          sig.take_profit2,
                 "volume":       volume,
                 "tp1_done":     False,
+                "be_after_tp1": (strategy_mode == "B"),
                 "remaining":    volume,
                 "realised":     0.0,
                 "max_exit_time": ts.to_pydatetime() + timedelta(minutes=sig.max_duration_min),

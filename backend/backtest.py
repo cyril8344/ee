@@ -349,7 +349,7 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
         t["mfe"] = max(t.get("mfe", 0.0), t["entry"] - low)
         t["mae"] = max(t.get("mae", 0.0), high - t["entry"])
 
-    # 1) TP1 — sortie 50% à 0.7R, SL reste au niveau initial (pas de déplacement BE)
+    # 1) TP1 — sortie 50% à 0.7R
     if not t["tp1_done"]:
         hit_tp1 = (high >= t["tp1"]) if direction == "long" else (low <= t["tp1"])
         if hit_tp1:
@@ -363,8 +363,11 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
             t["tp1_done"] = True
             if t["remaining"] < MIN_LOT:
                 return t["realised"], t["tp1"], "tp1"
+            # Déplacer SL à l'entrée (breakeven) si demandé par la stratégie
+            if t.get("be_after_tp1"):
+                t["stop_loss"] = t["entry"]
 
-    # 2) Stop loss (SL initial — pas de déplacement après TP1)
+    # 2) Stop loss
     hit_sl = (low <= t["stop_loss"]) if direction == "long" else (high >= t["stop_loss"])
     if hit_sl:
         fill = t["stop_loss"] - slippage * sign
