@@ -39,7 +39,7 @@ The 10-stage filter runs in strict order — a rejection at any stage short-circ
 
 1. Bad timing (Mon < 10h, Fri > 16h CET)
 2. Session gate (London 8–12h, NY 14–18h CET)
-3. H1 EMA200 bias — NEUTRAL if EMA50 and EMA200 disagree
+3. H1 EMA200 bias — NEUTRAL if EMA50 and EMA200 disagree; H4 EMA200 must confirm same direction
 4. M15 EMA9/21 trend + RSI 35–65
 5. M5 ATR ≥ 3.0 (volatility gate)
 6. H1 ADX ≥ 25 (trend strength)

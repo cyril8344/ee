@@ -123,6 +123,7 @@ def run_pretrain(
         m5       = add_indicators(m5_raw)
         m15_full = add_indicators(resample(m5_raw, "15min"))
         h1_full  = add_indicators(resample(m5_raw, "60min"))
+        h4_full  = add_indicators(resample(m5_raw, "240min"))
 
         # ---- Initialiser les systèmes d'apprentissage ----
         if reset:
@@ -275,6 +276,7 @@ def run_pretrain(
 
             m15_s = m15_full.iloc[:m15_full.index.searchsorted(ts, side="right")]
             h1_s  = h1_full.iloc[:h1_full.index.searchsorted(ts, side="right")]
+            h4_s  = h4_full.iloc[:h4_full.index.searchsorted(ts, side="right")]
 
             # evaluate() / evaluate_ict() SANS ml_gate ni adaptive → signal brut
             if strategy_mode == "B":
@@ -286,7 +288,7 @@ def run_pretrain(
                 sig = evaluate_ict(m5_win, m15_s, h1_s, now=ts.to_pydatetime())
             else:
                 sig = evaluate(
-                    m5.iloc[:i + 1], m15_s, h1_s,
+                    m5.iloc[:i + 1], m15_s, h1_s, h4=h4_s,
                     now=ts.to_pydatetime(),
                     check_session=True,
                     atr_min=effective_atr,
