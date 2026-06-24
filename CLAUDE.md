@@ -50,7 +50,7 @@ The 10-stage filter runs in strict order — a rejection at any stage short-circ
 
 ### ML Gate (`ml_gate.py`)
 
-Online logistic regression with 6 features:
+Online logistic regression with 8 features:
 
 | Feature | Encoding |
 |---------|---------|
@@ -60,15 +60,17 @@ Online logistic regression with 6 features:
 | `pattern_w_norm` | avg pattern weight / 2 |
 | `adx_norm` | ADX H1 / 50 |
 | `session_enc` | London=1.0, NY=0.5 |
+| `h1_rsi_norm` | (RSI H1 − 50) / 50 → [−1, +1] |
+| `hour_in_session` | 0.0 (début session) → 1.0 (fin session) |
 
-Entry threshold: 0.55 (boosted when on a losing streak). **Reset ML weights (pass `reset=True`) whenever filters or features change.**
+Entry threshold: 0.50 (boosted when on a losing streak). **Reset ML weights (pass `reset=True`) whenever filters or features change.**
 
 ### Trade Management
 
 - TP1 = 0.7R → exits 50% of position (pas de déplacement SL après TP1)
-- TP2 = 1.4R → exits remaining 50%
-- SL = 1.4 × ATR; pas de déplacement après TP1 — SL reste au niveau initial; timeout at 45 minutes
-- Risk: 1% capital per trade (configurable), max 4 trades/day, daily stop at −2%
+- TP2 = 1.8R → exits remaining 50%
+- SL = 1.0–1.4 × ATR (adaptatif selon quality_score); pas de déplacement après TP1 — SL reste au niveau initial; timeout at 45 minutes
+- Risk: 5% capital per trade (configurable), max 4 trades/day, daily stop at −2%
 
 ### Data Flow
 
@@ -124,18 +126,21 @@ After merging to `main`:
 - **BacktestPanel removed from nav** — only the pretrain panel is exposed in the dashboard
 - **Synthetic data** uses `vol=0.0004` (realistic for XAU/USD) — avoid drawing conclusions from synthetic backtest results
 - **Volume filter removed** — unreliable across data sources
-- **RSI M15 history**: 33/67 (original) → 40/60 (broke everything) → 35/65 → **40/60 (current)** — retesté avec RSI M5 45/55, résultats à valider
-- **Pattern floor 0.65** blocks patterns that lose 65%+ of the time (was 0.60)
+- **RSI M15** : symétrique 40/60 (directional 40/60 LONG>40,SHORT<60 testé → WR 49%→40.4%, PF 1.20→0.96, rejeté)
+- **RSI M5** : 45/55 (classique, confirmé optimal)
+- **Pattern floor 0.67** blocks patterns that lose 67%+ of the time (was 0.65 → 0.67)
 - **TREND_BIAS_DISTANCE = 0.5 ATR H1** blocks SHORT when price > EMA200 + 0.5×ATR and LONG when price < EMA200 − 0.5×ATR
 - **EMA200_MIN_DIST = 0.3 ATR H1** requires price to be ≥ 0.3×ATR on the correct side of EMA200 (filters ambiguous zone — SL direct avg dist was 0.03 vs TP2 avg −0.5)
 - **BAD_HOURS_CET = {10}** blocks 10h00-10h59 CET (London) — WR 38% over 37 trades in 6M backtest
 - **ADX SHORT minimum = 30** (ADX_MIN + 5 = 25+5) vs 25 for LONG — stricter filter against shorting in uptrend (was mistakenly set to ADX_MIN+13=38, fixed)
 - **Mode momentum fort** : ADX H1 > 40 + RSI M5 > 65 (LONG) / < 35 (SHORT) → 1 pattern suffit (vs 2), poids minimum 0.7 (vs 1.0). Permet d'entrer pendant un breakout directionnel fort ET après pullback EMA9.
 - **MAX_TRADE_MINUTES = 45** (was 30) — more time for TP targets to be reached
-- **TP1 = 0.7R**, **TP2 = 1.4R** — gap TP1→TP2 = 0.7R; TP1=1.0R testé mais a empiré PF (1.07→0.95) car trop difficile à atteindre
-- **Pas de déplacement SL après TP1** — l'or pullback régulièrement sous l'entrée après TP1. Le SL reste au niveau initial (−1.4R). Pire cas après TP1=0.7R : +0.7×50% − 1.4×50% = −0.35R net.
-- **ML Gate: 3 → 6 features** (June 2026) — ML weights must be reset after any feature count change
-- **Strategy B (ICT)** selectable via `strategy` setting ("A" or "B"); "A" is default EMA/pattern strategy, "B" is SMC/ICT via `strategy_ict.py`
+- **TP1 = 0.7R**, **TP2 = 1.8R** — gap TP1→TP2 = 1.1R; TP2=1.4R testé mais moins bon, 1.8R optimal confirmé
+- **Pas de déplacement SL après TP1** — l'or pullback régulièrement sous l'entrée après TP1. Le SL reste au niveau initial. Pire cas après TP1=0.7R : +0.7×50% − SL×50% = −0.35R net (si SL=1.4R).
+- **ML Gate: 8 features** (h1_rsi_norm + hour_in_session ajoutés en June 2026) — ML weights must be reset after any feature count change
+- **Strategy B (EUR/USD) simplified** (June 2026) : accumulation M15 (range serré < 2.5×ATR sur 12 bougies) + breakout + Order Block M5. Supprimé : Sweep, CHoCH, Golden Pocket, VWAP filter.
+- **Strategy A (XAU/USD)** : EMA/patterns, toujours actif sur XAUUSD, non modifiable depuis le dashboard
+- **Strategy B (EUR/USD)** : accumulation+breakout+OB via `strategy_ict.py`, toujours actif sur EURUSD, non modifiable depuis le dashboard
 - `MT5Broker` in `broker.py` requires MetaTrader5 (Windows only, manual install); `PaperBroker` is the default everywhere else
 
 ## Secrets — Never Commit
