@@ -1,30 +1,21 @@
 """
-strategy_ict.py
-===============
-Stratégie B — Smart Money Concepts (ICT)
-Pipeline : M15 structure → M5 entrée → H1 biais
+strategy_ict.py — Stratégie B : Order Block M5
+===============================================
+Pipeline :
+1. Biais H1 (EMA50 vs EMA200)
+2. Zone Discount/Premium H1 (LONG en discount <50% range, SHORT en premium >50%)
+3. Détection OBs M5 valides (4 critères ICT) :
+   a. Bougie contrariante + impulse ≥ 1.5×ATR
+   b. FVG créée après l'OB (imbalance institutionnelle)
+   c. BOS confirmé (impulse casse le swing récent)
+   d. Corps min + hauteur max (filtre dojis et OBs larges)
+   e. Non mitiguée
+4. Entrée en retest de la zone OB+FVG (confluence)
+5. SL = derrière l'OB + buffer, plafonné à MAX_RISK_ATR×ATR
+6. TP1 = 0.7R, TP2 = 1.8R
 
-Conditions d'entrée (toutes obligatoires) :
-  1. Biais H1 EMA50/EMA200 (compute_bias)
-  2. EMA200 H1 — distance maximale configurable
-  3. VWAP intraday — biais directionnel (rejet si prix trop loin du mauvais côté)
-  4. Sweep de liquidité sur M15
-  5. CHoCH (Change of Character) sur M15 — signal de retournement requis
-  6. BOS (Break of Structure) sur M15 — confirmation optionnelle, loggé comme feature
-  7. Golden Pocket 70.5–78.6 % sur M5 (retracement de l'impulse)
-  8. Order Block obligatoire sur M5 (zone d'entrée précise)
-  9. FVG confluence optionnelle sur M5 (loggé comme feature)
-
-Gestion du risque :
-  SL  = juste sous/au-dessus de l'OB (stop naturellement serré)
-  TP1 = TP1_R × risque  (défaut 1.5R)
-  TP2 = TP2_R × risque  (défaut 3.0R)
-  Durée max = MAX_TRADE_MIN_ICT minutes
-
-Anti-look-ahead :
-  Chaque décision utilise uniquement les bougies clôturées AVANT le timestamp courant.
-  Le Golden Pocket utilise l'impulse high/low déjà formé dans la fenêtre passée.
-  Le VWAP se calcule en cumulatif depuis minuit UTC — pas de données futures.
+OB LONG  : dernière bougie rouge avant impulse haussier ≥ 1.5×ATR + FVG + BOS haussier
+OB SHORT : dernière bougie verte avant impulse baissier ≥ 1.5×ATR + FVG + BOS baissier
 """
 
 from __future__ import annotations
@@ -34,306 +25,187 @@ from typing import Optional, Dict, Any, List
 
 import pandas as pd
 
-from strategy import (
-    Signal,
-    compute_bias, active_session, is_bad_timing,
-    liquidity_swept, find_order_blocks, find_fvgs, near_fvg,
-    ATR_MIN, EMA_SLOW,
-)
+from strategy import Signal, active_session, is_bad_timing, ATR_MIN
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Paramètres — tous en constantes nommées (Optuna-ready, jamais codés en dur)
+# Paramètres
 # ──────────────────────────────────────────────────────────────────────────────
-OB_LOOKBACK_ICT       = 40     # bougies M5 pour détecter les Order Blocks
-SWEEP_LOOKBACK_ICT    = 30     # bougies M15 pour le sweep + CHoCH/BOS
-GOLDEN_LOW_PCT        = 0.705  # Golden Pocket bas  (70.5 %)
-GOLDEN_HIGH_PCT       = 0.786  # Golden Pocket haut (78.6 % = Fib 0.786)
-MAX_TRADE_MIN_ICT     = 60     # durée max d'un trade (minutes)
-MIN_IMPULSE_RATIO     = 0.5    # l'impulse M5/M15 doit valoir au moins N × ATR
-MSS_PIVOT_WINDOW      = 10     # fenêtre (bougies) pour chercher le pivot pré-sweep
-TP1_R                 = 1.5    # TP1 en multiple de risque
-TP2_R                 = 3.0    # TP2 en multiple de risque
-OB_SL_BUFFER_ATR      = 0.1   # buffer SL au-delà du bord de l'OB (en ATR)
-OB_SL_MIN_ATR         = 0.5   # SL minimum en ATR (plancher de sécurité)
-EMA200_MAX_DIST_ATR   = 3.0   # distance max prix/EMA200 H1 ; au-delà = pas de trade
-VWAP_REJECT_ATR       = 0.5   # rejette si prix est à > N ATR du mauvais côté du VWAP
+OB_IMPULSE_ATR    = 1.5  # impulse minimum après l'OB (en ATR)
+OB_MAX_BARS       = 50   # fenêtre de recherche OBs (50 M5 ≈ 4h)
+OB_MIN_BODY_ATR   = 0.2  # corps minimum bougie OB (filtre dojis)
+OB_MAX_HEIGHT_ATR = 1.5  # hauteur maximale OB (OBs larges → R:R défavorable)
+BOS_LOOKBACK      = 15   # barres lookback pour swing à casser (BOS)
+H1_RANGE_BARS     = 20   # barres H1 pour zone Premium/Discount (~1 jour)
+SL_BUFFER_ATR     = 0.3  # buffer SL derrière l'extrême de l'OB
+MAX_RISK_ATR      = 1.5  # plafond risque (SL ≤ 1.5×ATR de l'entrée)
+TP1_R             = 0.7
+TP2_R             = 1.8
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# VWAP intraday — reset à minuit UTC
+# 1. Biais H1
 # ──────────────────────────────────────────────────────────────────────────────
-def compute_vwap(df: pd.DataFrame) -> pd.Series:
-    """
-    VWAP typique (H+L+C)/3, pondéré par le volume, reset à minuit UTC chaque jour.
-    Si la colonne 'volume' est absente ou nulle, utilise un poids uniforme.
-    Pas de look-ahead : chaque valeur n'utilise que les bougies précédentes du même jour.
-    """
-    typical = (df["high"] + df["low"] + df["close"]) / 3.0
-    if "volume" in df.columns:
-        vol = df["volume"].clip(lower=1.0)
-    else:
-        vol = pd.Series(1.0, index=df.index)
-
-    dates = pd.Series(df.index.date, index=df.index)
-    result = pd.Series(index=df.index, dtype=float)
-    for date in dates.unique():
-        mask = dates == date
-        tp = typical[mask]
-        v  = vol[mask]
-        result[mask] = (tp * v).cumsum() / v.cumsum()
-    return result
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# CHoCH — Change of Character (signal de retournement principal)
-# ──────────────────────────────────────────────────────────────────────────────
-def detect_choch(df: pd.DataFrame, bias: str, lookback: int = SWEEP_LOOKBACK_ICT) -> bool:
-    """
-    CHoCH : après le sweep, le prix clôture au-delà d'un pivot de la phase précédente.
-
-    LONG  : sweep low → clôture au-dessus d'un pivot high récent
-    SHORT : sweep high → clôture en-dessous d'un pivot low récent
-
-    Pas de look-ahead : argmin/argmax sur bougies clôturées, 'after' = ce qui suit dans le passé.
-    """
-    if len(df) < max(lookback, 10):
-        return False
-
-    sub = df.tail(lookback)
-
-    if bias == "LONG":
-        sweep_pos = int(sub["low"].values.argmin())
-        if sweep_pos >= len(sub) - 1:
-            return False
-        before = sub.iloc[max(0, sweep_pos - MSS_PIVOT_WINDOW): sweep_pos]
-        if len(before) < 2:
-            return False
-        pivot_high: Optional[float] = None
-        for i in range(len(before) - 2, 0, -1):
-            if (before["high"].iloc[i] > before["high"].iloc[i - 1] and
-                    before["high"].iloc[i] > before["high"].iloc[i + 1]):
-                pivot_high = float(before["high"].iloc[i])
-                break
-        if pivot_high is None:
-            pivot_high = float(before["high"].max())
-        after = sub.iloc[sweep_pos + 1:]
-        return any(float(c) > pivot_high for c in after["close"].values)
-
-    else:  # SHORT
-        sweep_pos = int(sub["high"].values.argmax())
-        if sweep_pos >= len(sub) - 1:
-            return False
-        before = sub.iloc[max(0, sweep_pos - MSS_PIVOT_WINDOW): sweep_pos]
-        if len(before) < 2:
-            return False
-        pivot_low: Optional[float] = None
-        for i in range(len(before) - 2, 0, -1):
-            if (before["low"].iloc[i] < before["low"].iloc[i - 1] and
-                    before["low"].iloc[i] < before["low"].iloc[i + 1]):
-                pivot_low = float(before["low"].iloc[i])
-                break
-        if pivot_low is None:
-            pivot_low = float(before["low"].min())
-        after = sub.iloc[sweep_pos + 1:]
-        return any(float(c) < pivot_low for c in after["close"].values)
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# BOS — Break of Structure (confirmation de la nouvelle tendance)
-# ──────────────────────────────────────────────────────────────────────────────
-def detect_bos(df: pd.DataFrame, bias: str, lookback: int = SWEEP_LOOKBACK_ICT) -> bool:
-    """
-    BOS : après le CHoCH, le prix forme un nouveau higher high (LONG) ou lower low (SHORT),
-    confirmant que la structure a définitivement changé.
-
-    Plus conservateur que CHoCH — indique une continuation de la nouvelle direction.
-    Pas de look-ahead : tout calculé sur les bougies historiques clôturées.
-    """
-    if len(df) < max(lookback, 15):
-        return False
-
-    sub = df.tail(lookback)
-
-    if bias == "LONG":
-        sweep_pos = int(sub["low"].values.argmin())
-        if sweep_pos >= len(sub) - 3:
-            return False
-        after_sweep = sub.iloc[sweep_pos + 1:]
-        if len(after_sweep) < 3:
-            return False
-        highs = after_sweep["high"].values
-        for i in range(1, len(highs)):
-            if highs[i] > highs[i - 1]:
-                lows_between = after_sweep["low"].values[:i]
-                if len(lows_between) > 0 and float(lows_between.min()) < float(highs[0]):
-                    return True
-        return False
-
-    else:  # SHORT
-        sweep_pos = int(sub["high"].values.argmax())
-        if sweep_pos >= len(sub) - 3:
-            return False
-        after_sweep = sub.iloc[sweep_pos + 1:]
-        if len(after_sweep) < 3:
-            return False
-        lows = after_sweep["low"].values
-        for i in range(1, len(lows)):
-            if lows[i] < lows[i - 1]:
-                highs_between = after_sweep["high"].values[:i]
-                if len(highs_between) > 0 and float(highs_between.max()) > float(lows[0]):
-                    return True
-        return False
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Golden Pocket — zone Fibonacci 70.5–78.6 %
-# ──────────────────────────────────────────────────────────────────────────────
-def find_golden_pocket(
-    df: pd.DataFrame,
-    bias: str,
-    lookback: int = SWEEP_LOOKBACK_ICT,
-) -> Optional[Dict[str, float]]:
-    """
-    Calcule la zone Golden Pocket ICT : retracement 70.5–78.6 % de l'impulse post-sweep.
-
-    Pas de look-ahead :
-    - Le sweep est le min/max de la fenêtre passée.
-    - L'impulse est le max/min des bougies APRÈS le sweep (toutes déjà clôturées).
-    - La barre courante (close) est la candidate à l'entrée.
-
-    Retourne {low, high, sweep, impulse, pct_current} ou None.
-    """
-    if len(df) < max(lookback, 10):
+def _h1_bias(h1: pd.DataFrame) -> Optional[str]:
+    """'LONG', 'SHORT' ou None (neutre)."""
+    if len(h1) == 0:
         return None
-
-    sub = df.tail(lookback)
-    atr_val = float(sub["atr"].iloc[-1]) if "atr" in sub.columns else 1.0
-    min_impulse = MIN_IMPULSE_RATIO * atr_val
-
-    if bias == "LONG":
-        sweep_pos = int(sub["low"].values.argmin())
-        if sweep_pos >= len(sub) - 2:
-            return None
-        sweep_low    = float(sub["low"].iloc[sweep_pos])
-        impulse_high = float(sub.iloc[sweep_pos + 1:]["high"].max())
-        if impulse_high - sweep_low < min_impulse:
-            return None
-        span  = impulse_high - sweep_low
-        entry = float(sub["close"].iloc[-1])
-        pct   = (impulse_high - entry) / span if span > 0 else 0.0
-        return {
-            "low":         impulse_high - span * GOLDEN_HIGH_PCT,
-            "high":        impulse_high - span * GOLDEN_LOW_PCT,
-            "sweep":       sweep_low,
-            "impulse":     impulse_high,
-            "pct_current": round(pct, 3),
-        }
-
-    else:  # SHORT
-        sweep_pos = int(sub["high"].values.argmax())
-        if sweep_pos >= len(sub) - 2:
-            return None
-        sweep_high  = float(sub["high"].iloc[sweep_pos])
-        impulse_low = float(sub.iloc[sweep_pos + 1:]["low"].min())
-        if sweep_high - impulse_low < min_impulse:
-            return None
-        span  = sweep_high - impulse_low
-        entry = float(sub["close"].iloc[-1])
-        pct   = (entry - impulse_low) / span if span > 0 else 0.0
-        return {
-            "low":         impulse_low + span * GOLDEN_LOW_PCT,
-            "high":        impulse_low + span * GOLDEN_HIGH_PCT,
-            "sweep":       sweep_high,
-            "impulse":     impulse_low,
-            "pct_current": round(pct, 3),
-        }
+    last = h1.iloc[-1]
+    ema50  = last.get("ema50",  None)
+    ema200 = last.get("ema200", None)
+    if ema50 is None or ema200 is None or pd.isna(ema50) or pd.isna(ema200):
+        return None
+    if float(ema50) > float(ema200):
+        return "LONG"
+    if float(ema50) < float(ema200):
+        return "SHORT"
+    return None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Order Blocks avec age_bars (version locale qui ne touche pas strategy.py)
+# 2. Zone Discount / Premium H1
 # ──────────────────────────────────────────────────────────────────────────────
-def _find_obs_with_age(df: pd.DataFrame, lookback: int = OB_LOOKBACK_ICT) -> List[Dict[str, Any]]:
+def _discount_premium(price: float, h1: pd.DataFrame) -> Optional[str]:
     """
-    Identique à find_order_blocks() de strategy.py mais ajoute 'age_bars'
-    (nombre de bougies entre la formation de l'OB et la barre courante).
-    N'importe pas de logique dans strategy.py.
+    'DISCOUNT' si price < équilibre (50% range H1 récent), 'PREMIUM' si >.
+    None si range indéterminé.
+    LONG uniquement en DISCOUNT, SHORT uniquement en PREMIUM (zones institutionnelles).
     """
-    sub = df.tail(lookback)
-    atr_val = float(sub["atr"].iloc[-1]) if "atr" in sub.columns else 1.0
-    n = len(sub)
+    if len(h1) < 5:
+        return None
+    window = h1.tail(H1_RANGE_BARS)
+    hi  = float(window["high"].max())
+    lo  = float(window["low"].min())
+    rng = hi - lo
+    if rng < 1e-8:
+        return None
+    eq = lo + 0.5 * rng
+    return "DISCOUNT" if price < eq else "PREMIUM"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 3. Détection des Order Blocks M5
+# ──────────────────────────────────────────────────────────────────────────────
+def _find_order_blocks(
+    df: pd.DataFrame,
+    direction: str,
+    atr_val: float,
+) -> List[Dict[str, Any]]:
+    """
+    Retourne les OBs valides dans les OB_MAX_BARS dernières bougies M5.
+
+    Critères (tous requis) :
+    1. Bougie contrariante : rouge (LONG) / verte (SHORT)
+    2. Impulse ≥ OB_IMPULSE_ATR×ATR dans les 3 bougies suivantes
+    3. FVG : bar[i+2].low > bar[i].high (LONG) | bar[i+2].high < bar[i].low (SHORT)
+    4. BOS : impulse dépasse le swing high/low des BOS_LOOKBACK barres précédentes
+    5. Corps ≥ OB_MIN_BODY_ATR×ATR | hauteur ≤ OB_MAX_HEIGHT_ATR×ATR
+    6. Non mitiguée : le prix n'a pas traversé l'OB depuis sa formation
+
+    Retourne fvg_ext : bord externe de la FVG, qui complète la zone de confluence.
+      LONG  → fvg_ext = bar[i+2].low  (plafond de la zone OB+FVG = [ob_low,  fvg_ext])
+      SHORT → fvg_ext = bar[i+2].high (plancher de la zone OB+FVG = [fvg_ext, ob_high])
+    """
+    recent = df.tail(OB_MAX_BARS + 5)
+    n = len(recent)
+    if n < 5:
+        return []
+
+    min_impulse = OB_IMPULSE_ATR * atr_val
+    min_body    = OB_MIN_BODY_ATR * atr_val
     obs: List[Dict[str, Any]] = []
-    for i in range(1, n - 1):
-        c, nxt = sub.iloc[i], sub.iloc[i + 1]
-        impulse = abs(nxt["close"] - nxt["open"])
-        if impulse < 0.5 * atr_val:
+
+    for i in range(n - 4):
+        bar    = recent.iloc[i]
+        b_open  = float(bar["open"])
+        b_close = float(bar["close"])
+        b_high  = float(bar["high"])
+        b_low   = float(bar["low"])
+
+        # Critère 5 : corps min + hauteur max
+        if abs(b_close - b_open) < min_body:
             continue
-        age = n - 1 - i  # bougies depuis la formation jusqu'à la barre courante
-        if c["close"] < c["open"] and nxt["close"] > nxt["open"]:
-            obs.append({"type": "bullish",
-                        "low": float(c["close"]), "high": float(c["open"]),
-                        "age_bars": age})
-        elif c["close"] > c["open"] and nxt["close"] < nxt["open"]:
-            obs.append({"type": "bearish",
-                        "low": float(c["open"]), "high": float(c["close"]),
-                        "age_bars": age})
+        if (b_high - b_low) > OB_MAX_HEIGHT_ATR * atr_val:
+            continue
+
+        after = recent.iloc[i + 1: i + 4]
+
+        if direction == "LONG":
+            # Critère 1 : bougie baissière (rouge)
+            if b_close >= b_open:
+                continue
+
+            # Critère 2 : impulse haussier
+            impulse = float(after["high"].max()) - b_high
+            if impulse < min_impulse:
+                continue
+
+            # Critère 3 : FVG — bar[i+2].low > bar[i].high
+            fvg_ext = float(recent.iloc[i + 2]["low"])
+            if fvg_ext <= b_high:
+                continue  # pas de FVG (pas d'imbalance institutionnelle)
+
+            # Critère 4 : BOS — impulse casse le swing high récent
+            lookback_start = max(0, i - BOS_LOOKBACK)
+            prior = recent.iloc[lookback_start:i]
+            if len(prior) < 3:
+                continue
+            if float(after["high"].max()) <= float(prior["high"].max()):
+                continue  # structure non cassée
+
+        else:  # SHORT
+            # Critère 1 : bougie haussière (verte)
+            if b_close <= b_open:
+                continue
+
+            # Critère 2 : impulse baissier
+            impulse = b_low - float(after["low"].min())
+            if impulse < min_impulse:
+                continue
+
+            # Critère 3 : FVG — bar[i+2].high < bar[i].low
+            fvg_ext = float(recent.iloc[i + 2]["high"])
+            if fvg_ext >= b_low:
+                continue  # pas de FVG
+
+            # Critère 4 : BOS — impulse casse le swing low récent
+            lookback_start = max(0, i - BOS_LOOKBACK)
+            prior = recent.iloc[lookback_start:i]
+            if len(prior) < 3:
+                continue
+            if float(after["low"].min()) >= float(prior["low"].min()):
+                continue  # structure non cassée
+
+        # Critère 6 : OB non mitiguée
+        post = recent.iloc[i + 1:]
+        if direction == "LONG" and float(post["low"].min()) < b_low:
+            continue
+        if direction == "SHORT" and float(post["high"].max()) > b_high:
+            continue
+
+        obs.append({
+            "low":     b_low,
+            "high":    b_high,
+            "fvg_ext": fvg_ext,
+            "ts":      recent.index[i],
+        })
+
     return obs
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Helpers features ML
-# ──────────────────────────────────────────────────────────────────────────────
-def _m15_swing_distance_atr(m15: pd.DataFrame, bias: str, atr_val: float) -> float:
-    """Distance M5 close → dernier swing M15, en multiples d'ATR."""
-    if len(m15) < 5 or atr_val <= 0:
-        return 0.0
-    sub = m15.tail(SWEEP_LOOKBACK_ICT)
-    cur_price = float(m15.iloc[-1]["close"])
-    if bias == "LONG":
-        swing = float(sub["low"].min())
+def _in_confluence(bar_low: float, bar_high: float, ob: Dict, direction: str) -> bool:
+    """
+    True si la bougie touche la zone OB+FVG (confluence institutionnelle).
+    LONG  : zone = [ob_low,  fvg_ext] — FVG au-dessus de l'OB
+    SHORT : zone = [fvg_ext, ob_high] — FVG en dessous de l'OB
+    """
+    if direction == "LONG":
+        return bar_low <= ob["fvg_ext"] and bar_high >= ob["low"]
     else:
-        swing = float(sub["high"].max())
-    return round(abs(cur_price - swing) / atr_val, 3)
-
-
-def _sweep_amplitude_atr(m15: pd.DataFrame, bias: str, atr_val: float) -> float:
-    """Amplitude du sweep (swing aspiré → clôture de récupération) en ATR."""
-    if len(m15) < SWEEP_LOOKBACK_ICT or atr_val <= 0:
-        return 0.0
-    sub = m15.tail(SWEEP_LOOKBACK_ICT)
-    close_now = float(sub["close"].iloc[-1])
-    if bias == "LONG":
-        sweep_extreme = float(sub["low"].min())
-        return round(max(0.0, (close_now - sweep_extreme) / atr_val), 3)
-    else:
-        sweep_extreme = float(sub["high"].max())
-        return round(max(0.0, (sweep_extreme - close_now) / atr_val), 3)
-
-
-def _fvg_context(price: float, bias: str,
-                 fvgs: List[Dict[str, Any]], atr_val: float) -> Dict[str, float]:
-    """Retourne {size_atr, entry_pct} du FVG dans lequel se trouve le prix, ou zéros."""
-    for fvg in fvgs:
-        match = (fvg["type"] == "bullish" and bias == "LONG") or \
-                (fvg["type"] == "bearish" and bias == "SHORT")
-        if match and fvg["low"] <= price <= fvg["high"]:
-            span = fvg["high"] - fvg["low"]
-            return {
-                "size_atr":  round(span / atr_val, 3) if atr_val > 0 else 0.0,
-                "entry_pct": round((price - fvg["low"]) / span, 3) if span > 0 else 0.5,
-            }
-    return {"size_atr": 0.0, "entry_pct": 0.0}
-
-
-def _ema50_slope(h1: pd.DataFrame, n: int = 5) -> float:
-    """Pente de l'EMA50 H1 sur les n dernières bougies (en prix/bougie)."""
-    if "ema50" not in h1.columns or len(h1) < n + 1:
-        return 0.0
-    vals = h1["ema50"].tail(n + 1).values
-    return round(float(vals[-1] - vals[0]) / n, 5)
+        return bar_high >= ob["fvg_ext"] and bar_low <= ob["high"]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Évaluation principale — Stratégie B
+# 4. Évaluation principale
 # ──────────────────────────────────────────────────────────────────────────────
 def evaluate_ict(
     m5: pd.DataFrame,
@@ -343,179 +215,96 @@ def evaluate_ict(
     check_session: bool = True,
     atr_min: float = ATR_MIN,
 ) -> Optional[Signal]:
-    """
-    Évalue la stratégie ICT/SMC sur la dernière barre M5 clôturée.
-
-    M15 → structure (sweep + CHoCH/BOS)
-    M5  → entrée précise (Golden Pocket + Order Block + FVG)
-    H1  → biais (EMA50/EMA200 + VWAP)
-
-    Retourne un Signal (avec meta enrichi pour le logging ML) ou None.
-    Garantie no-look-ahead : toutes les données utilisées sont antérieures à `now`.
-    """
-    if len(m5) < max(EMA_SLOW, 50) or len(h1) < 1 or len(m15) < 20:
+    """Stratégie B — Order Block M5 avec biais H1 et filtres ICT complets."""
+    if len(m5) < 50:
         return None
 
     cur = m5.iloc[-1]
-    ts  = now or cur.name.to_pydatetime()
+    ts  = now or cur.name
+    if isinstance(ts, pd.Timestamp):
+        ts = ts.to_pydatetime()
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=timezone.utc)
 
-    # 1) Eviter lundi matin / vendredi soir
+    # 1) Timing / session
     if is_bad_timing(ts):
         return None
-
-    # 2) Session Londres / New York uniquement
     session = active_session(ts)
     if check_session and session is None:
         return None
     session = session or "London"
 
-    # 3) Biais H1 — EMA50 direction, EMA200 filtre contradictoire
-    bias = compute_bias(h1)
-    if bias == "NEUTRE":
-        return None
-    direction = "long" if bias == "LONG" else "short"
-
-    # 4) Distance EMA200 H1 — ne pas trader si trop loin contre la tendance
-    h1_last   = h1.iloc[-1]
-    h1_atr    = float(h1_last.get("atr", 1.0) or 1.0)
-    h1_close  = float(h1_last["close"])
-    h1_ema200 = float(h1_last.get("ema200", float("nan")))
-    h1_ema50  = float(h1_last.get("ema50",  float("nan")))
-    if not pd.isna(h1_ema200) and h1_atr > 0:
-        dist_ema200 = (h1_close - h1_ema200) / h1_atr
-        if direction == "long"  and dist_ema200 < -EMA200_MAX_DIST_ATR:
-            return None
-        if direction == "short" and dist_ema200 >  EMA200_MAX_DIST_ATR:
-            return None
-    else:
-        dist_ema200 = 0.0
-
-    # 5) Plancher ATR M5 (volatilité minimale)
+    # 2) ATR plancher
     atr_val = float(cur.get("atr", 0) or 0)
     if atr_val < atr_min:
         return None
 
-    # 6) VWAP intraday — biais directionnel
-    vwap_series = compute_vwap(m5)
-    vwap_now    = float(vwap_series.iloc[-1]) if len(vwap_series) > 0 else float("nan")
+    # 3) Biais H1
+    direction = _h1_bias(h1)
+    if direction is None:
+        return None
+
+    # 4) Zone Discount / Premium H1
     entry_price = float(cur["close"])
-    if not pd.isna(vwap_now) and atr_val > 0:
-        vwap_dist = (entry_price - vwap_now) / atr_val
-        if direction == "long"  and vwap_dist < -VWAP_REJECT_ATR:
+    zone = _discount_premium(entry_price, h1)
+    if direction == "LONG" and zone != "DISCOUNT":
+        return None
+    if direction == "SHORT" and zone != "PREMIUM":
+        return None
+
+    # 5) Order Blocks M5 valides (FVG + BOS intégrés)
+    obs = _find_order_blocks(m5, direction, atr_val)
+    if not obs:
+        return None
+
+    # Dernier OB valide (le plus récent)
+    ob = obs[-1]
+
+    # 6) Prix actuel en confluence OB+FVG
+    if not _in_confluence(float(cur["low"]), float(cur["high"]), ob, direction):
+        return None
+
+    # 7) Niveaux du trade
+    entry = entry_price
+
+    if direction == "LONG":
+        raw_sl = ob["low"] - SL_BUFFER_ATR * atr_val
+        sl     = max(raw_sl, entry - MAX_RISK_ATR * atr_val)
+        risk   = abs(entry - sl)
+        if risk <= 0:
             return None
-        if direction == "short" and vwap_dist >  VWAP_REJECT_ATR:
+        tp1 = entry + TP1_R * risk
+        tp2 = entry + TP2_R * risk
+    else:
+        raw_sl = ob["high"] + SL_BUFFER_ATR * atr_val
+        sl     = min(raw_sl, entry + MAX_RISK_ATR * atr_val)
+        risk   = abs(entry - sl)
+        if risk <= 0:
             return None
-    else:
-        vwap_dist = 0.0
+        tp1 = entry - TP1_R * risk
+        tp2 = entry - TP2_R * risk
 
-    # 7) Sweep de liquidité sur M15
-    if not liquidity_swept(m15, bias, lookback=SWEEP_LOOKBACK_ICT):
-        return None
-
-    # 8) CHoCH sur M15 (requis — retournement de structure)
-    if not detect_choch(m15, bias):
-        return None
-
-    # BOS sur M15 (optionnel — loggé comme feature, non bloquant)
-    has_bos    = detect_bos(m15, bias)
-    signal_type = "BOS" if has_bos else "CHoCH"
-
-    # 9) Golden Pocket — prix M5 dans le retracement 70.5–78.6 % de l'impulse
-    gp = find_golden_pocket(m5, bias)
-    if gp is None:
-        return None
-    if not (gp["low"] <= entry_price <= gp["high"]):
-        return None
-
-    # 10) Order Block M5 — entrée dans un OB valide (avec age_bars pour ML)
-    obs = _find_obs_with_age(m5, lookback=OB_LOOKBACK_ICT)
-    ob_match: Optional[Dict[str, Any]] = None
-    for ob in obs:
-        is_match = (ob["type"] == "bullish" and bias == "LONG") or \
-                   (ob["type"] == "bearish" and bias == "SHORT")
-        if is_match and ob["low"] <= entry_price <= ob["high"]:
-            ob_match = ob
-            break
-
-    if ob_match is None:
-        return None
-
-    # 11) FVG confluence (optionnelle — loggée comme feature ML)
-    fvgs    = find_fvgs(m5)
-    fvg_hit = near_fvg(entry_price, bias, fvgs)
-    fvg_ctx = _fvg_context(entry_price, bias, fvgs, atr_val)
-
-    # 12) SL juste sous/au-dessus du bord de l'OB
-    if bias == "LONG":
-        sl = min(ob_match["low"] - OB_SL_BUFFER_ATR * atr_val,
-                 entry_price     - OB_SL_MIN_ATR     * atr_val)
-    else:
-        sl = max(ob_match["high"] + OB_SL_BUFFER_ATR * atr_val,
-                 entry_price      + OB_SL_MIN_ATR     * atr_val)
-
-    risk = abs(entry_price - sl)
-    if risk <= 0:
-        return None
-
-    tp1 = entry_price + TP1_R * risk if direction == "long" else entry_price - TP1_R * risk
-    tp2 = entry_price + TP2_R * risk if direction == "long" else entry_price - TP2_R * risk
-
-    # 13) Triggers
-    triggers = ["golden_pocket", "order_block", signal_type.lower()]
-    if fvg_hit:
-        triggers.append("near_fvg")
-
-    # Features ML (toutes calculées ici, au moment de l'entrée, sans donnée future)
-    ema50_dist_atr   = (h1_close - h1_ema50)  / h1_atr if (not pd.isna(h1_ema50)  and h1_atr > 0) else 0.0
-    ema200_dist_atr  = (h1_close - h1_ema200) / h1_atr if (not pd.isna(h1_ema200) and h1_atr > 0) else 0.0
-    ob_size_atr      = (ob_match["high"] - ob_match["low"]) / atr_val if atr_val > 0 else 0.0
-    ob_dist_atr      = abs(entry_price - (ob_match["low"] if bias == "LONG" else ob_match["high"])) / atr_val if atr_val > 0 else 0.0
+    ob_ts = ob["ts"]
+    ob_ts_str = ob_ts.isoformat() if hasattr(ob_ts, "isoformat") else str(ob_ts)
 
     return Signal(
-        direction=direction,
-        bias=bias,
+        direction=direction.lower(),
+        bias=direction,
         session=session,
-        entry=entry_price,
+        entry=entry,
         stop_loss=sl,
         take_profit1=tp1,
         take_profit2=tp2,
         atr=atr_val,
-        reason="+".join(triggers),
+        reason="OB_RETEST",
         risk_distance=risk,
         timestamp=ts,
-        max_duration_min=MAX_TRADE_MIN_ICT,
         meta={
-            "strategy":             "ICT_B",
-            # Structure
-            "signal_type":          signal_type,
-            "m15_swing_dist_atr":   _m15_swing_distance_atr(m15, bias, atr_val),
-            # Order Block
-            "ob_size_atr":          round(ob_size_atr, 3),
-            "ob_distance_atr":      round(ob_dist_atr, 3),
-            "ob_age_bars":          ob_match.get("age_bars", 0),
-            # FVG
-            "fvg_present":          int(fvg_hit),
-            "fvg_size_atr":         fvg_ctx["size_atr"],
-            "fvg_entry_pct":        fvg_ctx["entry_pct"],
-            # Sweep
-            "sweep_amplitude_atr":  _sweep_amplitude_atr(m15, bias, atr_val),
-            # Tendance / volatilité
-            "h1_ema50_dist_atr":    round(ema50_dist_atr, 3),
-            "h1_ema200_dist_atr":   round(ema200_dist_atr, 3),
-            "vwap_distance_atr":    round(vwap_dist, 3),
-            "h1_ema50_slope":       _ema50_slope(h1),
-            "atr_entry":            round(atr_val, 4),
-            # GP
-            "gp_low":               round(gp["low"],   5),
-            "gp_high":              round(gp["high"],  5),
-            "gp_pct":               gp["pct_current"],
-            # Trade params
-            "sl_distance_atr":      round(risk / atr_val, 3) if atr_val > 0 else 0.0,
-            "rr_target":            TP1_R,
-            # Pour le système de patterns / logging
-            "triggers":             triggers,
-            "rsi_m5":               round(float(cur.get("rsi", 50) or 50), 1),
+            "strategy": "B_OB",
+            "ob_low":   round(ob["low"],  5),
+            "ob_high":  round(ob["high"], 5),
+            "fvg_ext":  round(ob["fvg_ext"], 5),
+            "ob_ts":    ob_ts_str,
+            "zone":     zone or "UNKNOWN",
         },
     )
