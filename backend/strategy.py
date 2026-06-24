@@ -924,10 +924,10 @@ def evaluate(
 
     if direction == "long":
         tp1 = entry + 0.7 * risk
-        tp2 = entry + 1.8 * risk
+        tp2 = entry + 2.0 * risk
     else:
         tp1 = entry - 0.7 * risk
-        tp2 = entry - 1.8 * risk
+        tp2 = entry - 2.0 * risk
 
     # Extraction des features ML — toujours calculées (gate live + pré-entraînement)
     ml_prob: float = -1.0

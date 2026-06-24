@@ -123,6 +123,7 @@ def run_pretrain(
         m5       = add_indicators(m5_raw)
         m15_full = add_indicators(resample(m5_raw, "15min"))
         h1_full  = add_indicators(resample(m5_raw, "60min"))
+        h4_full  = add_indicators(resample(m5_raw, "240min"))
         # ---- Initialiser les systèmes d'apprentissage ----
         if reset:
             gate     = OnlineLogisticRegression.__new__(OnlineLogisticRegression)
@@ -316,8 +317,9 @@ def run_pretrain(
                     if ob_ts is not None and ob_ts == last_ob_ts:
                         sig = None
             else:
+                h4_s = h4_full.iloc[:h4_full.index.searchsorted(ts, side="right")]
                 sig = evaluate(
-                    m5.iloc[:i + 1], m15_s, h1_s,
+                    m5.iloc[:i + 1], m15_s, h1_s, h4=h4_s,
                     now=ts.to_pydatetime(),
                     check_session=True,
                     atr_min=effective_atr,
