@@ -1236,6 +1236,7 @@ def pretrain_stats(_user: dict = Depends(get_current_user)):
         "false_be_n":          false_be_n,
         "data_coverage":       data_cov,
         "indicator_diagnostic": result.get("indicator_diagnostic", {}),
+        "wr_by_hour":           result.get("wr_by_hour", {}),
     }
 
 

@@ -27,7 +27,7 @@ import pandas as pd
 
 from strategy import (
     add_indicators, evaluate, active_session,
-    MAX_TRADE_MINUTES, SL_ATR_MULT,
+    MAX_TRADE_MINUTES, SL_ATR_MULT, CET,
 )
 from strategy_ict import evaluate_ict
 from backtest import load_m5_data, resample, _try_exit
@@ -246,24 +246,29 @@ def run_pretrain(
 
                     _snap = open_trade.get("ind_snap", {})
                     trades_log.append({
-                        "entry_ts":    open_trade["entry_time"].isoformat(),
-                        "exit_ts":     ts.isoformat(),
-                        "session":     open_trade.get("session", "?"),
-                        "direction":   open_trade["direction"],
-                        "entry":       round(open_trade["entry"], 3),
-                        "exit_price":  round(float(exit_price), 3),
-                        "exit_reason": exit_reason,
-                        "pnl":         round(pnl, 2),
-                        "won":         won,
-                        "mae_r":       mae_r,
-                        "mfe_r":       mfe_r,
-                        "patterns":    triggers,
-                        "false_stop":  false_stop,
-                        "false_be":    false_be,
-                        "rsi_m5":      _snap.get("rsi_m5", 50),
-                        "rsi_m15":     _snap.get("rsi_m15", 50),
-                        "adx_h1":      _snap.get("adx_h1", 0),
-                        "atr":         _snap.get("atr", 0),
+                        "entry_ts":      open_trade["entry_time"].isoformat(),
+                        "exit_ts":       ts.isoformat(),
+                        "session":       open_trade.get("session", "?"),
+                        "direction":     open_trade["direction"],
+                        "entry":         round(open_trade["entry"], 3),
+                        "exit_price":    round(float(exit_price), 3),
+                        "exit_reason":   exit_reason,
+                        "pnl":           round(pnl, 2),
+                        "won":           won,
+                        "mae_r":         mae_r,
+                        "mfe_r":         mfe_r,
+                        "patterns":      triggers,
+                        "false_stop":    false_stop,
+                        "false_be":      false_be,
+                        "rsi_m5":        _snap.get("rsi_m5", 50),
+                        "rsi_m15":       _snap.get("rsi_m15", 50),
+                        "adx_h1":        _snap.get("adx_h1", 0),
+                        "atr":           _snap.get("atr", 0),
+                        "hour_cet":      _snap.get("hour_cet"),
+                        "n_patterns":    _snap.get("n_patterns", 0),
+                        "ema9_dist_r":   _snap.get("ema9_dist_r", 0),
+                        "ema200_dist_r": _snap.get("ema200_dist_r", 0),
+                        "vwap_side":     _snap.get("vwap_side", 0),
                     })
 
                     open_trade = None
@@ -323,27 +328,57 @@ def run_pretrain(
                 "mae":          0.0,
                 "mfe":          0.0,
                 "ind_snap": {
-                    "rsi_m5":  float(bar.get("rsi", 50) or 50),
-                    "rsi_m15": float(m15_cur.get("rsi", 50) or 50),
-                    "adx_h1":  float(h1_cur.get("adx", 0) or 0),
-                    "atr":     float(bar.get("atr", 0) or 0),
+                    "rsi_m5":       float(bar.get("rsi", 50) or 50),
+                    "rsi_m15":      float(m15_cur.get("rsi", 50) or 50),
+                    "adx_h1":       float(h1_cur.get("adx", 0) or 0),
+                    "atr":          float(bar.get("atr", 0) or 0),
+                    "hour_cet":     ts.astimezone(CET).hour,
+                    "n_patterns":   len(sig.meta.get("triggers", [])),
+                    "ema9_dist_r":  round(
+                        abs(float(bar.get("close", 0) or 0) - float(bar.get("ema9", 0) or 0))
+                        / max(float(bar.get("atr", 1) or 1), 0.001), 2
+                    ),
+                    "ema200_dist_r": round(
+                        (float(h1_cur.get("close", 0) or 0) - float(h1_cur.get("ema200", 0) or 0))
+                        / max(float(h1_cur.get("atr", 1) or 1), 0.001), 2
+                    ),
+                    "vwap_side": 1 if float(bar.get("close", 0) or 0) >= float(bar.get("vwap", bar.get("close", 0)) or 0) else 0,
                 },
             }
+
+        # ---- WR par heure CET ----
+        from collections import defaultdict as _dd
+        _by_hour: dict = _dd(lambda: {"n": 0, "wins": 0})
+        for _t in trades_log:
+            _h = _t.get("hour_cet")
+            if _h is not None:
+                _by_hour[_h]["n"]    += 1
+                _by_hour[_h]["wins"] += int(_t["won"])
+        wr_by_hour = {
+            str(_h): {"n": _v["n"], "wr": round(_v["wins"] / _v["n"], 3)}
+            for _h, _v in sorted(_by_hour.items()) if _v["n"] >= 3
+        }
 
         # ---- Diagnostic indicateurs par outcome ----
         def _grp_means(log, outcome):
             grp = [t for t in log if t.get("exit_reason") == outcome]
             if not grp:
                 return None
-            def _mean(key, default):
-                vals = [t[key] for t in grp if key in t]
-                return round(sum(vals) / len(vals), 1) if vals else default
+            def _mean(key, default=0):
+                vals = [t[key] for t in grp if t.get(key) is not None]
+                return round(sum(vals) / len(vals), 2) if vals else default
             return {
-                "n":          len(grp),
-                "rsi_m5":     _mean("rsi_m5", 50),
-                "rsi_m15":    _mean("rsi_m15", 50),
-                "adx_h1":     _mean("adx_h1", 0),
-                "atr":        round(_mean("atr", 0), 2),
+                "n":             len(grp),
+                "rsi_m5":        round(_mean("rsi_m5", 50), 1),
+                "rsi_m15":       round(_mean("rsi_m15", 50), 1),
+                "adx_h1":        round(_mean("adx_h1", 0), 1),
+                "atr":           round(_mean("atr", 0), 2),
+                "n_patterns":    round(_mean("n_patterns", 0), 1),
+                "ema9_dist_r":   round(_mean("ema9_dist_r", 0), 2),
+                "ema200_dist_r": round(_mean("ema200_dist_r", 0), 2),
+                "vwap_above_pct": round(
+                    sum(1 for t in grp if t.get("vwap_side") == 1) / len(grp) * 100, 1
+                ),
                 "london_pct": round(
                     sum(1 for t in grp if t.get("session") == "London") / len(grp) * 100, 1
                 ),
@@ -454,6 +489,7 @@ def run_pretrain(
                 ) if n_be_for_false_check else 0.0,
             },
             "indicator_diagnostic": indicator_diagnostic,
+            "wr_by_hour":           wr_by_hour,
         }
         _set(running=False, pct=100, bars_done=total, trades=n_trades,
              wins=n_wins, status="done", last_result=result)

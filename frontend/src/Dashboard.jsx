@@ -1280,11 +1280,15 @@ export default function Dashboard({ onLogout }) {
                                   const tp2 = diag["TP2"] || {};
                                   if (!sl.n || !tp2.n) return null;
                                   const rows = [
-                                    { key: "rsi_m5",     label: "RSI M5"   },
-                                    { key: "rsi_m15",    label: "RSI M15"  },
-                                    { key: "adx_h1",     label: "ADX H1"   },
-                                    { key: "atr",        label: "ATR"      },
-                                    { key: "london_pct", label: "London %" },
+                                    { key: "rsi_m5",         label: "RSI M5"         },
+                                    { key: "rsi_m15",        label: "RSI M15"        },
+                                    { key: "adx_h1",         label: "ADX H1"         },
+                                    { key: "atr",            label: "ATR (M5)"       },
+                                    { key: "n_patterns",     label: "Nb patterns"    },
+                                    { key: "ema9_dist_r",    label: "Dist EMA9 (R)"  },
+                                    { key: "ema200_dist_r",  label: "Dist EMA200 H1" },
+                                    { key: "vwap_above_pct", label: "Au-dessus VWAP %"},
+                                    { key: "london_pct",     label: "London %"       },
                                   ];
                                   return (
                                     <div style={{ marginTop: 8 }}>
@@ -1304,13 +1308,13 @@ export default function Dashboard({ onLogout }) {
                                             const tv = tp2[key];
                                             const delta = (sv != null && tv != null) ? sv - tv : null;
                                             const abs = Math.abs(delta ?? 0);
-                                            const deltaCol = abs >= 5 ? COLORS.amber : COLORS.sub;
+                                            const deltaCol = abs >= 3 ? COLORS.amber : COLORS.sub;
                                             return (
                                               <tr key={key}>
                                                 <td style={{ color: COLORS.sub, paddingRight: 4, paddingTop: 2 }}>{label}</td>
                                                 <td style={{ textAlign: "right", color: COLORS.red, paddingTop: 2 }}>{sv ?? "—"}</td>
                                                 <td style={{ textAlign: "right", color: COLORS.green, paddingTop: 2 }}>{tv ?? "—"}</td>
-                                                <td style={{ textAlign: "right", color: deltaCol, fontWeight: abs >= 5 ? 600 : "normal", paddingTop: 2 }}>
+                                                <td style={{ textAlign: "right", color: deltaCol, fontWeight: abs >= 3 ? 600 : "normal", paddingTop: 2 }}>
                                                   {delta != null ? `${delta >= 0 ? "+" : ""}${delta.toFixed(1)}` : "—"}
                                                 </td>
                                               </tr>
@@ -1319,7 +1323,50 @@ export default function Dashboard({ onLogout }) {
                                         </tbody>
                                       </table>
                                       <div style={{ color: COLORS.sub, fontSize: 9, marginTop: 3 }}>
-                                        Δ en orange = indicateur discriminant → resserrer son seuil
+                                        Δ en orange (≥3) = indicateur discriminant → candidat à resserrer
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+
+                                {/* WR par heure CET */}
+                                {(() => {
+                                  const wbh = pretrainStats.wr_by_hour || {};
+                                  if (Object.keys(wbh).length === 0) return null;
+                                  const hours = [8,9,10,11,12,13,14,15,16,17,18];
+                                  const isLondon = h => h >= 8 && h < 12;
+                                  const isNY     = h => h >= 14 && h < 18;
+                                  return (
+                                    <div style={{ marginTop: 10 }}>
+                                      <div style={{ color: COLORS.sub, marginBottom: 5 }}>WR par heure CET</div>
+                                      {hours.map(h => {
+                                        const d = wbh[String(h)];
+                                        const inSession = isLondon(h) || isNY(h);
+                                        const wr = d ? d.wr * 100 : null;
+                                        const barCol = !d ? COLORS.border
+                                          : wr >= 40 ? COLORS.green
+                                          : wr >= 30 ? COLORS.amber
+                                          : COLORS.red;
+                                        const rowBg = isLondon(h) ? "#3b82f611" : isNY(h) ? "#f9731611" : "transparent";
+                                        const sessTag = isLondon(h) ? " Lo" : isNY(h) ? " NY" : "";
+                                        return (
+                                          <div key={h} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2, background: rowBg, borderRadius: 2, padding: "1px 3px" }}>
+                                            <div style={{ width: 32, color: inSession ? COLORS.text : COLORS.sub, fontSize: 9, flexShrink: 0 }}>
+                                              {h}h{sessTag}
+                                            </div>
+                                            <div style={{ flex: 1, background: COLORS.border + "44", borderRadius: 2, height: 10, overflow: "hidden" }}>
+                                              {d && (
+                                                <div style={{ width: `${Math.min(wr, 100)}%`, height: "100%", background: barCol, borderRadius: 2 }} />
+                                              )}
+                                            </div>
+                                            <div style={{ width: 52, textAlign: "right", fontSize: 9, color: d ? barCol : COLORS.sub, flexShrink: 0 }}>
+                                              {d ? `${wr.toFixed(0)}% (${d.n})` : "—"}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                      <div style={{ color: COLORS.sub, fontSize: 9, marginTop: 2 }}>
+                                        Lo=London 8-12h · NY=14-18h · vert≥40% · orange30-40% · rouge&lt;30%
                                       </div>
                                     </div>
                                   );
