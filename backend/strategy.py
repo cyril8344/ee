@@ -51,7 +51,7 @@ ATR_MIN = 3.0
 ADX_MIN = 25.0
 SR_PROXIMITY_ATR = 0.7
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
-SL_ATR_MULT = 1.4
+SL_ATR_MULT = 1.6
 SWING_LOOKBACK = 5          # bars each side for swing detection
 
 # SMC parameters (optimised by Agent IA)
