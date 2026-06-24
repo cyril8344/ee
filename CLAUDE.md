@@ -127,6 +127,8 @@ After merging to `main`:
 - **RSI M15 history**: 33/67 (original) → 40/60 (broke everything) → 35/65 → **40/60 (current)** — retesté avec RSI M5 45/55, résultats à valider
 - **Pattern floor 0.65** blocks patterns that lose 65%+ of the time (was 0.60)
 - **TREND_BIAS_DISTANCE = 0.5 ATR H1** blocks SHORT when price > EMA200 + 0.5×ATR and LONG when price < EMA200 − 0.5×ATR
+- **EMA200_MIN_DIST = 0.3 ATR H1** requires price to be ≥ 0.3×ATR on the correct side of EMA200 (filters ambiguous zone — SL direct avg dist was 0.03 vs TP2 avg −0.5)
+- **BAD_HOURS_CET = {10}** blocks 10h00-10h59 CET (London) — WR 38% over 37 trades in 6M backtest
 - **ADX SHORT minimum = 30** (ADX_MIN + 5 = 25+5) vs 25 for LONG — stricter filter against shorting in uptrend (was mistakenly set to ADX_MIN+13=38, fixed)
 - **MAX_TRADE_MINUTES = 45** (was 30) — more time for TP targets to be reached
 - **TP1 = 0.7R**, **TP2 = 1.4R** — gap TP1→TP2 = 0.7R; TP1=1.0R testé mais a empiré PF (1.07→0.95) car trop difficile à atteindre

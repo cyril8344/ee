@@ -61,6 +61,8 @@ FVG_MIN_SIZE_ATR  = 0.3     # taille minimale d'un FVG pour être valide
 MICRO_RANGE_BARS = 3        # micro-consolidation length
 MAX_TRADE_MINUTES = 45
 TREND_BIAS_DISTANCE = 0.5  # multiples d'ATR H1 — bloque SHORT si prix > EMA200 + 0.5 ATR
+EMA200_MIN_DIST     = 0.3  # prix doit être à ≥ 0.3×ATR H1 du bon côté de EMA200 (zone ambiguë filtrée)
+BAD_HOURS_CET       = {10} # 10h00-10h59 CET : WR 38% sur 37 trades (6M) — pire créneau London
 
 CET = pytz.timezone("Europe/Paris")  # CET/CEST
 
@@ -234,6 +236,8 @@ def is_bad_timing(ts_utc: datetime) -> bool:
     if weekday == 0 and t < time(10, 0):
         return True
     if weekday == 4 and t >= time(16, 0):
+        return True
+    if local.hour in BAD_HOURS_CET:
         return True
     return False
 
@@ -771,6 +775,10 @@ def evaluate(
                 return None
             if price_vs_ema200 < -TREND_BIAS_DISTANCE and bias == "LONG":
                 return None
+            if bias == "LONG"  and price_vs_ema200 < EMA200_MIN_DIST:
+                return None   # trop proche de EMA200 pour un LONG (zone ambiguë)
+            if bias == "SHORT" and price_vs_ema200 > -EMA200_MIN_DIST:
+                return None   # trop proche de EMA200 pour un SHORT (zone ambiguë)
 
     # 2c) H4 EMA200 bias — doit confirmer le biais H1
     if h4 is not None and len(h4) > 0:
