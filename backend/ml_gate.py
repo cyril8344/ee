@@ -184,7 +184,8 @@ class OnlineLogisticRegression:
     Reset automatique dès la première victoire.
     """
 
-    def __init__(self):
+    def __init__(self, symbol: str = "XAUUSD"):
+        self.symbol:            str   = symbol
         self.weights:           List[float] = [0.0] * N_FEATURES
         self.bias_w:            float = 0.0
         self.n_samples:         int   = 0
@@ -194,7 +195,7 @@ class OnlineLogisticRegression:
     def _load(self) -> None:
         try:
             import database as db
-            data = db.load_ml_weights()
+            data = db.load_ml_weights(self.symbol)
             if data:
                 loaded_weights = data.get("weights", [0.0] * N_FEATURES)
                 if len(loaded_weights) != N_FEATURES:
@@ -218,6 +219,7 @@ class OnlineLogisticRegression:
             db.save_ml_weights(
                 self.weights, self.bias_w, self.n_samples,
                 consecutive_losses=self.consecutive_losses,
+                symbol=self.symbol,
             )
         except Exception:
             pass

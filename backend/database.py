@@ -130,7 +130,7 @@ def init_db() -> None:
             );
 
             CREATE TABLE IF NOT EXISTS ml_gate (
-                id          INTEGER PRIMARY KEY CHECK (id = 1),
+                symbol      TEXT PRIMARY KEY,
                 data        TEXT NOT NULL,
                 updated_at  TEXT NOT NULL
             );
@@ -151,6 +151,27 @@ def init_db() -> None:
             );
             """
         )
+
+        # Migrate ml_gate table from singleton (id=1) to per-symbol schema
+        try:
+            cols = [r[1] for r in c.execute("PRAGMA table_info(ml_gate)").fetchall()]
+            if "id" in cols and "symbol" not in cols:
+                old = c.execute("SELECT data, updated_at FROM ml_gate WHERE id = 1").fetchone()
+                c.execute("DROP TABLE ml_gate")
+                c.execute("""
+                    CREATE TABLE ml_gate (
+                        symbol      TEXT PRIMARY KEY,
+                        data        TEXT NOT NULL,
+                        updated_at  TEXT NOT NULL
+                    )
+                """)
+                if old:
+                    c.execute(
+                        "INSERT INTO ml_gate (symbol, data, updated_at) VALUES ('XAUUSD', ?, ?)",
+                        old,
+                    )
+        except Exception:
+            pass
 
         # Seed settings
         row = c.execute("SELECT id FROM settings WHERE id = 1").fetchone()
@@ -449,8 +470,8 @@ def update_pattern_stats(patterns: List[str], won: bool) -> None:
 
 
 def save_ml_weights(weights: list, bias_w: float, n_samples: int,
-                    consecutive_losses: int = 0) -> None:
-    """Persist ML gate weights to DB."""
+                    consecutive_losses: int = 0, symbol: str = "XAUUSD") -> None:
+    """Persist ML gate weights to DB (per symbol)."""
     data = json.dumps({
         "weights": weights, "bias_w": bias_w, "n_samples": n_samples,
         "consecutive_losses": consecutive_losses,
@@ -458,9 +479,9 @@ def save_ml_weights(weights: list, bias_w: float, n_samples: int,
     now  = _utcnow_iso()
     with get_conn() as conn:
         conn.execute("""
-            INSERT INTO ml_gate (id, data, updated_at) VALUES (1, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET data = ?, updated_at = ?
-        """, (data, now, data, now))
+            INSERT INTO ml_gate (symbol, data, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(symbol) DO UPDATE SET data = ?, updated_at = ?
+        """, (symbol, data, now, data, now))
 
 
 def save_adaptive_thresholds(symbol: str, data: dict) -> None:
@@ -486,10 +507,10 @@ def load_adaptive_thresholds(symbol: str) -> dict:
         return {}
 
 
-def load_ml_weights() -> dict:
-    """Load ML gate weights from DB. Returns {} if not found."""
+def load_ml_weights(symbol: str = "XAUUSD") -> dict:
+    """Load ML gate weights from DB for a given symbol. Returns {} if not found."""
     with get_conn() as conn:
-        row = conn.execute("SELECT data FROM ml_gate WHERE id = 1").fetchone()
+        row = conn.execute("SELECT data FROM ml_gate WHERE symbol = ?", (symbol,)).fetchone()
     if row is None:
         return {}
     try:
