@@ -269,6 +269,8 @@ def run_pretrain(
                         "ema9_dist_r":   _snap.get("ema9_dist_r", 0),
                         "ema200_dist_r": _snap.get("ema200_dist_r", 0),
                         "vwap_side":     _snap.get("vwap_side", 0),
+                        "h1_rsi":        _snap.get("h1_rsi", 50),
+                        "body_ratio":    _snap.get("body_ratio", 0),
                     })
 
                     open_trade = None
@@ -343,6 +345,11 @@ def run_pretrain(
                         / max(float(h1_cur.get("atr", 1) or 1), 0.001), 2
                     ),
                     "vwap_side": 1 if float(bar.get("close", 0) or 0) >= float(bar.get("vwap", bar.get("close", 0)) or 0) else 0,
+                    "h1_rsi":    float(h1_cur.get("rsi", 50) or 50),
+                    "body_ratio": round(
+                        abs(float(bar.get("close", 0) or 0) - float(bar.get("open", 0) or 0))
+                        / max(float(bar.get("atr", 1) or 1), 0.001), 2
+                    ),
                 },
             }
 
@@ -379,6 +386,8 @@ def run_pretrain(
                 "vwap_above_pct": round(
                     sum(1 for t in grp if t.get("vwap_side") == 1) / len(grp) * 100, 1
                 ),
+                "h1_rsi":    round(_mean("h1_rsi", 50), 1),
+                "body_ratio": round(_mean("body_ratio", 0), 2),
                 "london_pct": round(
                     sum(1 for t in grp if t.get("session") == "London") / len(grp) * 100, 1
                 ),
@@ -399,6 +408,7 @@ def run_pretrain(
         print("-" * 46)
         for _k, _lbl in [("rsi_m5","RSI M5"), ("rsi_m15","RSI M15"),
                           ("adx_h1","ADX H1"), ("atr","ATR"),
+                          ("h1_rsi","RSI H1"), ("body_ratio","Corps/ATR"),
                           ("london_pct","London%")]:
             _sv = _sl.get(_k, "?")
             _tv = _tp2.get(_k, "?")
