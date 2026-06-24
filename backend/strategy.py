@@ -61,7 +61,7 @@ FVG_MIN_SIZE_ATR  = 0.3     # taille minimale d'un FVG pour être valide
 MICRO_RANGE_BARS = 3        # micro-consolidation length
 MAX_TRADE_MINUTES = 45
 TREND_BIAS_DISTANCE = 0.5  # multiples d'ATR H1 — bloque SHORT si prix > EMA200 + 0.5 ATR
-EMA200_MIN_DIST     = 0.5  # prix doit être à ≥ 0.5×ATR H1 du bon côté de EMA200 (zone ambiguë filtrée)
+EMA200_MIN_DIST     = 0.3  # prix doit être à ≥ 0.3×ATR H1 du bon côté de EMA200 (zone ambiguë filtrée)
 BAD_HOURS_CET       = {10} # 10h00-10h59 CET : WR 38% sur 37 trades (6M) — pire créneau London
 PATTERN_FLOOR = 0.67        # exclut les patterns avec WR historique < 67%
 MIN_WEIGHT_SUM_LONG = 1.1   # confluence minimale côté LONG (SHORT reste à 1.5)
@@ -819,9 +819,9 @@ def evaluate(
 
     # 5b) M5 RSI momentum confirmation — évite les entrées à contre-courant M5
     rsi_m5 = float(cur.get("rsi", 50) or 50)
-    if bias == "LONG"  and rsi_m5 < 48:
+    if bias == "LONG"  and rsi_m5 < 45:
         return None
-    if bias == "SHORT" and rsi_m5 > 52:
+    if bias == "SHORT" and rsi_m5 > 55:
         return None
 
     # 6) Candlestick pattern trigger (any single pattern is enough)
