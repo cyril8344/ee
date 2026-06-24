@@ -32,8 +32,8 @@ MANIP_END_H     = 12    # fin manipulation London
 SWEEP_BUFFER    = 0.15  # en ATR — marge pour confirmer le sweep
 SL_BUFFER_ATR   = 0.3   # buffer SL au-delà de l'extrême du sweep
 MAX_SL_ATR      = 4.0   # plafond SL pour éviter des stops géants
-TP1_R           = 1.5
-TP2_R           = 3.0
+TP1_R           = 0.7
+TP2_R           = 1.8
 MAX_TRADE_MIN   = 90    # durée max en minutes
 FVG_MIN_ATR     = 0.15  # taille minimum d'un FVG (en ATR)
 FVG_MAX_BARS    = 60    # on ignore les FVGs formés il y a > 60 bougies M5 (= 5h)

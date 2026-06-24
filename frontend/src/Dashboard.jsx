@@ -335,6 +335,8 @@ export default function Dashboard({ onLogout }) {
   const [pretrainStats, setPretrainStats]     = useState(null);
   const [pretrainDiag, setPretrainDiag]       = useState(false);
   const [pretrainResetML, setPretrainResetML] = useState(false);
+  const [pretrainCapital, setPretrainCapital] = useState(1000);
+  const [pretrainRiskPct, setPretrainRiskPct] = useState(2.0);
   const [pretrainStart, setPretrainStart]     = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 6); return d.toISOString().slice(0, 10); });
   const [pretrainEnd, setPretrainEnd]         = useState(() => new Date().toISOString().slice(0, 10));
   const PRETRAIN_PAGE = 20;
@@ -480,7 +482,7 @@ export default function Dashboard({ onLogout }) {
     fetch(`${API}/api/pretrain`, {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ start: pretrainStart, end: pretrainEnd, symbol: sym, reset: pretrainResetML, strategy_mode: strategyMode }),
+      body: JSON.stringify({ start: pretrainStart, end: pretrainEnd, symbol: sym, reset: pretrainResetML, strategy_mode: strategyMode, capital: pretrainCapital, risk_pct: pretrainRiskPct }),
     })
       .then(r => r.json())
       .then(d => { if (d.progress) setPretrainStatus(d.progress); setPretrainLoading(false); })
@@ -987,6 +989,20 @@ export default function Dashboard({ onLogout }) {
                           <input type="date" value={pretrainEnd} onChange={e => setPretrainEnd(e.target.value)}
                             style={{ flex: 1, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
                               borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                        </div>
+                        <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 9, color: COLORS.sub, marginBottom: 2 }}>Capital ($)</div>
+                            <input type="number" value={pretrainCapital} onChange={e => setPretrainCapital(parseFloat(e.target.value) || 1000)}
+                              style={{ width: "100%", fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                                borderRadius: 3, color: COLORS.text, padding: "2px 4px", boxSizing: "border-box" }} />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 9, color: COLORS.sub, marginBottom: 2 }}>Risque / trade (%)</div>
+                            <input type="number" step="0.1" value={pretrainRiskPct} onChange={e => setPretrainRiskPct(parseFloat(e.target.value) || 2.0)}
+                              style={{ width: "100%", fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                                borderRadius: 3, color: COLORS.text, padding: "2px 4px", boxSizing: "border-box" }} />
+                          </div>
                         </div>
                         <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, cursor: "pointer" }}>
                           <input type="checkbox" checked={pretrainResetML} onChange={e => setPretrainResetML(e.target.checked)}
