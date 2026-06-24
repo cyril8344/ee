@@ -310,7 +310,8 @@ def run_pretrain(
                 # sur toute l'histoire — couvre 2 jours complets pour que VWAP soit correct.
                 ICT_M5_WINDOW = 576
                 m5_win = m5.iloc[max(0, i - ICT_M5_WINDOW + 1): i + 1]
-                sig = evaluate_ict(m5_win, m15_s, h1_s, now=ts.to_pydatetime())
+                sig = evaluate_ict(m5_win, m15_s, h1_s, now=ts.to_pydatetime(),
+                                   atr_min=effective_atr)
             else:
                 sig = evaluate(
                     m5.iloc[:i + 1], m15_s, h1_s,
