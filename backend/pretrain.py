@@ -244,6 +244,7 @@ def run_pretrain(
                         if false_be:
                             n_false_bes += 1
 
+                    _snap = open_trade.get("ind_snap", {})
                     trades_log.append({
                         "entry_ts":    open_trade["entry_time"].isoformat(),
                         "exit_ts":     ts.isoformat(),
@@ -259,6 +260,10 @@ def run_pretrain(
                         "patterns":    triggers,
                         "false_stop":  false_stop,
                         "false_be":    false_be,
+                        "rsi_m5":      _snap.get("rsi_m5", 50),
+                        "rsi_m15":     _snap.get("rsi_m15", 50),
+                        "adx_h1":      _snap.get("adx_h1", 0),
+                        "atr":         _snap.get("atr", 0),
                     })
 
                     open_trade = None
@@ -297,6 +302,8 @@ def run_pretrain(
             fill = sig.entry + (spread + slippage) * (1 if sig.direction == "long" else -1)
             sl_dist = abs(fill - sig.stop_loss)
             volume = _size_lots(equity, risk_pct, sl_dist, contract_size)
+            h1_cur  = h1_s.iloc[-1]  if len(h1_s)  > 0 else pd.Series(dtype=float)
+            m15_cur = m15_s.iloc[-1] if len(m15_s) > 0 else pd.Series(dtype=float)
             open_trade = {
                 "direction":    sig.direction,
                 "session":      sess,
@@ -315,7 +322,56 @@ def run_pretrain(
                 "risk":         sl_dist,
                 "mae":          0.0,
                 "mfe":          0.0,
+                "ind_snap": {
+                    "rsi_m5":  float(bar.get("rsi", 50) or 50),
+                    "rsi_m15": float(m15_cur.get("rsi", 50) or 50),
+                    "adx_h1":  float(h1_cur.get("adx", 0) or 0),
+                    "atr":     float(bar.get("atr", 0) or 0),
+                },
             }
+
+        # ---- Diagnostic indicateurs par outcome ----
+        def _grp_means(log, outcome):
+            grp = [t for t in log if t.get("exit_reason") == outcome]
+            if not grp:
+                return None
+            def _mean(key, default):
+                vals = [t[key] for t in grp if key in t]
+                return round(sum(vals) / len(vals), 1) if vals else default
+            return {
+                "n":          len(grp),
+                "rsi_m5":     _mean("rsi_m5", 50),
+                "rsi_m15":    _mean("rsi_m15", 50),
+                "adx_h1":     _mean("adx_h1", 0),
+                "atr":        round(_mean("atr", 0), 2),
+                "london_pct": round(
+                    sum(1 for t in grp if t.get("session") == "london") / len(grp) * 100, 1
+                ),
+            }
+
+        _diag_outcomes = [("sl", "SL_direct"), ("tp2", "TP2"),
+                          ("sl_after_tp1", "SL_TP1"), ("timeout", "Timeout")]
+        indicator_diagnostic = {
+            label: _grp_means(trades_log, key)
+            for key, label in _diag_outcomes
+            if _grp_means(trades_log, key) is not None
+        }
+
+        _sl  = indicator_diagnostic.get("SL_direct", {})
+        _tp2 = indicator_diagnostic.get("TP2", {})
+        print("\n=== DIAGNOSTIC INDICATEURS PAR OUTCOME ===")
+        print(f"{'Indicateur':<14}{'SL_direct':>10}{'TP2':>10}{'Δ(SL-TP2)':>12}")
+        print("-" * 46)
+        for _k, _lbl in [("rsi_m5","RSI M5"), ("rsi_m15","RSI M15"),
+                          ("adx_h1","ADX H1"), ("atr","ATR"),
+                          ("london_pct","London%")]:
+            _sv = _sl.get(_k, "?")
+            _tv = _tp2.get(_k, "?")
+            _delta = f"{_sv - _tv:+.1f}" if isinstance(_sv, float) and isinstance(_tv, float) else ""
+            print(f"{_lbl:<14}{str(_sv):>10}{str(_tv):>10}{_delta:>12}")
+        print(f"  N: SL_direct={_sl.get('n','?')}, TP2={_tp2.get('n','?')}, "
+              f"SL_TP1={indicator_diagnostic.get('SL_TP1',{}).get('n','?')}")
+        print("==========================================\n")
 
         # ---- Persister les modèles appris ----
         db.save_ml_weights(gate.weights, gate.bias_w, gate.n_samples,
@@ -397,6 +453,7 @@ def run_pretrain(
                     n_false_bes / n_be_for_false_check * 100, 1
                 ) if n_be_for_false_check else 0.0,
             },
+            "indicator_diagnostic": indicator_diagnostic,
         }
         _set(running=False, pct=100, bars_done=total, trades=n_trades,
              wins=n_wins, status="done", last_result=result)
