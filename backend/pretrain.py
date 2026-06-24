@@ -345,7 +345,7 @@ def run_pretrain(
                 "adx_h1":     _mean("adx_h1", 0),
                 "atr":        round(_mean("atr", 0), 2),
                 "london_pct": round(
-                    sum(1 for t in grp if t.get("session") == "london") / len(grp) * 100, 1
+                    sum(1 for t in grp if t.get("session") == "London") / len(grp) * 100, 1
                 ),
             }
 
