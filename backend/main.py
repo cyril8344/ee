@@ -359,9 +359,8 @@ def trading_tick() -> Dict[str, Any]:
                         and not state.risk.blocked and not news_status["blocked"]
                         and not macro_blocked
                         and state.settings.get("bot_enabled", True)):
-                    # Per-symbol strategy: EURUSD always uses ICT (B), others use global setting
-                    sym_strategy = ms.config.get("default_strategy",
-                                                  state.settings.get("strategy", "A"))
+                    # Strategy is fixed per symbol in MARKET_CONFIG (not user-switchable)
+                    sym_strategy = ms.config.get("default_strategy", "A")
                     if sym_strategy == "B":
                         from strategy_ict import evaluate_ict as _eval_ict
                         sig = _eval_ict(m5, m15, h1, now=now,
