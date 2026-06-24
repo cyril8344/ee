@@ -126,8 +126,8 @@ class BacktestConfig:
     end: str
     capital: float = 10000.0
     risk_pct: float = 1.0
-    spread_pips: float = 2.0   # 2.0 × $0.10/pip = $0.20 spread réaliste XAU/USD
-    slippage_pips: float = 0.5  # $0.05 de slippage par côté
+    spread_pips: float = 0.5   # 0.5 pip = spread conservateur XAU/USD (réaliste broker standard)
+    slippage_pips: float = 0.1  # $0.01 de slippage par côté
     max_trades_per_day: int = 4
     daily_stop_pct: float = 2.0
     symbol: str = "XAUUSD"

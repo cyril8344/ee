@@ -210,15 +210,15 @@ class PaperBroker(BaseBroker):
         def pnl_for(p, lots):
             return (p - pos.entry) * sign * self.contract_size * lots
 
-        # Emergency stop: never lose more than 3× the intended risk
+        # Emergency stop: never lose more than 2× the intended risk
         if pos.risk_amount > 0:
             unrealised = pnl_for(price, pos.remaining) + pos.realised
-            if unrealised < -(pos.risk_amount * 3):
+            if unrealised < -(pos.risk_amount * 2):
                 pos.realised += pnl_for(price - self.slippage * sign, pos.remaining)
                 return {"closed": True, "reason": "emergency_stop",
                         "exit_price": price, "pnl": pos.realised}
 
-        # TP1 — sortie 50% à 0.7R, SL reste au niveau initial (pas de déplacement BE)
+        # TP1 — sortie 50% à 0.7R, SL → soft-BE +0.2R
         if not pos.tp1_done:
             hit = price >= pos.take_profit1 if direction == "long" else price <= pos.take_profit1
             if hit:
@@ -227,7 +227,9 @@ class PaperBroker(BaseBroker):
                     lots50 = pos.remaining  # trop petit pour spliter → close total
                 pos.realised += pnl_for(pos.take_profit1 - self.slippage * sign, lots50)
                 pos.remaining = round(pos.remaining - lots50, 2)
+                _risk_dist = abs(pos.entry - pos.stop_loss)  # distance SL originale
                 pos.tp1_done = True
+                pos.stop_loss = pos.entry + sign * 0.2 * _risk_dist  # soft-BE: +0.2R
                 if pos.remaining < 0.01:
                     return {"closed": True, "reason": "tp1",
                             "exit_price": pos.take_profit1, "pnl": pos.realised}
@@ -364,7 +366,7 @@ class MT5Broker(BaseBroker):
         price = self.get_price()
         sign = 1.0 if pos.direction == "long" else -1.0
 
-        # TP1 — sortie 50% à 0.7R, SL reste au niveau initial (pas de déplacement BE)
+        # TP1 — sortie 50% à 0.7R, SL → soft-BE +0.2R sur MT5
         if not pos.tp1_done:
             hit = price >= pos.take_profit1 if pos.direction == "long" else price <= pos.take_profit1
             if hit:
@@ -374,7 +376,10 @@ class MT5Broker(BaseBroker):
                 self._send_partial_close(pos, lots50, fill_price)
                 pos.realised += (fill_price - pos.entry) * sign * CONTRACT_SIZE * lots50
                 pos.remaining = round(pos.remaining - lots50, 2)
+                _risk_dist = abs(pos.entry - pos.stop_loss)  # distance SL originale
                 pos.tp1_done = True
+                pos.stop_loss = pos.entry + sign * 0.2 * _risk_dist  # soft-BE: +0.2R
+                self._update_sl(pos, pos.stop_loss)
                 if pos.remaining < 0.01:
                     return {"closed": True, "reason": "tp1",
                             "exit_price": fill_price, "pnl": pos.realised}

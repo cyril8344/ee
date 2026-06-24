@@ -160,11 +160,13 @@ class AdaptiveThresholds:
 
 FEATURE_NAMES = [
     "atr_norm",          # volatilité normalisée (ATR/prix)
-    "rsi_norm",          # momentum (RSI centré, -1 à +1)
+    "rsi_norm",          # momentum M5 (RSI centré, -1 à +1)
     "ema200_bias",       # tendance majeure H1 (+1 LONG, -1 SHORT)
     "pattern_w_norm",    # poids patterns normalisé (qualité du signal)
     "adx_norm",          # force de tendance H1 normalisée (0-1)
     "session_enc",       # session encodée (London=1.0, NY=0.5)
+    "h1_rsi_norm",       # momentum H1 (RSI H1 centré, -1 à +1)
+    "hour_in_session",   # position horaire dans la session (0=début, 1=fin)
 ]
 N_FEATURES = len(FEATURE_NAMES)
 
@@ -194,7 +196,16 @@ class OnlineLogisticRegression:
             import database as db
             data = db.load_ml_weights()
             if data:
-                self.weights            = data.get("weights",            [0.0] * N_FEATURES)
+                loaded_weights = data.get("weights", [0.0] * N_FEATURES)
+                if len(loaded_weights) != N_FEATURES:
+                    # Feature count changed — reset silently so the gate restarts clean
+                    loaded_weights = [0.0] * N_FEATURES
+                    self.weights            = loaded_weights
+                    self.bias_w             = 0.0
+                    self.n_samples          = 0
+                    self.consecutive_losses = 0
+                    return
+                self.weights            = loaded_weights
                 self.bias_w             = data.get("bias_w",             0.0)
                 self.n_samples          = data.get("n_samples",          0)
                 self.consecutive_losses = data.get("consecutive_losses", 0)
@@ -280,7 +291,9 @@ def extract_features(
     pattern_weight_sum: float,
     ts,
     h1_adx: float = 0.0,
+    h1_rsi: float = 50.0,
     n_patterns: int = 1,
+    session_hour_frac: float = 0.5,
 ) -> List[float]:
     cur5  = m5.iloc[-1]
 
@@ -291,7 +304,7 @@ def extract_features(
     # Volatilité normalisée : ATR en % du prix
     atr_norm = atr5 / price if price > 0 else 0.0
 
-    # Momentum centré : RSI transformé en [-1, +1], 0 = neutre
+    # Momentum M5 centré : RSI transformé en [-1, +1], 0 = neutre
     rsi_norm = (rsi5 - 50.0) / 50.0
 
     # Tendance majeure H1 : +1 LONG, -1 SHORT (signal directionnel fort)
@@ -307,4 +320,11 @@ def extract_features(
     # Session : London=1.0 (meilleure pour l'or), NY=0.5
     session_enc = 1.0 if session == "London" else 0.5
 
-    return [atr_norm, rsi_norm, ema200_bias, pattern_w_norm, adx_norm, session_enc]
+    # Momentum H1 : RSI H1 centré sur 50, normalisé en [-1, +1]
+    h1_rsi_norm = (h1_rsi - 50.0) / 50.0
+
+    # Position horaire dans la session : 0.0 (début) → 1.0 (fin)
+    hour_in_session = max(0.0, min(1.0, session_hour_frac))
+
+    return [atr_norm, rsi_norm, ema200_bias, pattern_w_norm, adx_norm, session_enc,
+            h1_rsi_norm, hour_in_session]
