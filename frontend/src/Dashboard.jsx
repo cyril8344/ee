@@ -334,6 +334,7 @@ export default function Dashboard({ onLogout }) {
   const [pretrainPage, setPretrainPage]       = useState(0);
   const [pretrainStats, setPretrainStats]     = useState(null);
   const [pretrainDiag, setPretrainDiag]       = useState(false);
+  const [pretrainResetML, setPretrainResetML] = useState(false);
   const [pretrainStart, setPretrainStart]     = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 6); return d.toISOString().slice(0, 10); });
   const [pretrainEnd, setPretrainEnd]         = useState(() => new Date().toISOString().slice(0, 10));
   const PRETRAIN_PAGE = 20;
@@ -479,7 +480,7 @@ export default function Dashboard({ onLogout }) {
     fetch(`${API}/api/pretrain`, {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ start: pretrainStart, end: pretrainEnd, symbol: sym, reset: true, strategy_mode: strategyMode }),
+      body: JSON.stringify({ start: pretrainStart, end: pretrainEnd, symbol: sym, reset: pretrainResetML, strategy_mode: strategyMode }),
     })
       .then(r => r.json())
       .then(d => { if (d.progress) setPretrainStatus(d.progress); setPretrainLoading(false); })
@@ -1000,6 +1001,13 @@ export default function Dashboard({ onLogout }) {
                             style={{ flex: 1, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
                               borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                         </div>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, cursor: "pointer" }}>
+                          <input type="checkbox" checked={pretrainResetML} onChange={e => setPretrainResetML(e.target.checked)}
+                            style={{ accentColor: COLORS.amber }} />
+                          <span style={{ fontSize: 10, color: pretrainResetML ? COLORS.amber : COLORS.sub }}>
+                            Réinitialiser ML {pretrainResetML ? "(repart de zéro)" : "(cumule avec sessions précédentes)"}
+                          </span>
+                        </label>
                       </div>
                     )}
                     {pretrainStatus?.running ? (
