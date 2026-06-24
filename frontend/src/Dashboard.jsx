@@ -1284,6 +1284,8 @@ export default function Dashboard({ onLogout }) {
                                     { key: "ema200_dist_r",  label: "Dist EMA200 H1" },
                                     { key: "vwap_above_pct", label: "Au-dessus VWAP %"},
                                     { key: "london_pct",     label: "London %"       },
+                                    { key: "h1_rsi",         label: "RSI H1"         },
+                                    { key: "body_ratio",     label: "Corps/ATR"      },
                                   ];
                                   return (
                                     <div style={{ marginTop: 8 }}>
