@@ -20,7 +20,7 @@ from __future__ import annotations
 import math
 from typing import Dict, List, Optional, Tuple
 
-N_MIN_TRADES  = 15    # trades min avant activation du ML gate
+N_MIN_TRADES  = 99999  # ML gate désactivé temporairement (paper trading)
 THRESHOLD     = 0.50  # seuil aligné sur le WR de base (~50%)
 STREAK_BOOST  = 0.02  # boost du seuil par perte au-delà de 2 consécutives
 STREAK_CAP    = 0.30  # boost maximum (+30 % → seuil max 0.85)
