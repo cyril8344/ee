@@ -46,7 +46,7 @@ from strategy import (
 # ──────────────────────────────────────────────────────────────────────────────
 OB_LOOKBACK_ICT       = 40     # bougies M5 pour détecter les Order Blocks
 SWEEP_LOOKBACK_ICT    = 30     # bougies M15 pour le sweep + CHoCH/BOS
-GOLDEN_LOW_PCT        = 0.705  # Golden Pocket bas  (70.5 %)
+GOLDEN_LOW_PCT        = 0.618  # Golden Pocket bas  (61.8 % = Fib classique)
 GOLDEN_HIGH_PCT       = 0.786  # Golden Pocket haut (78.6 % = Fib 0.786)
 MAX_TRADE_MIN_ICT     = 60     # durée max d'un trade (minutes)
 MIN_IMPULSE_RATIO     = 0.5    # l'impulse M5/M15 doit valoir au moins N × ATR
@@ -56,7 +56,7 @@ TP2_R                 = 3.0    # TP2 en multiple de risque
 OB_SL_BUFFER_ATR      = 0.1   # buffer SL au-delà du bord de l'OB (en ATR)
 OB_SL_MIN_ATR         = 0.5   # SL minimum en ATR (plancher de sécurité)
 EMA200_MAX_DIST_ATR   = 3.0   # distance max prix/EMA200 H1 ; au-delà = pas de trade
-VWAP_REJECT_ATR       = 0.5   # rejette si prix est à > N ATR du mauvais côté du VWAP
+VWAP_REJECT_ATR       = 1.0   # rejette si prix est à > N ATR du mauvais côté du VWAP
 
 
 # ──────────────────────────────────────────────────────────────────────────────
