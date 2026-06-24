@@ -59,9 +59,9 @@ def _utcnow_iso() -> str:
 # --------------------------------------------------------------------------- #
 DEFAULT_SETTINGS = {
     "capital": 1000.0,
-    "risk_per_trade_pct": 5.0,     # 5% = 50€ sur 1000€ de capital
+    "risk_per_trade_pct": 2.0,     # 2% = 20€ sur 1000€ de capital
     "max_trades_per_day": 4,
-    "daily_stop_pct": 2.0,         # -2% stop journalier par défaut
+    "daily_stop_pct": 8.0,         # -8% stop journalier (4 pertes max avant arrêt)
     "mode": "paper",               # 'paper' | 'live'
     "symbol": "XAUUSD",
     "active_markets": ["XAUUSD", "EURUSD"],
