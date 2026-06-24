@@ -246,17 +246,23 @@ def evaluate_ict(
     if direction == "LONG":
         raw_sl = min(sweep["extreme"], asian["low"]) - SL_BUFFER_ATR * atr_val
         sl = max(raw_sl, entry - MAX_SL_ATR * atr_val)
-        tp1 = entry + TP1_R * abs(entry - sl)
-        tp2 = entry + TP2_R * abs(entry - sl)
+        risk = abs(entry - sl)
+        if risk <= 0:
+            return None
+        tp1 = entry + TP1_R * risk
+        tp2 = float(asian["high"])   # AMD : distribution → autre extrême du range asiatique
+        if tp2 <= entry + risk:      # Asian high trop proche (range trop serré) → skip
+            return None
     else:
         raw_sl = max(sweep["extreme"], asian["high"]) + SL_BUFFER_ATR * atr_val
         sl = min(raw_sl, entry + MAX_SL_ATR * atr_val)
-        tp1 = entry - TP1_R * abs(entry - sl)
-        tp2 = entry - TP2_R * abs(entry - sl)
-
-    risk = abs(entry - sl)
-    if risk <= 0:
-        return None
+        risk = abs(entry - sl)
+        if risk <= 0:
+            return None
+        tp1 = entry - TP1_R * risk
+        tp2 = float(asian["low"])    # AMD : distribution → autre extrême du range asiatique
+        if tp2 >= entry - risk:      # Asian low trop proche → skip
+            return None
 
     return Signal(
         direction=direction.lower(),
