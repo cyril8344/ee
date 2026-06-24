@@ -808,25 +808,15 @@ def evaluate(
     if h1_adx < adx_required:
         return None
 
-    # RSI M5 calculé ici (avant EMA9) pour détecter le mode momentum fort
-    rsi_m5 = float(cur.get("rsi", 50) or 50)
-
-    # Mode momentum fort : ADX H1 > 40 + RSI M5 extrême (breakout directionnel)
-    strong_trend = h1_adx > 40 and (
-        (bias == "LONG"  and rsi_m5 > 65) or
-        (bias == "SHORT" and rsi_m5 < 35)
-    )
-
     # 5) M5 EMA9 alignment — tolérance adaptative (défaut 0.5 ATR)
-    # En mode momentum fort, l'EMA9 est en retard → on saute ce filtre
-    if not strong_trend:
-        ema9_tolerance = atr_val * effective_ema9_mult
-        if bias == "LONG" and cur["close"] < cur["ema9"] - ema9_tolerance:
-            return None
-        if bias == "SHORT" and cur["close"] > cur["ema9"] + ema9_tolerance:
-            return None
+    ema9_tolerance = atr_val * effective_ema9_mult
+    if bias == "LONG" and cur["close"] < cur["ema9"] - ema9_tolerance:
+        return None
+    if bias == "SHORT" and cur["close"] > cur["ema9"] + ema9_tolerance:
+        return None
 
     # 5b) M5 RSI momentum confirmation — évite les entrées à contre-courant M5
+    rsi_m5 = float(cur.get("rsi", 50) or 50)
     if bias == "LONG"  and rsi_m5 < 45:
         return None
     if bias == "SHORT" and rsi_m5 > 55:
@@ -894,10 +884,9 @@ def evaluate(
     triggers = [t for t in triggers if _w(t) >= PATTERN_FLOOR]
 
     weights = [_w(t) for t in triggers]
-    # Mode momentum fort : 1 pattern suffit (strong_trend calculé avant EMA9)
-    min_patterns   = 1   if strong_trend else 2
-    min_weight_sum = 0.7 if strong_trend else (1.0 if bias == "LONG" else 1.5)
-    if len(triggers) < min_patterns or sum(weights) < min_weight_sum:
+    # Exige au moins 2 patterns ET poids cumulé >= 1.0 (>= 1.5 pour SHORT — plus sélectif)
+    min_weight_sum = 1.0 if bias == "LONG" else 1.5
+    if len(triggers) < 2 or sum(weights) < min_weight_sum:
         return None
 
     # Filtre corps de bougie : rejette les bougies indécises (corps < 40% de la range)
