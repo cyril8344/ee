@@ -61,9 +61,10 @@ OB_PROXIMITY_ATR  = 0.4     # tolérance de proximité OB en multiples d'ATR
 FVG_MIN_SIZE_ATR  = 0.3     # taille minimale d'un FVG pour être valide
 MICRO_RANGE_BARS = 3        # micro-consolidation length
 MAX_TRADE_MINUTES = 45
-TREND_BIAS_DISTANCE = 0.5  # multiples d'ATR H1 — bloque SHORT si prix > EMA200 + 0.5 ATR
-EMA200_MIN_DIST     = 0.4  # prix doit être à ≥ 0.4×ATR H1 du bon côté de EMA200 (zone ambiguë filtrée)
-BAD_HOURS_CET       = {10} # 10h00-10h59 CET : WR 38% sur 37 trades (6M) — pire créneau London
+TREND_BIAS_DISTANCE   = 0.5  # multiples d'ATR H1 — bloque SHORT si prix > EMA200 + 0.5 ATR
+EMA200_MIN_DIST_LONG  = 0.3  # LONG doit être à ≥ 0.3×ATR au-dessus de EMA200
+EMA200_MIN_DIST_SHORT = 0.6  # SHORT doit être à ≥ 0.6×ATR en-dessous de EMA200 (XAUUSD uptrend)
+BAD_HOURS_CET         = {10} # 10h00-10h59 CET : WR 38% sur 37 trades (6M) — pire créneau London
 PATTERN_FLOOR = 0.67        # exclut les patterns avec WR historique < 67%
 MIN_WEIGHT_SUM_LONG = 1.1   # confluence minimale côté LONG (SHORT reste à 1.5)
 
@@ -778,10 +779,10 @@ def evaluate(
                 return None
             if price_vs_ema200 < -TREND_BIAS_DISTANCE and bias == "LONG":
                 return None
-            if bias == "LONG"  and price_vs_ema200 < EMA200_MIN_DIST:
-                return None   # trop proche de EMA200 pour un LONG (zone ambiguë)
-            if bias == "SHORT" and price_vs_ema200 > -EMA200_MIN_DIST:
-                return None   # trop proche de EMA200 pour un SHORT (zone ambiguë)
+            if bias == "LONG"  and price_vs_ema200 < EMA200_MIN_DIST_LONG:
+                return None   # LONG doit être au-dessus EMA200 + 0.3×ATR
+            if bias == "SHORT" and price_vs_ema200 > -EMA200_MIN_DIST_SHORT:
+                return None   # SHORT doit être sous EMA200 − 0.6×ATR (uptrend XAUUSD)
 
     # 2c) H4 EMA200 bias — doit confirmer le biais H1
     if h4 is not None and len(h4) > 0:
@@ -809,7 +810,7 @@ def evaluate(
 
     # 4b) H1 ADX trend strength — ne trader qu'en vraie tendance
     h1_adx = float(h1.iloc[-1].get("adx", 0)) if len(h1) else 0.0
-    adx_required = ADX_MIN if bias == "LONG" else ADX_MIN + 5.0  # SHORT exige ADX >= 30
+    adx_required = ADX_MIN if bias == "LONG" else ADX_MIN + 10.0  # SHORT exige ADX >= 35 (uptrend XAUUSD)
     if h1_adx < adx_required:
         return None
 

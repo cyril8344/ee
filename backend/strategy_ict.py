@@ -35,8 +35,8 @@ MAX_SL_ATR      = 4.0   # plafond SL pour éviter des stops géants
 TP1_R           = 0.7
 TP2_R           = 1.8
 MAX_TRADE_MIN   = 90    # durée max en minutes
-FVG_MIN_ATR     = 0.15  # taille minimum d'un FVG (en ATR)
-FVG_MAX_BARS    = 60    # on ignore les FVGs formés il y a > 60 bougies M5 (= 5h)
+FVG_MIN_ATR     = 0.25  # taille minimum d'un FVG (en ATR) — était 0.15
+FVG_MAX_BARS    = 12    # on ignore les FVGs formés il y a > 12 bougies M5 (= 1h) — était 60
 MIN_ASIAN_BARS  = 4     # bougies minimum pour valider le range asiatique
 
 
@@ -236,8 +236,8 @@ def evaluate_ict(
     if not fvgs:
         return None
 
-    # 6) Prix actuel dans un FVG → entrée
-    if not _in_fvg(float(cur["low"]), float(cur["high"]), fvgs):
+    # 6) Prix actuel dans le FVG le plus récent uniquement (le plus proche du sweep)
+    if not _in_fvg(float(cur["low"]), float(cur["high"]), [fvgs[-1]]):
         return None
 
     # 7) Niveaux du trade
