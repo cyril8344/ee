@@ -163,6 +163,7 @@ def run_pretrain(
         mae_loss   = []   # MAE en R des trades perdants
         mfe_loss   = []   # MFE en R des trades perdants
         trades_log = []   # log détaillé par trade (pour analyse erreur/erreur)
+        last_ict_asian_end = None  # verrou strat B : un seul trade par range asiatique
 
         _set(bars_total=total, status="Analyse des trades historiques…")
 
@@ -305,13 +306,15 @@ def run_pretrain(
 
             # evaluate() / evaluate_ict() SANS ml_gate ni adaptive → signal brut
             if strategy_mode == "B":
-                # evaluate_ict n'a besoin que des barres récentes (VWAP intraday + ICT
-                # lookbacks de 30-40 bars). Limiter le slice évite un calcul VWAP O(N²)
-                # sur toute l'histoire — couvre 2 jours complets pour que VWAP soit correct.
                 ICT_M5_WINDOW = 576
                 m5_win = m5.iloc[max(0, i - ICT_M5_WINDOW + 1): i + 1]
                 sig = evaluate_ict(m5_win, m15_s, h1_s, now=ts.to_pydatetime(),
                                    atr_min=effective_atr)
+                # Verrou : un seul trade par range asiatique
+                if sig is not None:
+                    asian_end = sig.meta.get("asian_end")
+                    if asian_end is not None and asian_end == last_ict_asian_end:
+                        sig = None
             else:
                 sig = evaluate(
                     m5.iloc[:i + 1], m15_s, h1_s,
@@ -322,6 +325,10 @@ def run_pretrain(
 
             if sig is None:
                 continue
+
+            # Verrou strat B : mémoriser le range asiatique de ce trade
+            if strategy_mode == "B":
+                last_ict_asian_end = sig.meta.get("asian_end")
 
             fill = sig.entry + (spread + slippage) * (1 if sig.direction == "long" else -1)
             sl_dist = abs(fill - sig.stop_loss)

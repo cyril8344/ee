@@ -251,7 +251,7 @@ def evaluate_ict(
             return None
         tp1 = entry + TP1_R * risk
         tp2 = float(asian["high"])   # AMD : distribution → autre extrême du range asiatique
-        if tp2 <= entry + risk:      # Asian high trop proche (range trop serré) → skip
+        if tp2 <= entry + 2.0 * risk:  # R/R minimum 2:1 requis
             return None
     else:
         raw_sl = max(sweep["extreme"], asian["high"]) + SL_BUFFER_ATR * atr_val
@@ -261,7 +261,7 @@ def evaluate_ict(
             return None
         tp1 = entry - TP1_R * risk
         tp2 = float(asian["low"])    # AMD : distribution → autre extrême du range asiatique
-        if tp2 >= entry - risk:      # Asian low trop proche → skip
+        if tp2 >= entry - 2.0 * risk:  # R/R minimum 2:1 requis
             return None
 
     return Signal(
@@ -280,6 +280,7 @@ def evaluate_ict(
             "strategy":   "B_AMD",
             "asian_high": round(asian["high"], 5),
             "asian_low":  round(asian["low"],  5),
+            "asian_end":  asian["end"].isoformat(),
             "sweep_dir":  direction,
             "sweep_ext":  round(sweep["extreme"], 5),
             "n_fvgs":     len(fvgs),
