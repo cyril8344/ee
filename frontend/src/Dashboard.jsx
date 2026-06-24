@@ -656,21 +656,8 @@ export default function Dashboard({ onLogout }) {
     }).then((r) => { if (r.status === 401) logout401(onLogout); });
   };
 
-  const strategyMode = state?.settings?.strategy ?? "A";
-  const toggleStrategy = () => {
-    const next = strategyMode === "A" ? "B" : "A";
-    fetch(`${API}/api/settings`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ strategy: next }),
-    })
-      .then((r) => { if (r.status === 401) logout401(onLogout); return r.json(); })
-      .then((newSettings) => {
-        pendingSettingsRef.current = { settings: newSettings, until: Date.now() + 6000 };
-        setState(prev => prev ? { ...prev, settings: newSettings } : prev);
-      })
-      .catch(() => {});
-  };
+  // Strategy is fixed per symbol — EURUSD always uses B (ICT), others use A (EMA)
+  const strategyMode = activeMarket === "EURUSD" ? "B" : "A";
 
   const switchLive = () => {
     if (state?.mode === "live") {
@@ -1760,13 +1747,12 @@ export default function Dashboard({ onLogout }) {
                 </button>
               </div>
               <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                <button onClick={toggleStrategy}
-                  style={{ ...tabBtn(false), flex: 1,
-                    background: strategyMode === "B" ? COLORS.blue : "transparent",
-                    borderColor: strategyMode === "B" ? COLORS.blue : COLORS.border,
-                    color: strategyMode === "B" ? "#fff" : COLORS.text }}>
-                  Stratégie {strategyMode === "A" ? "A (EMA)" : "B (ICT)"}
-                </button>
+                <div style={{ flex: 1, padding: "5px 10px", borderRadius: 4, fontSize: 12,
+                  background: strategyMode === "B" ? COLORS.blue + "22" : COLORS.amber + "22",
+                  border: `1px solid ${strategyMode === "B" ? COLORS.blue : COLORS.amber}55`,
+                  color: strategyMode === "B" ? COLORS.blue : COLORS.amber, textAlign: "center" }}>
+                  {activeMarket === "EURUSD" ? "EUR/USD → ICT / Order Blocks (B)" : "XAU/USD → EMA / Patterns (A)"}
+                </div>
               </div>
 
               {/* RL Agent panel */}
