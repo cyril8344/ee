@@ -265,7 +265,7 @@ ws_manager = WSManager()
 # Market context builder
 # --------------------------------------------------------------------------- #
 def build_context(broker):
-    """Return (m5, m15, h1, h4) indicator-ready frames from the given broker feed."""
+    """Return (m5, m15, h1) indicator-ready frames from the given broker feed."""
     m5_raw = broker.get_rates_m5(500)
     m5 = add_indicators(m5_raw)
     agg = {"open": "first", "high": "max", "low": "min",
@@ -274,9 +274,7 @@ def build_context(broker):
         m5_raw.resample("15min", label="right", closed="right").agg(agg).dropna())
     h1 = add_indicators(
         m5_raw.resample("60min", label="right", closed="right").agg(agg).dropna())
-    h4 = add_indicators(
-        m5_raw.resample("240min", label="right", closed="right").agg(agg).dropna())
-    return m5, m15, h1, h4
+    return m5, m15, h1
 
 
 def current_equity() -> float:
@@ -310,7 +308,7 @@ def trading_tick() -> Dict[str, Any]:
         any_active = False
         for ms in state.market_states.values():
             try:
-                m5, m15, h1, h4 = build_context(ms.broker)
+                m5, m15, h1 = build_context(ms.broker)
                 snap = snapshot(m5, m15, h1, atr_min_override=ms.config["atr_min"],
                                pattern_weights=state.pattern_weights,
                                ml_gate=state.ml_gate,
@@ -363,7 +361,7 @@ def trading_tick() -> Dict[str, Any]:
                                         check_session=session_filter,
                                         atr_min=ms.config["atr_min"])
                     else:
-                        sig = evaluate(m5, m15, h1, h4=h4, now=now, check_session=session_filter,
+                        sig = evaluate(m5, m15, h1, now=now, check_session=session_filter,
                                        atr_min=ms.config["atr_min"],
                                        pattern_weights=state.pattern_weights,
                                        ml_gate=state.ml_gate,
@@ -905,7 +903,7 @@ def test_signal(symbol: str = "XAUUSD", direction: str = "long",
             raise HTTPException(status_code=400, detail="direction must be 'long' or 'short'")
 
         try:
-            m5, m15, h1, h4 = build_context(ms.broker)
+            m5, m15, h1 = build_context(ms.broker)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Could not load market data: {e}")
 

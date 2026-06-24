@@ -179,7 +179,6 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
     # Pre-compute higher-TF frames ONCE
     m15_full = add_indicators(resample(m5_raw, "15min"))
     h1_full  = add_indicators(resample(m5_raw, "60min"))
-    h4_full  = add_indicators(resample(m5_raw, "240min"))
     m15_index = m15_full.index
     h1_index  = h1_full.index
 
@@ -190,7 +189,7 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
         from strategy_ict import evaluate_ict as _evaluate_ict
         precomputed_signals = None
     else:
-        precomputed_signals = batch_signals(m5, m15_full, h1_full, h4=h4_full, check_session=True)
+        precomputed_signals = batch_signals(m5, m15_full, h1_full, check_session=True)
         _evaluate_ict = None
 
     equity = cfg.capital

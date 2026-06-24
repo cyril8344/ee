@@ -722,7 +722,6 @@ def evaluate(
     m5: pd.DataFrame,
     m15: pd.DataFrame,
     h1: pd.DataFrame,
-    h4: Optional[pd.DataFrame] = None,
     now: Optional[datetime] = None,
     check_session: bool = True,
     atr_min: float = ATR_MIN,
@@ -771,12 +770,6 @@ def evaluate(
                 return None
             if price_vs_ema200 < -TREND_BIAS_DISTANCE and bias == "LONG":
                 return None
-
-    # 2c) H4 EMA200 bias — doit confirmer le biais H1
-    if h4 is not None and len(h4) > 0:
-        h4_bias = compute_bias(h4)
-        if h4_bias != "NEUTRE" and h4_bias != bias:
-            return None
 
     # Seuils adaptatifs (si disponibles et entraînés)
     _adapt = adaptive_thresholds
@@ -953,7 +946,6 @@ def batch_signals(
     m5: pd.DataFrame,
     m15: pd.DataFrame,
     h1: pd.DataFrame,
-    h4: Optional[pd.DataFrame] = None,
     check_session: bool = True,
     atr_min: float = ATR_MIN,
 ) -> pd.Series:
@@ -1057,16 +1049,6 @@ def batch_signals(
     bull_pattern = bull_eng | hammer | pin_bull
     bear_pattern = bear_eng | shooting | pin_bear
 
-    # ── H4 bias confirmation ──────────────────────────────────────────────────
-    if h4 is not None and len(h4) > 0 and "ema200" in h4.columns:
-        h4_close  = h4["close"].reindex(m5.index, method="ffill")
-        h4_ema200 = h4["ema200"].reindex(m5.index, method="ffill")
-        h4_long_ok  = h4_close > h4_ema200
-        h4_short_ok = h4_close < h4_ema200
-    else:
-        h4_long_ok  = pd.Series(True, index=m5.index)
-        h4_short_ok = pd.Series(True, index=m5.index)
-
     # ── Warmup mask ───────────────────────────────────────────────────────────
     warmup = pd.Series(False, index=m5.index)
     warmup.iloc[:EMA_SLOW + 10] = True
@@ -1074,11 +1056,11 @@ def batch_signals(
     # ── Combine ───────────────────────────────────────────────────────────────
     long_signal  = (
         ~warmup & bias_long & adx_ok & m15_bull & rsi_ok
-        & atr_ok & ema9_long & session_ok & bull_pattern & h4_long_ok
+        & atr_ok & ema9_long & session_ok & bull_pattern
     )
     short_signal = (
         ~warmup & bias_short & adx_ok & m15_bear & rsi_ok
-        & atr_ok & ema9_sht  & session_ok & bear_pattern & h4_short_ok
+        & atr_ok & ema9_sht  & session_ok & bear_pattern
     )
 
     out = pd.Series(None, index=m5.index, dtype=object)
