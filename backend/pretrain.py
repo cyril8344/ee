@@ -216,6 +216,7 @@ def run_pretrain(
                     # Sur un SL direct : est-ce que le prix aurait atteint TP1
                     # dans les 10 bougies suivantes (50 min) ?
                     false_stop = False
+                    false_stop_spike_atr = None
                     if exit_reason == "sl":
                         n_sl_for_false_check += 1
                         tp1_level  = open_trade["tp1"]
@@ -227,6 +228,20 @@ def run_pretrain(
                             false_stop = bool((future["low"] <= tp1_level).any())
                         if false_stop:
                             n_false_stops += 1
+                        # Profondeur du spike : de combien (en ATR) le prix est-il
+                        # allé au-delà du SL avant de revenir ?
+                        _atr_snap = float(open_trade["ind_snap"].get("atr", 1.0) or 1.0)
+                        _sl_lv = float(open_trade["stop_loss"])
+                        _near = m5.iloc[i : i + 4]
+                        if len(_near) > 0:
+                            if direction == "long":
+                                false_stop_spike_atr = round(
+                                    max(0.0, (_sl_lv - float(_near["low"].min())) / _atr_snap), 3)
+                            else:
+                                false_stop_spike_atr = round(
+                                    max(0.0, (float(_near["high"].max()) - _sl_lv) / _atr_snap), 3)
+                        else:
+                            false_stop_spike_atr = 0.0
 
                     # ---- Analyse false breakeven ----
                     # Sur un sl_after_tp1 : est-ce que le prix aurait atteint TP2
@@ -258,8 +273,9 @@ def run_pretrain(
                         "mae_r":         mae_r,
                         "mfe_r":         mfe_r,
                         "patterns":      triggers,
-                        "false_stop":    false_stop,
-                        "false_be":      false_be,
+                        "false_stop":          false_stop,
+                        "false_stop_spike_atr": false_stop_spike_atr,
+                        "false_be":            false_be,
                         "rsi_m5":        _snap.get("rsi_m5", 50),
                         "rsi_m15":       _snap.get("rsi_m15", 50),
                         "adx_h1":        _snap.get("adx_h1", 0),
@@ -364,6 +380,68 @@ def run_pretrain(
         wr_by_hour = {
             str(_h): {"n": _v["n"], "wr": round(_v["wins"] / _v["n"], 3)}
             for _h, _v in sorted(_by_hour.items()) if _v["n"] >= 3
+        }
+
+        # ---- Profondeur des faux stops (spike ATR au-delà du SL) ----
+        _spike_list = sorted([
+            t["false_stop_spike_atr"]
+            for t in trades_log
+            if t.get("false_stop") and t.get("false_stop_spike_atr") is not None
+        ])
+        if _spike_list:
+            _n_sp = len(_spike_list)
+            def _perc(lst, p):
+                return lst[max(0, min(len(lst) - 1, int(len(lst) * p / 100)))]
+            false_stop_spike_stats = {
+                "n":   _n_sp,
+                "avg": round(sum(_spike_list) / _n_sp, 3),
+                "p50": round(_perc(_spike_list, 50), 3),
+                "p80": round(_perc(_spike_list, 80), 3),
+                "p90": round(_perc(_spike_list, 90), 3),
+                "coverage": {
+                    str(thresh): round(
+                        sum(1 for d in _spike_list if d <= thresh) / _n_sp * 100, 1
+                    )
+                    for thresh in [0.1, 0.2, 0.3, 0.5, 0.7, 1.0]
+                },
+            }
+        else:
+            false_stop_spike_stats = None
+
+        # ---- % faux stops par heure CET ----
+        _fs_by_hour: dict = _dd(lambda: {"n_sl": 0, "n_fs": 0})
+        for _t in trades_log:
+            if _t.get("exit_reason") == "sl":
+                _h = _t.get("hour_cet")
+                if _h is not None:
+                    _fs_by_hour[_h]["n_sl"] += 1
+                    if _t.get("false_stop"):
+                        _fs_by_hour[_h]["n_fs"] += 1
+        false_stop_by_hour = {
+            str(_h): {
+                "n_sl":          _v["n_sl"],
+                "n_false_stops": _v["n_fs"],
+                "pct_false":     round(_v["n_fs"] / _v["n_sl"] * 100, 1) if _v["n_sl"] else 0.0,
+            }
+            for _h, _v in sorted(_fs_by_hour.items()) if _v["n_sl"] >= 2
+        }
+
+        # ---- % faux stops par pattern ----
+        _fs_by_pat: dict = _dd(lambda: {"n_sl": 0, "n_fs": 0})
+        for _t in trades_log:
+            if _t.get("exit_reason") == "sl":
+                for _p in _t.get("patterns", []):
+                    _fs_by_pat[_p]["n_sl"] += 1
+                    if _t.get("false_stop"):
+                        _fs_by_pat[_p]["n_fs"] += 1
+        false_stop_by_pattern = {
+            _p: {
+                "n_sl":          _v["n_sl"],
+                "n_false_stops": _v["n_fs"],
+                "pct_false":     round(_v["n_fs"] / _v["n_sl"] * 100, 1) if _v["n_sl"] else 0.0,
+            }
+            for _p, _v in sorted(_fs_by_pat.items(), key=lambda x: -x[1]["n_sl"])
+            if _v["n_sl"] >= 2
         }
 
         # ---- Diagnostic indicateurs par outcome ----
@@ -498,8 +576,11 @@ def run_pretrain(
                     n_false_bes / n_be_for_false_check * 100, 1
                 ) if n_be_for_false_check else 0.0,
             },
-            "indicator_diagnostic": indicator_diagnostic,
-            "wr_by_hour":           wr_by_hour,
+            "indicator_diagnostic":   indicator_diagnostic,
+            "wr_by_hour":             wr_by_hour,
+            "false_stop_spike_stats": false_stop_spike_stats,
+            "false_stop_by_hour":     false_stop_by_hour,
+            "false_stop_by_pattern":  false_stop_by_pattern,
         }
         _set(running=False, pct=100, bars_done=total, trades=n_trades,
              wins=n_wins, status="done", last_result=result)
