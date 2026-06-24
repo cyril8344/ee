@@ -1369,6 +1369,103 @@ export default function Dashboard({ onLogout }) {
                                   );
                                 })()}
 
+                                {/* Profondeur des faux stops */}
+                                {(() => {
+                                  const sp = pretrainStats.false_stop_spike_stats;
+                                  if (!sp || !sp.n) return null;
+                                  const cov = sp.coverage || {};
+                                  return (
+                                    <div style={{ marginTop: 10 }}>
+                                      <div style={{ color: COLORS.sub, marginBottom: 4 }}>Profondeur faux stops (ATR au-delà SL)</div>
+                                      <div style={{ display: "flex", gap: 4, marginBottom: 5 }}>
+                                        {[["Moy", sp.avg], ["p50", sp.p50], ["p80", sp.p80], ["p90", sp.p90]].map(([lbl, val]) => (
+                                          <div key={lbl} style={{ flex: 1, textAlign: "center", background: COLORS.border + "55", borderRadius: 3, padding: "3px 2px" }}>
+                                            <div style={{ fontSize: 8, color: COLORS.sub }}>{lbl}</div>
+                                            <div style={{ fontSize: 10, color: COLORS.amber }}>{val}</div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                      <div style={{ fontSize: 9, color: COLORS.sub, marginBottom: 3 }}>+X ATR sur SL → couverture faux stops</div>
+                                      {Object.entries(cov).map(([thresh, pct]) => (
+                                        <div key={thresh} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
+                                          <div style={{ width: 32, fontSize: 9, color: COLORS.sub, flexShrink: 0 }}>+{thresh}</div>
+                                          <div style={{ flex: 1, background: COLORS.border + "44", borderRadius: 2, height: 8, overflow: "hidden" }}>
+                                            <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: pct >= 50 ? COLORS.green : COLORS.amber, borderRadius: 2 }} />
+                                          </div>
+                                          <div style={{ width: 36, textAlign: "right", fontSize: 9, color: COLORS.text, flexShrink: 0 }}>{pct}%</div>
+                                        </div>
+                                      ))}
+                                      <div style={{ fontSize: 9, color: COLORS.sub, marginTop: 2 }}>N={sp.n} faux stops · SL actuel=1.4×ATR</div>
+                                    </div>
+                                  );
+                                })()}
+
+                                {/* Faux stops % par heure CET */}
+                                {(() => {
+                                  const fsbh = pretrainStats.false_stop_by_hour || {};
+                                  if (Object.keys(fsbh).length === 0) return null;
+                                  const hours = [8,9,10,11,12,13,14,15,16,17,18];
+                                  const isLondon = h => h >= 8 && h < 12;
+                                  const isNY     = h => h >= 14 && h < 18;
+                                  return (
+                                    <div style={{ marginTop: 10 }}>
+                                      <div style={{ color: COLORS.sub, marginBottom: 4 }}>% Faux stops par heure CET</div>
+                                      {hours.map(h => {
+                                        const d = fsbh[String(h)];
+                                        if (!d) return null;
+                                        const pct = d.pct_false;
+                                        const barCol = pct >= 60 ? COLORS.red : pct >= 40 ? COLORS.amber : COLORS.green;
+                                        const rowBg = isLondon(h) ? "#3b82f611" : isNY(h) ? "#f9731611" : "transparent";
+                                        const sessTag = isLondon(h) ? " Lo" : isNY(h) ? " NY" : "";
+                                        return (
+                                          <div key={h} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2, background: rowBg, borderRadius: 2, padding: "1px 3px" }}>
+                                            <div style={{ width: 32, color: COLORS.text, fontSize: 9, flexShrink: 0 }}>{h}h{sessTag}</div>
+                                            <div style={{ flex: 1, background: COLORS.border + "44", borderRadius: 2, height: 10, overflow: "hidden" }}>
+                                              <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: barCol, borderRadius: 2 }} />
+                                            </div>
+                                            <div style={{ width: 68, textAlign: "right", fontSize: 9, color: barCol, flexShrink: 0 }}>
+                                              {pct}% ({d.n_false_stops}/{d.n_sl})
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                      <div style={{ color: COLORS.sub, fontSize: 9, marginTop: 2 }}>
+                                        % faux stops / SL directs · rouge≥60% · orange40-60% · vert&lt;40%
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+
+                                {/* Faux stops % par pattern */}
+                                {(() => {
+                                  const fsbp = pretrainStats.false_stop_by_pattern || {};
+                                  const entries = Object.entries(fsbp);
+                                  if (entries.length === 0) return null;
+                                  return (
+                                    <div style={{ marginTop: 10 }}>
+                                      <div style={{ color: COLORS.sub, marginBottom: 4 }}>% Faux stops par pattern</div>
+                                      {entries.map(([pat, d]) => {
+                                        const pct = d.pct_false;
+                                        const barCol = pct >= 60 ? COLORS.red : pct >= 40 ? COLORS.amber : COLORS.green;
+                                        return (
+                                          <div key={pat} style={{ marginBottom: 3 }}>
+                                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 1 }}>
+                                              <span style={{ color: COLORS.sub, fontSize: 9 }}>{pat}</span>
+                                              <span style={{ color: barCol, fontSize: 9 }}>{pct}% ({d.n_false_stops}/{d.n_sl})</span>
+                                            </div>
+                                            <div style={{ background: COLORS.border + "44", borderRadius: 2, height: 6 }}>
+                                              <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: barCol, borderRadius: 2 }} />
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                      <div style={{ color: COLORS.sub, fontSize: 9, marginTop: 2 }}>
+                                        % faux stops parmi SL directs par pattern
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+
                                 {/* Patterns dominants dans les pertes */}
                                 {pretrainStats.top_patterns_losses?.length > 0 && (
                                   <div style={{ marginTop: 6 }}>
