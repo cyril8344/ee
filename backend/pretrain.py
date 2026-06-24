@@ -33,7 +33,7 @@ from strategy_ict import evaluate_ict
 from backtest import load_m5_data, resample, _try_exit
 import database as db
 import data_provider as _dp
-from ml_gate import OnlineLogisticRegression, AdaptiveThresholds
+from ml_gate import OnlineLogisticRegression, AdaptiveThresholds, N_FEATURES
 
 # --------------------------------------------------------------------------- #
 # État de progression (partagé avec l'API)
@@ -126,7 +126,7 @@ def run_pretrain(
         # ---- Initialiser les systèmes d'apprentissage ----
         if reset:
             gate     = OnlineLogisticRegression.__new__(OnlineLogisticRegression)
-            gate.weights            = [0.0] * 6
+            gate.weights            = [0.0] * N_FEATURES
             gate.bias_w             = 0.0
             gate.n_samples          = 0
             gate.consecutive_losses = 0
