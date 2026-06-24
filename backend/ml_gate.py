@@ -21,8 +21,8 @@ import math
 from typing import Dict, List, Optional, Tuple
 
 N_MIN_TRADES  = 15    # trades min avant activation du ML gate
-THRESHOLD     = 0.55  # seuil relevé pour réduire l'over-trading
-STREAK_BOOST  = 0.05  # boost du seuil par perte au-delà de 2 consécutives
+THRESHOLD     = 0.50  # seuil aligné sur le WR de base (~50%)
+STREAK_BOOST  = 0.02  # boost du seuil par perte au-delà de 2 consécutives
 STREAK_CAP    = 0.30  # boost maximum (+30 % → seuil max 0.85)
 LEARNING_RATE = 0.05
 L2_LAMBDA     = 0.01
