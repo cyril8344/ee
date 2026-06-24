@@ -822,6 +822,10 @@ def evaluate(
     if bias == "SHORT" and rsi_m5 > 55:
         return None
 
+    # 5c) M5 market structure — HH/HL requis pour LONG, LH/LL pour SHORT
+    if not market_structure_ok(m5, bias):
+        return None
+
     # 6) Candlestick pattern trigger (any single pattern is enough)
     entry = float(cur["close"])
     triggers = []
