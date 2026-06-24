@@ -434,7 +434,9 @@ def confirm_m15(m15: pd.DataFrame, bias: str, ema_mult: float = 0.3) -> bool:
     cur = m15.iloc[-1]
     if any(pd.isna(cur[c]) for c in ("ema9", "ema21", "rsi")):
         return False
-    rsi_ok = RSI_LOW <= cur["rsi"] <= RSI_HIGH
+    # Directionnel : LONG requiert RSI > 40, SHORT requiert RSI < 60
+    rsi = float(cur["rsi"])
+    rsi_ok = rsi >= RSI_LOW if bias == "LONG" else rsi <= RSI_HIGH
     atr_m15 = float(cur.get("atr", 0) or 0)
     price = float(cur.get("close", 1) or 1)
     pip_floor = price * 0.0001
@@ -1174,7 +1176,8 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
                 m15_ema_aligned = bool(cur15_d["ema9"] >= cur15_d["ema21"] - tol_d)
             else:
                 m15_ema_aligned = bool(cur15_d["ema9"] <= cur15_d["ema21"] + tol_d)
-            m15_rsi_ok = bool(RSI_LOW <= cur15_d["rsi"] <= RSI_HIGH)
+            _rsi15 = float(cur15_d["rsi"])
+            m15_rsi_ok = bool(_rsi15 >= RSI_LOW) if bias == "LONG" else bool(_rsi15 <= RSI_HIGH)
 
     atr_val = float(cur5["atr"]) if (cur5 is not None and not pd.isna(cur5.get("atr", float("nan")))) else 0.0
     atr_ok = atr_val >= snap_atr_min
