@@ -824,14 +824,6 @@ def evaluate(
     if bias == "SHORT" and rsi_m5 > 55:
         return None
 
-    # 5c) VWAP alignment — ne pas entrer contre le VWAP intraday
-    vwap_val = float(cur.get("vwap", float("nan")))
-    if not pd.isna(vwap_val) and vwap_val > 0:
-        if bias == "LONG"  and float(cur["close"]) < vwap_val:
-            return None
-        if bias == "SHORT" and float(cur["close"]) > vwap_val:
-            return None
-
     # 6) Candlestick pattern trigger (any single pattern is enough)
     entry = float(cur["close"])
     triggers = []
