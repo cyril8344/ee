@@ -260,11 +260,16 @@ def evaluate_ict(
 
     return Signal(
         direction=direction.lower(),
+        bias=direction,
+        session=session,
         entry=entry,
         stop_loss=sl,
         take_profit1=tp1,
         take_profit2=tp2,
-        session=session,
+        atr=atr_val,
+        reason="AMD_FVG",
+        risk_distance=risk,
+        timestamp=ts,
         meta={
             "strategy":   "B_AMD",
             "asian_high": round(asian["high"], 5),
