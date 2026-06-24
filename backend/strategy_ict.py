@@ -28,8 +28,8 @@ OB_IMPULSE_ATR    = 1.5  # impulse minimum après l'OB pour le qualifier (en ATR
 OB_MAX_BARS       = 50   # cherche les OBs dans les 50 dernières bougies M5 (~4h)
 OB_MIN_BODY_ATR   = 0.2  # corps minimum de la bougie OB (filtre dojis)
 OB_MAX_HEIGHT_ATR = 1.5  # hauteur maximale de l'OB — OBs trop larges = R:R défavorable
-OB_ENTRY_BUFFER   = 0.1  # entre à 0.1×ATR depuis l'extrême de l'OB (ordre limite)
 SL_BUFFER_ATR     = 0.3  # buffer SL derrière l'extrême de l'OB
+MAX_RISK_ATR      = 1.5  # plafond risque — SL jamais > 1.5×ATR de l'entrée
 TP1_R             = 0.7
 TP2_R             = 1.8
 
@@ -180,26 +180,23 @@ def evaluate_ict(
     if not _in_ob(float(cur["low"]), float(cur["high"]), ob):
         return None
 
-    # 6) Niveaux du trade — entrée ordre limite à l'extrême de l'OB
-    # LONG : entrée au bas de l'OB (ob_low + buffer) → SL juste en dessous
-    # SHORT : entrée au haut de l'OB (ob_high - buffer) → SL juste au-dessus
-    # Risque fixe ~0.4×ATR (OB_ENTRY_BUFFER + SL_BUFFER_ATR)
+    # 6) Niveaux du trade
+    # Entrée au close de la barre en retest
+    # SL derrière l'extrême de l'OB + buffer, plafonné à MAX_RISK_ATR×ATR
+    entry = float(cur["close"])
+
     if direction == "LONG":
-        entry = ob["low"] + OB_ENTRY_BUFFER * atr_val
-        if float(cur["low"]) > entry:
-            return None  # barre n'a pas touché le bas de l'OB → pas de fill
-        sl   = ob["low"] - SL_BUFFER_ATR * atr_val
-        risk = abs(entry - sl)
+        raw_sl = ob["low"] - SL_BUFFER_ATR * atr_val
+        sl     = max(raw_sl, entry - MAX_RISK_ATR * atr_val)
+        risk   = abs(entry - sl)
         if risk <= 0:
             return None
         tp1 = entry + TP1_R * risk
         tp2 = entry + TP2_R * risk
     else:
-        entry = ob["high"] - OB_ENTRY_BUFFER * atr_val
-        if float(cur["high"]) < entry:
-            return None  # barre n'a pas touché le haut de l'OB → pas de fill
-        sl   = ob["high"] + SL_BUFFER_ATR * atr_val
-        risk = abs(entry - sl)
+        raw_sl = ob["high"] + SL_BUFFER_ATR * atr_val
+        sl     = min(raw_sl, entry + MAX_RISK_ATR * atr_val)
+        risk   = abs(entry - sl)
         if risk <= 0:
             return None
         tp1 = entry - TP1_R * risk
