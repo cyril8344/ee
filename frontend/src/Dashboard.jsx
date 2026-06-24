@@ -1273,6 +1273,58 @@ export default function Dashboard({ onLogout }) {
                                   );
                                 })}
 
+                                {/* Diagnostic indicateurs : SL direct vs TP2 */}
+                                {(() => {
+                                  const diag = pretrainStats.indicator_diagnostic || {};
+                                  const sl  = diag["SL_direct"] || {};
+                                  const tp2 = diag["TP2"] || {};
+                                  if (!sl.n || !tp2.n) return null;
+                                  const rows = [
+                                    { key: "rsi_m5",     label: "RSI M5"   },
+                                    { key: "rsi_m15",    label: "RSI M15"  },
+                                    { key: "adx_h1",     label: "ADX H1"   },
+                                    { key: "atr",        label: "ATR"      },
+                                    { key: "london_pct", label: "London %" },
+                                  ];
+                                  return (
+                                    <div style={{ marginTop: 8 }}>
+                                      <div style={{ color: COLORS.sub, marginBottom: 4 }}>Indicateurs : SL direct vs TP2</div>
+                                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+                                        <thead>
+                                          <tr>
+                                            <th style={{ textAlign: "left", color: COLORS.sub, fontWeight: "normal", paddingBottom: 3 }}>Indicateur</th>
+                                            <th style={{ textAlign: "right", color: COLORS.red, fontWeight: "normal" }}>SL dir ({sl.n})</th>
+                                            <th style={{ textAlign: "right", color: COLORS.green, fontWeight: "normal" }}>TP2 ({tp2.n})</th>
+                                            <th style={{ textAlign: "right", color: COLORS.amber, fontWeight: "normal" }}>Δ</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {rows.map(({ key, label }) => {
+                                            const sv = sl[key];
+                                            const tv = tp2[key];
+                                            const delta = (sv != null && tv != null) ? sv - tv : null;
+                                            const abs = Math.abs(delta ?? 0);
+                                            const deltaCol = abs >= 5 ? COLORS.amber : COLORS.sub;
+                                            return (
+                                              <tr key={key}>
+                                                <td style={{ color: COLORS.sub, paddingRight: 4, paddingTop: 2 }}>{label}</td>
+                                                <td style={{ textAlign: "right", color: COLORS.red, paddingTop: 2 }}>{sv ?? "—"}</td>
+                                                <td style={{ textAlign: "right", color: COLORS.green, paddingTop: 2 }}>{tv ?? "—"}</td>
+                                                <td style={{ textAlign: "right", color: deltaCol, fontWeight: abs >= 5 ? 600 : "normal", paddingTop: 2 }}>
+                                                  {delta != null ? `${delta >= 0 ? "+" : ""}${delta.toFixed(1)}` : "—"}
+                                                </td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                      <div style={{ color: COLORS.sub, fontSize: 9, marginTop: 3 }}>
+                                        Δ en orange = indicateur discriminant → resserrer son seuil
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+
                                 {/* Patterns dominants dans les pertes */}
                                 {pretrainStats.top_patterns_losses?.length > 0 && (
                                   <div style={{ marginTop: 6 }}>
