@@ -163,7 +163,7 @@ def run_pretrain(
         mae_loss   = []   # MAE en R des trades perdants
         mfe_loss   = []   # MFE en R des trades perdants
         trades_log = []   # log détaillé par trade (pour analyse erreur/erreur)
-        last_ict_asian_end = None  # verrou strat B : un seul trade par range asiatique
+        last_ob_ts = None  # verrou strat B : un seul trade par OB
 
         _set(bars_total=total, status="Analyse des trades historiques…")
 
@@ -310,10 +310,10 @@ def run_pretrain(
                 m5_win = m5.iloc[max(0, i - ICT_M5_WINDOW + 1): i + 1]
                 sig = evaluate_ict(m5_win, m15_s, h1_s, now=ts.to_pydatetime(),
                                    atr_min=effective_atr)
-                # Verrou : un seul trade par range asiatique
+                # Verrou : un seul trade par OB (évite entrées multiples sur le même OB)
                 if sig is not None:
-                    asian_end = sig.meta.get("asian_end")
-                    if asian_end is not None and asian_end == last_ict_asian_end:
+                    ob_ts = sig.meta.get("ob_ts")
+                    if ob_ts is not None and ob_ts == last_ob_ts:
                         sig = None
             else:
                 sig = evaluate(
@@ -326,9 +326,9 @@ def run_pretrain(
             if sig is None:
                 continue
 
-            # Verrou strat B : mémoriser le range asiatique de ce trade
+            # Verrou strat B : mémoriser l'OB utilisé pour ce trade
             if strategy_mode == "B":
-                last_ict_asian_end = sig.meta.get("asian_end")
+                last_ob_ts = sig.meta.get("ob_ts")
 
             fill = sig.entry + (spread + slippage) * (1 if sig.direction == "long" else -1)
             sl_dist = abs(fill - sig.stop_loss)
@@ -345,7 +345,7 @@ def run_pretrain(
                 "tp2":          sig.take_profit2,
                 "volume":       volume,
                 "tp1_done":     False,
-                "be_after_tp1": (strategy_mode == "B"),
+                "be_after_tp1": False,
                 "remaining":    volume,
                 "realised":     0.0,
                 "max_exit_time": ts.to_pydatetime() + timedelta(minutes=sig.max_duration_min),

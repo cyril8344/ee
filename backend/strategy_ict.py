@@ -1,21 +1,20 @@
 """
-strategy_ict.py — Stratégie B : AMD + FVG
-==========================================
-Accumulation (Asian session) → Manipulation (London sweep) → Distribution (FVG retest)
-
+strategy_ict.py — Stratégie B : Order Block M5
+===============================================
 Pipeline :
-1. Accumulation  = Session Asiatique 22:00–07:00 UTC → high/low identifiés
-2. Manipulation  = Session London 07:00–12:00 UTC → sweep du high ou low asiatique
-   - Sweep du LOW  → setup LONG (liquidité aspirée, renversement haussier attendu)
-   - Sweep du HIGH → setup SHORT (liquidité aspirée, renversement baissier attendu)
-3. Distribution  = Retest d'un FVG formé après le sweep → entrée dans la direction inverse
-   SL  = derrière l'extrême du sweep (+ buffer)
-   TP1 = 1.5R, TP2 = 3.0R
+1. Biais H1 (EMA50 vs EMA200)
+2. Détection OBs M5 récents alignés avec le biais (non mitiguées)
+3. Entrée si prix en retest du dernier OB valide
+4. SL = derrière l'OB + buffer
+5. TP1 = 0.7R, TP2 = 1.8R
+
+OB baissier (LONG) : dernière bougie rouge avant impulse haussier ≥ 1.5×ATR
+OB haussier (SHORT) : dernière bougie verte avant impulse baissier ≥ 1.5×ATR
 """
 
 from __future__ import annotations
 
-from datetime import datetime, date, time, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 
 import pandas as pd
@@ -25,164 +24,108 @@ from strategy import Signal, active_session, is_bad_timing, ATR_MIN
 # ──────────────────────────────────────────────────────────────────────────────
 # Paramètres
 # ──────────────────────────────────────────────────────────────────────────────
-ASIAN_START_H   = 22    # 22:00 UTC (veille)
-ASIAN_END_H     = 7     # 07:00 UTC
-MANIP_START_H   = 7     # début manipulation London
-MANIP_END_H     = 12    # fin manipulation London
-SWEEP_BUFFER    = 0.15  # en ATR — marge pour confirmer le sweep
-SL_BUFFER_ATR   = 0.3   # buffer SL au-delà de l'extrême du sweep
-MAX_SL_ATR      = 4.0   # plafond SL pour éviter des stops géants
+OB_IMPULSE_ATR  = 1.5   # impulse minimum après l'OB pour le qualifier (en ATR)
+OB_MAX_BARS     = 50    # cherche les OBs dans les 50 dernières bougies M5 (~4h)
+OB_MIN_BODY_ATR = 0.2   # corps minimum de la bougie OB (filtre dojis)
+SL_BUFFER_ATR   = 0.3   # buffer SL au-delà de l'extrême de l'OB
+MAX_SL_ATR      = 4.0   # plafond SL (évite les stops géants)
 TP1_R           = 0.7
 TP2_R           = 1.8
-MAX_TRADE_MIN   = 90    # durée max en minutes
-FVG_MIN_ATR     = 0.25  # taille minimum d'un FVG (en ATR) — était 0.15
-FVG_MAX_BARS    = 12    # on ignore les FVGs formés il y a > 12 bougies M5 (= 1h) — était 60
-MIN_ASIAN_BARS  = 4     # bougies minimum pour valider le range asiatique
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 1. Range asiatique
+# 1. Biais H1
 # ──────────────────────────────────────────────────────────────────────────────
-def _asian_range(df: pd.DataFrame, now: datetime) -> Optional[Dict[str, Any]]:
-    """High/low de la session asiatique (22:00–07:00 UTC) précédant 'now'."""
-    if df.index.tz is None:
+def _h1_bias(h1: pd.DataFrame) -> Optional[str]:
+    """'LONG', 'SHORT' ou None (neutre — EMA50/EMA200 trop proches)."""
+    if len(h1) == 0:
         return None
-
-    now_utc = now.astimezone(timezone.utc)
-    today   = now_utc.date()
-
-    asian_end   = datetime.combine(today, time(ASIAN_END_H, 0), tzinfo=timezone.utc)
-    asian_start = datetime.combine(today - timedelta(days=1),
-                                   time(ASIAN_START_H, 0), tzinfo=timezone.utc)
-
-    # Avant 07:00 UTC, décaler d'un jour
-    if now_utc.hour < ASIAN_END_H:
-        asian_end   -= timedelta(days=1)
-        asian_start -= timedelta(days=1)
-
-    bars = df[(df.index >= asian_start) & (df.index < asian_end)]
-    if len(bars) < MIN_ASIAN_BARS:
+    last = h1.iloc[-1]
+    ema50  = last.get("ema50",  None)
+    ema200 = last.get("ema200", None)
+    if ema50 is None or ema200 is None or pd.isna(ema50) or pd.isna(ema200):
         return None
-
-    return {
-        "high":  float(bars["high"].max()),
-        "low":   float(bars["low"].min()),
-        "start": asian_start,
-        "end":   asian_end,
-    }
+    if float(ema50) > float(ema200):
+        return "LONG"
+    if float(ema50) < float(ema200):
+        return "SHORT"
+    return None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 2. Détection du sweep (manipulation London)
+# 2. Détection des Order Blocks M5
 # ──────────────────────────────────────────────────────────────────────────────
-def _detect_sweep(
+def _find_order_blocks(
     df: pd.DataFrame,
-    asian: Dict[str, Any],
-    now: datetime,
-    atr_val: float,
-) -> Optional[Dict[str, Any]]:
-    """
-    Retourne {"direction": "LONG"|"SHORT", "extreme": price, "ts": timestamp}
-    - LONG  : low asiatique cassé (chasse de la liquidité basse → rebond haussier)
-    - SHORT : high asiatique cassé (chasse de la liquidité haute → rebond baissier)
-    Si les deux sont cassés, priorité au sweep le plus récent.
-    """
-    now_utc = now.astimezone(timezone.utc)
-    today   = now_utc.date()
-
-    m_start = datetime.combine(today, time(MANIP_START_H, 0), tzinfo=timezone.utc)
-    m_end   = datetime.combine(today, time(MANIP_END_H, 0), tzinfo=timezone.utc)
-
-    if now_utc < m_start:
-        return None  # manipulation pas encore commencée
-
-    london = df[(df.index >= m_start) & (df.index < min(m_end, now_utc))]
-    if len(london) == 0:
-        return None
-
-    tol = SWEEP_BUFFER * atr_val
-
-    low_bars  = london[london["low"]  < asian["low"]  - tol]
-    high_bars = london[london["high"] > asian["high"] + tol]
-
-    swept_low  = len(low_bars)  > 0
-    swept_high = len(high_bars) > 0
-
-    if not swept_low and not swept_high:
-        return None
-
-    # Double sweep → priorité au plus récent
-    if swept_low and swept_high:
-        ts_low  = low_bars.index[-1]
-        ts_high = high_bars.index[-1]
-        if ts_low > ts_high:
-            swept_high = False
-        else:
-            swept_low = False
-
-    if swept_low:
-        return {
-            "direction": "LONG",
-            "extreme":   float(low_bars["low"].min()),
-            "ts":        low_bars.index[-1],
-        }
-    else:
-        return {
-            "direction": "SHORT",
-            "extreme":   float(high_bars["high"].max()),
-            "ts":        high_bars.index[-1],
-        }
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# 3. FVGs après le sweep
-# ──────────────────────────────────────────────────────────────────────────────
-def _fvgs_after_sweep(
-    df: pd.DataFrame,
-    sweep_ts: Any,
     direction: str,
     atr_val: float,
-) -> List[Dict[str, float]]:
+) -> List[Dict[str, Any]]:
     """
-    FVGs formés après le sweep, dans la direction du trade.
-    FVG haussier (LONG)  : bar[i+2].low  > bar[i].high  → zone de support
-    FVG baissier (SHORT) : bar[i+2].high < bar[i].low   → zone de résistance
+    Retourne les OBs valides (non mitiguées) dans les OB_MAX_BARS dernières bougies.
+
+    LONG  : OB = dernière bougie rouge (close < open) avant impulse haussier ≥ OB_IMPULSE_ATR×ATR
+    SHORT : OB = dernière bougie verte (close > open) avant impulse baissier ≥ OB_IMPULSE_ATR×ATR
+
+    Zone OB = [low, high] de cette bougie.
+    Mitigation : exclut l'OB si le prix y est déjà repassé à travers après sa formation.
     """
-    post = df[df.index > sweep_ts].tail(FVG_MAX_BARS)
-    if len(post) < 3:
+    recent = df.tail(OB_MAX_BARS + 5)
+    n = len(recent)
+    if n < 5:
         return []
 
-    min_size = FVG_MIN_ATR * atr_val
-    fvgs: List[Dict[str, float]] = []
+    min_impulse = OB_IMPULSE_ATR * atr_val
+    min_body    = OB_MIN_BODY_ATR * atr_val
+    obs: List[Dict[str, Any]] = []
 
-    for i in range(len(post) - 2):
-        b1 = post.iloc[i]
-        b3 = post.iloc[i + 2]
+    for i in range(n - 4):
+        bar    = recent.iloc[i]
+        b_open  = float(bar["open"])
+        b_close = float(bar["close"])
+        b_high  = float(bar["high"])
+        b_low   = float(bar["low"])
+
+        if abs(b_close - b_open) < min_body:
+            continue  # doji → pas un OB valide
+
+        after = recent.iloc[i + 1: i + 4]
 
         if direction == "LONG":
-            gap_lo = float(b1["high"])
-            gap_hi = float(b3["low"])
-            if gap_hi > gap_lo and (gap_hi - gap_lo) >= min_size:
-                fvgs.append({"low": gap_lo, "high": gap_hi})
-        else:
-            gap_hi = float(b1["low"])
-            gap_lo = float(b3["high"])
-            if gap_hi > gap_lo and (gap_hi - gap_lo) >= min_size:
-                fvgs.append({"low": gap_lo, "high": gap_hi})
+            if b_close >= b_open:
+                continue  # doit être baissière
+            impulse = float(after["high"].max()) - b_high
+            if impulse < min_impulse:
+                continue
+        else:  # SHORT
+            if b_close <= b_open:
+                continue  # doit être haussière
+            impulse = b_low - float(after["low"].min())
+            if impulse < min_impulse:
+                continue
 
-    return fvgs
+        # Vérifier que l'OB n'est pas encore mitiguée
+        post = recent.iloc[i + 1:]
+        if direction == "LONG" and float(post["low"].min()) < b_low:
+            continue  # prix passé sous l'OB → mitiguée
+        if direction == "SHORT" and float(post["high"].max()) > b_high:
+            continue  # prix passé au-dessus de l'OB → mitiguée
+
+        obs.append({
+            "low":  b_low,
+            "high": b_high,
+            "ts":   recent.index[i],
+        })
+
+    return obs
 
 
-def _in_fvg(bar_low: float, bar_high: float, fvgs: List[Dict]) -> bool:
-    """True si la bougie actuelle touche un FVG (wick ou corps)."""
-    for fvg in fvgs:
-        if bar_low <= fvg["high"] and bar_high >= fvg["low"]:
-            return True
-    return False
+def _in_ob(bar_low: float, bar_high: float, ob: Dict) -> bool:
+    """True si la bougie actuelle touche l'OB (wick ou corps)."""
+    return bar_low <= ob["high"] and bar_high >= ob["low"]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 4. Évaluation principale
+# 3. Évaluation principale
 # ──────────────────────────────────────────────────────────────────────────────
 def evaluate_ict(
     m5: pd.DataFrame,
@@ -192,10 +135,7 @@ def evaluate_ict(
     check_session: bool = True,
     atr_min: float = ATR_MIN,
 ) -> Optional[Signal]:
-    """
-    Stratégie B — AMD + FVG.
-    Nom gardé 'evaluate_ict' pour compatibilité avec main.py et pretrain.py.
-    """
+    """Stratégie B — Order Block M5 avec biais H1."""
     if len(m5) < 50:
         return None
 
@@ -219,50 +159,45 @@ def evaluate_ict(
     if atr_val < atr_min:
         return None
 
-    # 3) Range asiatique
-    asian = _asian_range(m5, ts)
-    if asian is None:
+    # 3) Biais H1
+    direction = _h1_bias(h1)
+    if direction is None:
         return None
 
-    # 4) Sweep London (manipulation)
-    sweep = _detect_sweep(m5, asian, ts, atr_val)
-    if sweep is None:
+    # 4) Order Blocks M5 récents non mitiguées
+    obs = _find_order_blocks(m5, direction, atr_val)
+    if not obs:
         return None
 
-    direction = sweep["direction"]
+    # Dernier OB valide (le plus récent)
+    ob = obs[-1]
 
-    # 5) FVGs formés après le sweep
-    fvgs = _fvgs_after_sweep(m5, sweep["ts"], direction, atr_val)
-    if not fvgs:
+    # 5) Prix actuel en retest de l'OB
+    if not _in_ob(float(cur["low"]), float(cur["high"]), ob):
         return None
 
-    # 6) Prix actuel dans le FVG le plus récent uniquement (le plus proche du sweep)
-    if not _in_fvg(float(cur["low"]), float(cur["high"]), [fvgs[-1]]):
-        return None
-
-    # 7) Niveaux du trade
+    # 6) Niveaux du trade
     entry = float(cur["close"])
 
     if direction == "LONG":
-        raw_sl = min(sweep["extreme"], asian["low"]) - SL_BUFFER_ATR * atr_val
-        sl = max(raw_sl, entry - MAX_SL_ATR * atr_val)
-        risk = abs(entry - sl)
+        raw_sl = ob["low"] - SL_BUFFER_ATR * atr_val
+        sl     = max(raw_sl, entry - MAX_SL_ATR * atr_val)
+        risk   = abs(entry - sl)
         if risk <= 0:
             return None
         tp1 = entry + TP1_R * risk
-        tp2 = float(asian["high"])   # AMD : distribution → autre extrême du range asiatique
-        if tp2 <= entry + 2.0 * risk:  # R/R minimum 2:1 requis
-            return None
+        tp2 = entry + TP2_R * risk
     else:
-        raw_sl = max(sweep["extreme"], asian["high"]) + SL_BUFFER_ATR * atr_val
-        sl = min(raw_sl, entry + MAX_SL_ATR * atr_val)
-        risk = abs(entry - sl)
+        raw_sl = ob["high"] + SL_BUFFER_ATR * atr_val
+        sl     = min(raw_sl, entry + MAX_SL_ATR * atr_val)
+        risk   = abs(entry - sl)
         if risk <= 0:
             return None
         tp1 = entry - TP1_R * risk
-        tp2 = float(asian["low"])    # AMD : distribution → autre extrême du range asiatique
-        if tp2 >= entry - 2.0 * risk:  # R/R minimum 2:1 requis
-            return None
+        tp2 = entry - TP2_R * risk
+
+    ob_ts = ob["ts"]
+    ob_ts_str = ob_ts.isoformat() if hasattr(ob_ts, "isoformat") else str(ob_ts)
 
     return Signal(
         direction=direction.lower(),
@@ -273,16 +208,13 @@ def evaluate_ict(
         take_profit1=tp1,
         take_profit2=tp2,
         atr=atr_val,
-        reason="AMD_FVG",
+        reason="OB_RETEST",
         risk_distance=risk,
         timestamp=ts,
         meta={
-            "strategy":   "B_AMD",
-            "asian_high": round(asian["high"], 5),
-            "asian_low":  round(asian["low"],  5),
-            "asian_end":  asian["end"].isoformat(),
-            "sweep_dir":  direction,
-            "sweep_ext":  round(sweep["extreme"], 5),
-            "n_fvgs":     len(fvgs),
+            "strategy": "B_OB",
+            "ob_low":   round(ob["low"],  5),
+            "ob_high":  round(ob["high"], 5),
+            "ob_ts":    ob_ts_str,
         },
     )

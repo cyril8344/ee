@@ -138,9 +138,9 @@ After merging to `main`:
 - **TP1 = 0.7R**, **TP2 = 1.8R** — gap TP1→TP2 = 1.1R; TP2=1.4R testé mais moins bon, 1.8R optimal confirmé
 - **Pas de déplacement SL après TP1** — l'or pullback régulièrement sous l'entrée après TP1. Le SL reste au niveau initial. Pire cas après TP1=0.7R : +0.7×50% − SL×50% = −0.35R net (si SL=1.4R).
 - **ML Gate: 8 features** (h1_rsi_norm + hour_in_session ajoutés en June 2026) — ML weights must be reset after any feature count change
-- **Strategy B (EUR/USD) simplified** (June 2026) : accumulation M15 (range serré < 2.5×ATR sur 12 bougies) + breakout + Order Block M5. Supprimé : Sweep, CHoCH, Golden Pocket, VWAP filter.
+- **Strategy B (EUR/USD) Order Block only** (June 2026) : biais H1 (EMA50 vs EMA200) + OB M5 non mitiguée + retest → TP1=0.7R, TP2=1.8R. Supprimé : AMD, FVG, Asian range, sweep, accumulation.
 - **Strategy A (XAU/USD)** : EMA/patterns, toujours actif sur XAUUSD, non modifiable depuis le dashboard
-- **Strategy B (EUR/USD)** : accumulation+breakout+OB via `strategy_ict.py`, toujours actif sur EURUSD, non modifiable depuis le dashboard
+- **Strategy B (EUR/USD)** : Order Block M5 via `strategy_ict.py`, toujours actif sur EURUSD, non modifiable depuis le dashboard
 - `MT5Broker` in `broker.py` requires MetaTrader5 (Windows only, manual install); `PaperBroker` is the default everywhere else
 
 ## Secrets — Never Commit
