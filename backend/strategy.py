@@ -901,7 +901,7 @@ def evaluate(
         + (1 if (bias == "LONG" and rsi_m5 > 55) or (bias == "SHORT" and rsi_m5 < 45) else 0)
         + (1 if weight_sum >= 1.5 else 0)
     )
-    sl_mult = SL_ATR_MULT if quality_score >= 2 else 1.2
+    sl_mult = SL_ATR_MULT
 
     if bias == "LONG":
         swing = last_swing_low(m5, lookback=10)
