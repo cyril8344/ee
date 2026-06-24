@@ -832,6 +832,15 @@ def evaluate(
     if bias == "SHORT" and rsi_m5 > 55:
         return None
 
+    # 5c) VWAP directionnel — LONG sous VWAP, SHORT au-dessus VWAP
+    # Delta +4.7 dans pretrain : SL directs arrivent 4.7% plus souvent au-dessus VWAP
+    vwap_val = float(cur.get("vwap", 0) or 0)
+    if vwap_val > 0:
+        if bias == "LONG"  and float(cur["close"]) > vwap_val:
+            return None
+        if bias == "SHORT" and float(cur["close"]) < vwap_val:
+            return None
+
     # 6) Candlestick pattern trigger (any single pattern is enough)
     entry = float(cur["close"])
     triggers = []
