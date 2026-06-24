@@ -512,6 +512,7 @@ def launch_pretrain(
     capital: float = 1_000.0,
     risk_pct: float = 5.0,
     strategy_mode: str = "A",
+    on_complete=None,
 ) -> None:
     """Lance le pré-entraînement dans un thread daemon (non-bloquant)."""
     if get_progress()["running"]:
@@ -526,6 +527,8 @@ def launch_pretrain(
         try:
             run_pretrain(start, end, symbol=symbol, atr_min=atr_min, reset=reset,
                          capital=capital, risk_pct=risk_pct, strategy_mode=strategy_mode)
+            if on_complete:
+                on_complete()
         except Exception as exc:
             _set(running=False, status="error", error=str(exc))
 

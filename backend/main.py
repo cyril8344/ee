@@ -1116,6 +1116,7 @@ def start_pretrain(req: PretrainRequest, _user: dict = Depends(get_current_user)
         symbol=req.symbol, atr_min=req.atr_min, reset=req.reset,
         capital=req.capital, risk_pct=req.risk_pct,
         strategy_mode=req.strategy_mode,
+        on_complete=state.ml_gate._load,
     )
     return {"ok": True, "message": "Pré-entraînement lancé", "progress": _pretrain_module.get_progress()}
 
