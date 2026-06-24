@@ -943,8 +943,8 @@ export default function Dashboard({ onLogout }) {
                       <span style={{ color: COLORS.sub }}>ML Gate</span>
                       {!mkt.conditions.ml_ready ? (
                         <span style={{ color: COLORS.grey, fontSize: 11 }}>
-                          {state?.ml_gate?.n_samples != null
-                            ? `apprentissage… ${state.ml_gate.n_samples}/${state.ml_gate.n_min}`
+                          {mkt?.ml_gate?.n_samples != null
+                            ? `apprentissage… ${mkt.ml_gate.n_samples}/${mkt.ml_gate.n_min}`
                             : "inactif"}
                         </span>
                       ) : (
@@ -955,20 +955,20 @@ export default function Dashboard({ onLogout }) {
                           fontWeight: 600,
                         }}>
                           {mkt.conditions.ml_prob != null
-                            ? `${(mkt.conditions.ml_prob * 100).toFixed(0)}% ${mkt.conditions.ml_prob >= (state?.ml_gate?.threshold ?? 0.45) ? "✓" : "✗"}`
+                            ? `${(mkt.conditions.ml_prob * 100).toFixed(0)}% ${mkt.conditions.ml_prob >= (mkt?.ml_gate?.threshold ?? 0.45) ? "✓" : "✗"}`
                             : "—"}
                         </span>
                       )}
                     </div>
                     {/* Série noire */}
-                    {state?.ml_gate?.consecutive_losses >= 3 && (
+                    {mkt?.ml_gate?.consecutive_losses >= 3 && (
                       <div style={{ display: "flex", justifyContent: "space-between", paddingLeft: 8, marginTop: 2 }}>
                         <span style={{ color: COLORS.red, fontSize: 10 }}>
-                          ⚠ Série noire ({state.ml_gate.consecutive_losses} pertes)
+                          ⚠ Série noire ({mkt.ml_gate.consecutive_losses} pertes)
                         </span>
                         <span style={{ color: COLORS.amber, fontSize: 10 }}>
-                          seuil {(state.ml_gate.threshold * 100).toFixed(0)}%
-                          {state.ml_gate.streak_boost > 0 && ` (+${(state.ml_gate.streak_boost * 100).toFixed(0)}%)`}
+                          seuil {(mkt.ml_gate.threshold * 100).toFixed(0)}%
+                          {mkt.ml_gate.streak_boost > 0 && ` (+${(mkt.ml_gate.streak_boost * 100).toFixed(0)}%)`}
                         </span>
                       </div>
                     )}
