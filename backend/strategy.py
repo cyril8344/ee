@@ -48,6 +48,7 @@ VOL_AVG_PERIOD = 20
 RSI_LOW = 40.0
 RSI_HIGH = 60.0
 ATR_MIN = 3.0
+ATR_MAX = 7.0   # plafond ATR M5 — au-delà = whipsaw → SL direct (SL dir avg 7.44 vs TP2 avg 5.99)
 ADX_MIN = 25.0
 SR_PROXIMITY_ATR = 0.7
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
@@ -799,10 +800,12 @@ def evaluate(
     if not confirm_m15(m15, bias, ema_mult=effective_m15_mult):
         return None
 
-    # 4) M5 volatility floor
+    # 4) M5 volatility gate — plancher ET plafond
     atr_val = float(cur["atr"]) if not pd.isna(cur["atr"]) else 0.0
     if atr_val < effective_atr_min:
         return None
+    if atr_val > ATR_MAX:
+        return None  # trop volatile → whipsaw → SL direct
 
     # 4b) H1 ADX trend strength — ne trader qu'en vraie tendance
     h1_adx = float(h1.iloc[-1].get("adx", 0)) if len(h1) else 0.0
