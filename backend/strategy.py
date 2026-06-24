@@ -893,15 +893,24 @@ def evaluate(
             return None
 
     # 7) Build trade levels
+    # SL adaptatif : setup faible → SL plus serré (1.0×ATR) → perd moins si SL direct
+    weight_sum = sum(weights)
+    quality_score = (
+        (1 if h1_adx > 35 else 0)
+        + (1 if (bias == "LONG" and rsi_m5 > 55) or (bias == "SHORT" and rsi_m5 < 45) else 0)
+        + (1 if weight_sum >= 1.5 else 0)
+    )
+    sl_mult = SL_ATR_MULT if quality_score >= 2 else 1.0
+
     if bias == "LONG":
         swing = last_swing_low(m5, lookback=10)
         raw_sl = min(swing, entry - 1e-6)
-        sl = max(raw_sl, entry - SL_ATR_MULT * atr_val)
+        sl = max(raw_sl, entry - sl_mult * atr_val)
         direction = "long"
     else:
         swing = last_swing_high(m5, lookback=10)
         raw_sl = max(swing, entry + 1e-6)
-        sl = min(raw_sl, entry + SL_ATR_MULT * atr_val)
+        sl = min(raw_sl, entry + sl_mult * atr_val)
         direction = "short"
 
     risk = abs(entry - sl)
