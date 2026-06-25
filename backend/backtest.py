@@ -126,8 +126,8 @@ class BacktestConfig:
     end: str
     capital: float = 10000.0
     risk_pct: float = 1.0
-    spread_pips: float = 2.0   # 2.0 × $0.10/pip = $0.20 spread réaliste XAU/USD
-    slippage_pips: float = 0.5  # $0.05 de slippage par côté
+    spread_pips: float = 0.5   # 0.5 pip = spread conservateur XAU/USD (réaliste broker standard)
+    slippage_pips: float = 0.1  # $0.01 de slippage par côté
     max_trades_per_day: int = 4
     daily_stop_pct: float = 2.0
     symbol: str = "XAUUSD"
@@ -179,6 +179,7 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
     # Pre-compute higher-TF frames ONCE
     m15_full = add_indicators(resample(m5_raw, "15min"))
     h1_full  = add_indicators(resample(m5_raw, "60min"))
+    h4_full  = add_indicators(resample(m5_raw, "240min"))
     m15_index = m15_full.index
     h1_index  = h1_full.index
 
@@ -189,7 +190,7 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
         from strategy_ict import evaluate_ict as _evaluate_ict
         precomputed_signals = None
     else:
-        precomputed_signals = batch_signals(m5, m15_full, h1_full, check_session=True)
+        precomputed_signals = batch_signals(m5, m15_full, h1_full, h4=h4_full, check_session=True)
         _evaluate_ict = None
 
     equity = cfg.capital
@@ -290,7 +291,7 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
                             entry=entry_p,
                             stop_loss=sl,
                             take_profit1=entry_p + 0.7*risk if direction == "long" else entry_p - 0.7*risk,
-                            take_profit2=entry_p + 1.4*risk if direction == "long" else entry_p - 1.4*risk,
+                            take_profit2=entry_p + 1.8*risk if direction == "long" else entry_p - 1.8*risk,
                             risk_distance=risk,
                             session=active_session(ts.to_pydatetime()) or "London",
                             max_duration_min=MAX_TRADE_MINUTES,
@@ -348,7 +349,7 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
         t["mfe"] = max(t.get("mfe", 0.0), t["entry"] - low)
         t["mae"] = max(t.get("mae", 0.0), high - t["entry"])
 
-    # 1) TP1 — sortie 50% à 0.7R, SL reste au niveau initial (pas de déplacement BE)
+    # 1) TP1 — sortie 50% à 0.7R
     if not t["tp1_done"]:
         hit_tp1 = (high >= t["tp1"]) if direction == "long" else (low <= t["tp1"])
         if hit_tp1:
@@ -362,8 +363,13 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
             t["tp1_done"] = True
             if t["remaining"] < MIN_LOT:
                 return t["realised"], t["tp1"], "tp1"
+            # Déplacer SL à l'entrée (breakeven) si demandé par la stratégie
+            # Return None pour ne pas checker le SL sur la même bougie que TP1
+            if t.get("be_after_tp1"):
+                t["stop_loss"] = t["entry"]
+                return None
 
-    # 2) Stop loss (SL initial — pas de déplacement après TP1)
+    # 2) Stop loss
     hit_sl = (low <= t["stop_loss"]) if direction == "long" else (high >= t["stop_loss"])
     if hit_sl:
         fill = t["stop_loss"] - slippage * sign

@@ -48,6 +48,7 @@ VOL_AVG_PERIOD = 20
 RSI_LOW = 40.0
 RSI_HIGH = 60.0
 ATR_MIN = 3.0
+ATR_MAX = 7.0   # plafond ATR M5 — au-delà = whipsaw → SL direct (SL dir avg 7.44 vs TP2 avg 5.99)
 ADX_MIN = 25.0
 SR_PROXIMITY_ATR = 0.7
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
@@ -60,7 +61,12 @@ OB_PROXIMITY_ATR  = 0.4     # tolérance de proximité OB en multiples d'ATR
 FVG_MIN_SIZE_ATR  = 0.3     # taille minimale d'un FVG pour être valide
 MICRO_RANGE_BARS = 3        # micro-consolidation length
 MAX_TRADE_MINUTES = 45
-TREND_BIAS_DISTANCE = 0.5  # multiples d'ATR H1 — bloque SHORT si prix > EMA200 + 0.5 ATR
+TREND_BIAS_DISTANCE   = 0.5  # multiples d'ATR H1 — bloque SHORT si prix > EMA200 + 0.5 ATR
+EMA200_MIN_DIST_LONG  = 0.3  # LONG doit être à ≥ 0.3×ATR au-dessus de EMA200
+EMA200_MIN_DIST_SHORT = 0.6  # SHORT doit être à ≥ 0.6×ATR en-dessous de EMA200 (XAUUSD uptrend)
+BAD_HOURS_CET         = {10} # 10h00-10h59 CET : WR 38% sur 37 trades (6M) — pire créneau London
+PATTERN_FLOOR = 0.67        # exclut les patterns avec WR historique < 67%
+MIN_WEIGHT_SUM_LONG = 1.1   # confluence minimale côté LONG (SHORT reste à 1.5)
 
 CET = pytz.timezone("Europe/Paris")  # CET/CEST
 
@@ -234,6 +240,8 @@ def is_bad_timing(ts_utc: datetime) -> bool:
     if weekday == 0 and t < time(10, 0):
         return True
     if weekday == 4 and t >= time(16, 0):
+        return True
+    if local.hour in BAD_HOURS_CET:
         return True
     return False
 
@@ -428,7 +436,7 @@ def confirm_m15(m15: pd.DataFrame, bias: str, ema_mult: float = 0.3) -> bool:
     cur = m15.iloc[-1]
     if any(pd.isna(cur[c]) for c in ("ema9", "ema21", "rsi")):
         return False
-    rsi_ok = RSI_LOW <= cur["rsi"] <= RSI_HIGH
+    rsi_ok = RSI_LOW <= float(cur["rsi"]) <= RSI_HIGH
     atr_m15 = float(cur.get("atr", 0) or 0)
     price = float(cur.get("close", 1) or 1)
     pip_floor = price * 0.0001
@@ -722,6 +730,7 @@ def evaluate(
     m5: pd.DataFrame,
     m15: pd.DataFrame,
     h1: pd.DataFrame,
+    h4: Optional[pd.DataFrame] = None,
     now: Optional[datetime] = None,
     check_session: bool = True,
     atr_min: float = ATR_MIN,
@@ -770,6 +779,16 @@ def evaluate(
                 return None
             if price_vs_ema200 < -TREND_BIAS_DISTANCE and bias == "LONG":
                 return None
+            if bias == "LONG"  and price_vs_ema200 < EMA200_MIN_DIST_LONG:
+                return None   # LONG doit être au-dessus EMA200 + 0.3×ATR
+            if bias == "SHORT" and price_vs_ema200 > -EMA200_MIN_DIST_SHORT:
+                return None   # SHORT doit être sous EMA200 − 0.6×ATR (uptrend XAUUSD)
+
+    # 2c) H4 EMA200 bias — doit confirmer le biais H1
+    if h4 is not None and len(h4) > 0:
+        h4_bias = compute_bias(h4)
+        if h4_bias != "NEUTRE" and h4_bias != bias:
+            return None
 
     # Seuils adaptatifs (si disponibles et entraînés)
     _adapt = adaptive_thresholds
@@ -782,14 +801,16 @@ def evaluate(
     if not confirm_m15(m15, bias, ema_mult=effective_m15_mult):
         return None
 
-    # 4) M5 volatility floor
+    # 4) M5 volatility gate — plancher ET plafond
     atr_val = float(cur["atr"]) if not pd.isna(cur["atr"]) else 0.0
     if atr_val < effective_atr_min:
         return None
+    if atr_val > ATR_MAX:
+        return None  # trop volatile → whipsaw → SL direct
 
     # 4b) H1 ADX trend strength — ne trader qu'en vraie tendance
     h1_adx = float(h1.iloc[-1].get("adx", 0)) if len(h1) else 0.0
-    adx_required = ADX_MIN if bias == "LONG" else ADX_MIN + 5.0  # SHORT exige ADX >= 30
+    adx_required = ADX_MIN if bias == "LONG" else ADX_MIN + 10.0  # SHORT exige ADX >= 35 (uptrend XAUUSD)
     if h1_adx < adx_required:
         return None
 
@@ -855,13 +876,12 @@ def evaluate(
         info = pattern_weights.get(t)
         return info["weight"] if isinstance(info, dict) else float(info) if info else 1.0
 
-    # Exclure les patterns vraiment nuls (perdent 70%+ du temps)
-    PATTERN_FLOOR = 0.65
+    # Exclure les patterns sous le seuil de qualité
     triggers = [t for t in triggers if _w(t) >= PATTERN_FLOOR]
 
     weights = [_w(t) for t in triggers]
-    # Exige au moins 2 patterns ET poids cumulé >= 1.0 (>= 1.5 pour SHORT — plus sélectif)
-    min_weight_sum = 1.0 if bias == "LONG" else 1.5
+    # Exige au moins 2 patterns ET poids cumulé >= MIN_WEIGHT_SUM_LONG (>= 1.5 pour SHORT)
+    min_weight_sum = MIN_WEIGHT_SUM_LONG if bias == "LONG" else 1.5
     if len(triggers) < 2 or sum(weights) < min_weight_sum:
         return None
 
@@ -878,15 +898,24 @@ def evaluate(
             return None
 
     # 7) Build trade levels
+    # SL adaptatif : setup fort → 1.4×ATR, setup faible → 1.2×ATR (évite les faux stops)
+    weight_sum = sum(weights)
+    quality_score = (
+        (1 if h1_adx > 35 else 0)
+        + (1 if (bias == "LONG" and rsi_m5 > 55) or (bias == "SHORT" and rsi_m5 < 45) else 0)
+        + (1 if weight_sum >= 1.5 else 0)
+    )
+    sl_mult = SL_ATR_MULT
+
     if bias == "LONG":
         swing = last_swing_low(m5, lookback=10)
         raw_sl = min(swing, entry - 1e-6)
-        sl = max(raw_sl, entry - SL_ATR_MULT * atr_val)
+        sl = max(raw_sl, entry - sl_mult * atr_val)
         direction = "long"
     else:
         swing = last_swing_high(m5, lookback=10)
         raw_sl = max(swing, entry + 1e-6)
-        sl = min(raw_sl, entry + SL_ATR_MULT * atr_val)
+        sl = min(raw_sl, entry + sl_mult * atr_val)
         direction = "short"
 
     risk = abs(entry - sl)
@@ -905,10 +934,25 @@ def evaluate(
     ml_features = None
     try:
         from ml_gate import extract_features
+
+        # Fraction horaire dans la session (0=début, 1=fin)
+        _cet_ts = ts.astimezone(CET)
+        _cet_h = _cet_ts.hour + _cet_ts.minute / 60.0
+        if session == "London":
+            _sess_frac = (_cet_h - LONDON[0].hour) / 4.0
+        elif session == "NewYork":
+            _sess_frac = (_cet_h - NEWYORK[0].hour) / 4.0
+        else:
+            _sess_frac = 0.5
+        _sess_frac = max(0.0, min(1.0, _sess_frac))
+
+        h1_rsi_val = float(h1.iloc[-1].get("rsi", 50) or 50) if len(h1) > 0 else 50.0
+
         weight_sum = sum([_w(t) for t in triggers])
         ml_features = extract_features(
             m5, m15, bias, session, weight_sum, ts,
-            h1_adx=h1_adx, n_patterns=len(triggers),
+            h1_adx=h1_adx, h1_rsi=h1_rsi_val,
+            n_patterns=len(triggers), session_hour_frac=_sess_frac,
         )
         if ml_gate is not None:
             allowed, ml_prob = ml_gate.gate(ml_features)
@@ -946,6 +990,7 @@ def batch_signals(
     m5: pd.DataFrame,
     m15: pd.DataFrame,
     h1: pd.DataFrame,
+    h4: Optional[pd.DataFrame] = None,
     check_session: bool = True,
     atr_min: float = ATR_MIN,
 ) -> pd.Series:
@@ -1049,6 +1094,16 @@ def batch_signals(
     bull_pattern = bull_eng | hammer | pin_bull
     bear_pattern = bear_eng | shooting | pin_bear
 
+    # ── H4 bias confirmation ──────────────────────────────────────────────────
+    if h4 is not None and len(h4) > 0 and "ema200" in h4.columns:
+        h4_close  = h4["close"].reindex(m5.index, method="ffill")
+        h4_ema200 = h4["ema200"].reindex(m5.index, method="ffill")
+        h4_long_ok  = h4_close > h4_ema200
+        h4_short_ok = h4_close < h4_ema200
+    else:
+        h4_long_ok  = pd.Series(True, index=m5.index)
+        h4_short_ok = pd.Series(True, index=m5.index)
+
     # ── Warmup mask ───────────────────────────────────────────────────────────
     warmup = pd.Series(False, index=m5.index)
     warmup.iloc[:EMA_SLOW + 10] = True
@@ -1056,11 +1111,11 @@ def batch_signals(
     # ── Combine ───────────────────────────────────────────────────────────────
     long_signal  = (
         ~warmup & bias_long & adx_ok & m15_bull & rsi_ok
-        & atr_ok & ema9_long & session_ok & bull_pattern
+        & atr_ok & ema9_long & session_ok & bull_pattern & h4_long_ok
     )
     short_signal = (
         ~warmup & bias_short & adx_ok & m15_bear & rsi_ok
-        & atr_ok & ema9_sht  & session_ok & bear_pattern
+        & atr_ok & ema9_sht  & session_ok & bear_pattern & h4_short_ok
     )
 
     out = pd.Series(None, index=m5.index, dtype=object)
@@ -1123,7 +1178,7 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
                 m15_ema_aligned = bool(cur15_d["ema9"] >= cur15_d["ema21"] - tol_d)
             else:
                 m15_ema_aligned = bool(cur15_d["ema9"] <= cur15_d["ema21"] + tol_d)
-            m15_rsi_ok = bool(RSI_LOW <= cur15_d["rsi"] <= RSI_HIGH)
+            m15_rsi_ok = bool(RSI_LOW <= float(cur15_d["rsi"]) <= RSI_HIGH)
 
     atr_val = float(cur5["atr"]) if (cur5 is not None and not pd.isna(cur5.get("atr", float("nan")))) else 0.0
     atr_ok = atr_val >= snap_atr_min

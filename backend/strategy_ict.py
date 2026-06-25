@@ -3,7 +3,7 @@ strategy_ict.py — Stratégie B : Order Block M5
 ===============================================
 Pipeline :
 1. Biais H1 (EMA50 vs EMA200)
-2. Zone Discount/Premium H1 (LONG en discount <50% range, SHORT en premium >50%)
+2. ADX H1 ≥ 20 — rejet marchés non-tendanciels
 3. Détection OBs M5 valides (4 critères ICT) :
    a. Bougie contrariante + impulse ≥ 1.5×ATR
    b. FVG créée après l'OB (imbalance institutionnelle)
@@ -35,7 +35,7 @@ OB_MAX_BARS       = 50   # fenêtre de recherche OBs (50 M5 ≈ 4h)
 OB_MIN_BODY_ATR   = 0.2  # corps minimum bougie OB (filtre dojis)
 OB_MAX_HEIGHT_ATR = 1.5  # hauteur maximale OB (OBs larges → R:R défavorable)
 BOS_LOOKBACK      = 15   # barres lookback pour swing à casser (BOS)
-H1_RANGE_BARS     = 20   # barres H1 pour zone Premium/Discount (~1 jour)
+ADX_MIN_H1        = 20   # ADX H1 minimum — rejet marchés non-tendanciels (chop)
 SL_BUFFER_ATR     = 0.3  # buffer SL derrière l'extrême de l'OB
 MAX_RISK_ATR      = 1.5  # plafond risque (SL ≤ 1.5×ATR de l'entrée)
 TP1_R             = 0.7
@@ -244,15 +244,13 @@ def evaluate_ict(
     if direction is None:
         return None
 
-    # 4) Zone Discount / Premium H1
-    entry_price = float(cur["close"])
-    zone = _discount_premium(entry_price, h1)
-    if direction == "LONG" and zone != "DISCOUNT":
-        return None
-    if direction == "SHORT" and zone != "PREMIUM":
+    # 4) ADX H1 — marché tendanciel requis (rejet chop)
+    h1_adx = float(h1.iloc[-1].get("adx", 0) or 0) if len(h1) > 0 else 0.0
+    if h1_adx < ADX_MIN_H1:
         return None
 
     # 5) Order Blocks M5 valides (FVG + BOS intégrés)
+    entry_price = float(cur["close"])
     obs = _find_order_blocks(m5, direction, atr_val)
     if not obs:
         return None
@@ -305,6 +303,6 @@ def evaluate_ict(
             "ob_high":  round(ob["high"], 5),
             "fvg_ext":  round(ob["fvg_ext"], 5),
             "ob_ts":    ob_ts_str,
-            "zone":     zone or "UNKNOWN",
+            "adx_h1":   round(h1_adx, 1),
         },
     )

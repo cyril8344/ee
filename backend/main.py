@@ -103,6 +103,7 @@ MARKET_CONFIG = {
         "spread_pips": 0.2,
         "slippage_pips": 0.05,
         "pip_size": 0.0001,    # 1 pip EUR/USD = 0.0001
+        "default_strategy": "B",  # ICT/Order Blocks
     },
 }
 
@@ -116,6 +117,7 @@ class MarketState:
     last_signal: Optional[Dict[str, Any]] = None
     last_snapshot: Dict[str, Any] = field(default_factory=dict)
     adaptive: Optional[Any] = None   # AdaptiveThresholds instance
+    ml_gate: Optional[Any] = None    # OnlineLogisticRegression instance (per symbol)
 
 
 # --------------------------------------------------------------------------- #
@@ -165,10 +167,10 @@ class BotState:
             ms.adaptive = AdaptiveThresholds(
                 atr_min_default=cfg["atr_min"], symbol=sym
             )
+            ms.ml_gate = OnlineLogisticRegression(symbol=sym)
             self.market_states[sym] = ms
 
         self.pattern_weights: Dict = db.get_pattern_stats()
-        self.ml_gate = OnlineLogisticRegression()
         self._hydrate_today()
         self._restore_open_positions()
 
@@ -265,7 +267,7 @@ ws_manager = WSManager()
 # Market context builder
 # --------------------------------------------------------------------------- #
 def build_context(broker):
-    """Return (m5, m15, h1) indicator-ready frames from the given broker feed."""
+    """Return (m5, m15, h1, h4) indicator-ready frames from the given broker feed."""
     m5_raw = broker.get_rates_m5(500)
     m5 = add_indicators(m5_raw)
     agg = {"open": "first", "high": "max", "low": "min",
@@ -274,7 +276,9 @@ def build_context(broker):
         m5_raw.resample("15min", label="right", closed="right").agg(agg).dropna())
     h1 = add_indicators(
         m5_raw.resample("60min", label="right", closed="right").agg(agg).dropna())
-    return m5, m15, h1
+    h4 = add_indicators(
+        m5_raw.resample("240min", label="right", closed="right").agg(agg).dropna())
+    return m5, m15, h1, h4
 
 
 def current_equity() -> float:
@@ -308,10 +312,10 @@ def trading_tick() -> Dict[str, Any]:
         any_active = False
         for ms in state.market_states.values():
             try:
-                m5, m15, h1 = build_context(ms.broker)
+                m5, m15, h1, h4 = build_context(ms.broker)
                 snap = snapshot(m5, m15, h1, atr_min_override=ms.config["atr_min"],
                                pattern_weights=state.pattern_weights,
-                               ml_gate=state.ml_gate,
+                               ml_gate=ms.ml_gate,
                                adaptive_thresholds=ms.adaptive)
                 ms.last_snapshot = snap
 
@@ -355,16 +359,18 @@ def trading_tick() -> Dict[str, Any]:
                         and not state.risk.blocked and not news_status["blocked"]
                         and not macro_blocked
                         and state.settings.get("bot_enabled", True)):
-                    if state.settings.get("strategy", "A") == "B":
+                    # Strategy is fixed per symbol in MARKET_CONFIG (not user-switchable)
+                    sym_strategy = ms.config.get("default_strategy", "A")
+                    if sym_strategy == "B":
                         from strategy_ict import evaluate_ict as _eval_ict
                         sig = _eval_ict(m5, m15, h1, now=now,
                                         check_session=session_filter,
                                         atr_min=ms.config["atr_min"])
                     else:
-                        sig = evaluate(m5, m15, h1, now=now, check_session=session_filter,
+                        sig = evaluate(m5, m15, h1, h4=h4, now=now, check_session=session_filter,
                                        atr_min=ms.config["atr_min"],
                                        pattern_weights=state.pattern_weights,
-                                       ml_gate=state.ml_gate,
+                                       ml_gate=ms.ml_gate,
                                        adaptive_thresholds=ms.adaptive)
                     if sig is not None:
                         ms.last_signal = sig.to_dict()
@@ -463,7 +469,7 @@ def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], 
     ml_features = pos.meta.get("ml_features")
     if ml_features:
         try:
-            state.ml_gate.update(ml_features, won)
+            ms.ml_gate.update(ml_features, won)
         except Exception:
             pass
         try:
@@ -603,6 +609,7 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
             "position": _position_payload(ms),
             "last_signal": ms.last_signal,
             "conditions": snap.get("conditions"),
+            "ml_gate": ms.ml_gate.status() if ms.ml_gate else {},
             "data_provider": getattr(getattr(ms.broker, "data", None), "provider", None),
             "data_errors": {k: v for k, v in __import__("data_provider").get_last_errors().items()
                             if k.startswith(sym + ":")},
@@ -630,7 +637,6 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
             "xauusd_tick": realtime_feed.get_latest("XAU/USD"),
             "eurusd_tick": realtime_feed.get_latest("EUR/USD"),
         },
-        "ml_gate": state.ml_gate.status(),
     }
 
 
@@ -903,7 +909,7 @@ def test_signal(symbol: str = "XAUUSD", direction: str = "long",
             raise HTTPException(status_code=400, detail="direction must be 'long' or 'short'")
 
         try:
-            m5, m15, h1 = build_context(ms.broker)
+            m5, m15, h1, h4 = build_context(ms.broker)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Could not load market data: {e}")
 
@@ -1109,11 +1115,14 @@ def start_pretrain(req: PretrainRequest, _user: dict = Depends(get_current_user)
     prog = _pretrain_module.get_progress()
     if prog["running"]:
         return {"ok": False, "message": "Pré-entraînement déjà en cours", "progress": prog}
+    _ms = state.market_states.get(req.symbol)
+    _on_complete = _ms.ml_gate._load if _ms and _ms.ml_gate else None
     _pretrain_module.launch_pretrain(
         start=req.start, end=req.end,
         symbol=req.symbol, atr_min=req.atr_min, reset=req.reset,
         capital=req.capital, risk_pct=req.risk_pct,
         strategy_mode=req.strategy_mode,
+        on_complete=_on_complete,
     )
     return {"ok": True, "message": "Pré-entraînement lancé", "progress": _pretrain_module.get_progress()}
 
@@ -1233,6 +1242,8 @@ def pretrain_stats(_user: dict = Depends(get_current_user)):
         "false_be_pct":        false_be_pct,
         "false_be_n":          false_be_n,
         "data_coverage":       data_cov,
+        "indicator_diagnostic": result.get("indicator_diagnostic", {}),
+        "wr_by_hour":           result.get("wr_by_hour", {}),
     }
 
 
