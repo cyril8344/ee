@@ -74,7 +74,7 @@ ICT_OB_MAX_BARS       = 50   # fenêtre de recherche OBs (M5)
 ICT_OB_MIN_BODY_ATR   = 0.2  # corps minimum OB (filtre dojis)
 ICT_OB_MAX_HEIGHT_ATR = 1.5  # hauteur maximale OB
 ICT_SL_BUFFER_ATR     = 0.3  # buffer SL derrière l'extrême de l'OB
-ICT_OB_NEAR_ATR       = 0.5  # tolérance proximité OB pour l'entrée
+ICT_OB_NEAR_ATR       = 1.0  # tolérance proximité OB pour l'entrée
 
 CET = pytz.timezone("Europe/Paris")  # CET/CEST
 
@@ -387,9 +387,10 @@ def _find_ob_for_entry(
                 continue
 
         post = recent.iloc[i + 1:]
-        if direction == "LONG" and float(post["low"].min()) < b_low:
+        # Mitigation = clôture à travers l'OB (les mèches ne comptent pas)
+        if direction == "LONG" and float(post["close"].min()) < b_low:
             continue
-        if direction == "SHORT" and float(post["high"].max()) > b_high:
+        if direction == "SHORT" and float(post["close"].max()) > b_high:
             continue
 
         obs.append({"low": b_low, "high": b_high})
