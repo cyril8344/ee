@@ -68,14 +68,6 @@ BAD_HOURS_CET         = {10} # 10h00-10h59 CET : WR 38% sur 37 trades (6M) — p
 PATTERN_FLOOR = 0.67        # exclut les patterns avec WR historique < 67%
 MIN_WEIGHT_SUM_LONG = 1.0   # confluence minimale côté LONG (SHORT reste à 1.5)
 
-# Hybrid OB gate — ICT Order Block filter applied inside Strategy A
-ICT_OB_IMPULSE_ATR    = 1.5  # impulse minimum (×ATR) pour valider un OB
-ICT_OB_MAX_BARS       = 50   # fenêtre de recherche OBs (M5)
-ICT_OB_MIN_BODY_ATR   = 0.2  # corps minimum OB (filtre dojis)
-ICT_OB_MAX_HEIGHT_ATR = 1.5  # hauteur maximale OB
-ICT_SL_BUFFER_ATR     = 0.3  # buffer SL derrière l'extrême de l'OB
-ICT_OB_NEAR_ATR       = 0.5  # tolérance proximité OB pour l'entrée
-
 CET = pytz.timezone("Europe/Paris")  # CET/CEST
 
 # Sessions in CET local time
@@ -335,65 +327,6 @@ def find_order_blocks(df: pd.DataFrame, lookback: int = None) -> List[Dict[str, 
         elif c["close"] > c["open"] and nxt["close"] < nxt["open"]:
             obs.append({"type": "bearish",
                         "low": float(c["open"]), "high": float(c["close"])})
-    return obs
-
-
-def _find_ob_for_entry(
-    df: pd.DataFrame,
-    direction: str,
-    atr_val: float,
-) -> List[Dict[str, Any]]:
-    """
-    ICT Order Blocks non-mitiguées pour le filtre d'entrée hybride (Strat A).
-
-    Critères identiques à strategy_ict._find_order_blocks :
-    - Bougie contrariante avec corps ≥ ICT_OB_MIN_BODY_ATR×ATR
-    - Impulse ≥ ICT_OB_IMPULSE_ATR×ATR dans les 3 bougies suivantes
-    - Hauteur OB ≤ ICT_OB_MAX_HEIGHT_ATR×ATR
-    - Non mitiguée (le prix n'a pas traversé l'OB depuis sa formation)
-    """
-    recent = df.tail(ICT_OB_MAX_BARS + 5)
-    n = len(recent)
-    if n < 5:
-        return []
-
-    min_impulse = ICT_OB_IMPULSE_ATR * atr_val
-    min_body    = ICT_OB_MIN_BODY_ATR * atr_val
-    obs: List[Dict[str, Any]] = []
-
-    for i in range(n - 4):
-        bar    = recent.iloc[i]
-        b_open  = float(bar["open"])
-        b_close = float(bar["close"])
-        b_high  = float(bar["high"])
-        b_low   = float(bar["low"])
-
-        if abs(b_close - b_open) < min_body:
-            continue
-        if (b_high - b_low) > ICT_OB_MAX_HEIGHT_ATR * atr_val:
-            continue
-
-        after = recent.iloc[i + 1: i + 4]
-
-        if direction == "LONG":
-            if b_close >= b_open:
-                continue
-            if float(after["high"].max()) - b_high < min_impulse:
-                continue
-        else:
-            if b_close <= b_open:
-                continue
-            if b_low - float(after["low"].min()) < min_impulse:
-                continue
-
-        post = recent.iloc[i + 1:]
-        if direction == "LONG" and float(post["low"].min()) < b_low:
-            continue
-        if direction == "SHORT" and float(post["high"].max()) > b_high:
-            continue
-
-        obs.append({"low": b_low, "high": b_high})
-
     return obs
 
 
@@ -960,18 +893,6 @@ def evaluate(
     if len(triggers) < 2 or sum(weights) < min_weight_sum:
         return None
 
-    # 6b) OB gate — entrée uniquement sur niveau institutionnel (ICT Order Block)
-    obs_ict = _find_ob_for_entry(m5, bias, atr_val)
-    ob_active = None
-    for ob in reversed(obs_ict):
-        # Le prix doit être dans la zone OB ou à ±ICT_OB_NEAR_ATR au-dessus/en-dessous
-        if entry - ICT_OB_NEAR_ATR * atr_val <= ob["high"] and \
-           entry + ICT_OB_NEAR_ATR * atr_val >= ob["low"]:
-            ob_active = ob
-            break
-    if ob_active is None:
-        return None
-
     # Filtre corps de bougie : rejette les bougies indécises (corps < 40% de la range)
     # Exempt pour les patterns conçus avec petite bougie (hammer, pin_bar, doji, tweezer)
     SMALL_BODY_EXEMPT = {
@@ -984,16 +905,24 @@ def evaluate(
         if bar_range > 0 and bar_body / bar_range < 0.4:
             return None
 
-    # 7) Build trade levels — SL derrière l'OB (niveau institutionnel)
+    # 7) Build trade levels
     weight_sum = sum(weights)
+    quality_score = (
+        (1 if h1_adx > 35 else 0)
+        + (1 if (bias == "LONG" and rsi_m5 > 55) or (bias == "SHORT" and rsi_m5 < 45) else 0)
+        + (1 if weight_sum >= 1.5 else 0)
+    )
+    sl_mult = SL_ATR_MULT
 
     if bias == "LONG":
-        raw_sl = ob_active["low"] - ICT_SL_BUFFER_ATR * atr_val
-        sl = max(raw_sl, entry - SL_ATR_MULT * atr_val)
+        swing = last_swing_low(m5, lookback=10)
+        raw_sl = min(swing, entry - 1e-6)
+        sl = max(raw_sl, entry - sl_mult * atr_val)
         direction = "long"
     else:
-        raw_sl = ob_active["high"] + ICT_SL_BUFFER_ATR * atr_val
-        sl = min(raw_sl, entry + SL_ATR_MULT * atr_val)
+        swing = last_swing_high(m5, lookback=10)
+        raw_sl = max(swing, entry + 1e-6)
+        sl = min(raw_sl, entry + sl_mult * atr_val)
         direction = "short"
 
     risk = abs(entry - sl)

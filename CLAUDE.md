@@ -47,8 +47,7 @@ The 10-stage filter runs in strict order — a rejection at any stage short-circ
 8. M5 RSI momentum (LONG > 48, SHORT < 52)
 9. VWAP alignment (close ≥ VWAP for LONG, ≤ VWAP for SHORT)
 10. Candle patterns (≥ 2 patterns, each weight ≥ 0.67, sum ≥ 1.0 LONG / 1.5 SHORT)
-11. **OB Gate** — ICT Order Block non-mitigated within ±0.5×ATR of entry (SL behind OB ± 0.3×ATR)
-12. ML Gate — logistic regression, activates after 15 trades
+11. ML Gate — logistic regression, activates after 15 trades
 
 ### ML Gate (`ml_gate.py`)
 
@@ -130,7 +129,6 @@ After merging to `main`:
 - **Volume filter removed** — unreliable across data sources
 - **RSI M15** : symétrique 40/60 (directional 40/60 LONG>40,SHORT<60 testé → WR 49%→40.4%, PF 1.20→0.96, rejeté)
 - **RSI M5** : 48/52 (momentum confirmé requis — 45/55 acceptait entrées marginales, rejeté)
-- **OB Gate (Strat A)** : ICT Order Block non-mitigé dans ±0.5×ATR de l'entrée obligatoire — SL = ob_low/high ± 0.3×ATR (plafonné à SL_ATR_MULT=1.4×ATR)
 - **Pattern floor 0.67** blocks patterns that lose 67%+ of the time (was 0.65 → 0.67)
 - **TREND_BIAS_DISTANCE = 0.5 ATR H1** blocks SHORT when price > EMA200 + 0.5×ATR and LONG when price < EMA200 − 0.5×ATR
 - **EMA200_MIN_DIST asymétrique**: LONG ≥ 0.3×ATR above EMA200, SHORT ≥ 0.6×ATR below EMA200 (XAUUSD uptrend — SHORTs near EMA200 fail systematically)
