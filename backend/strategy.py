@@ -66,7 +66,7 @@ EMA200_MIN_DIST_LONG  = 0.3  # LONG doit être à ≥ 0.3×ATR au-dessus de EMA2
 EMA200_MIN_DIST_SHORT = 0.6  # SHORT doit être à ≥ 0.6×ATR en-dessous de EMA200 (XAUUSD uptrend)
 BAD_HOURS_CET         = {10} # 10h00-10h59 CET : WR 38% sur 37 trades (6M) — pire créneau London
 PATTERN_FLOOR = 0.67        # exclut les patterns avec WR historique < 67%
-MIN_WEIGHT_SUM_LONG = 1.1   # confluence minimale côté LONG (SHORT reste à 1.5)
+MIN_WEIGHT_SUM_LONG = 1.0   # confluence minimale côté LONG (SHORT reste à 1.5)
 
 CET = pytz.timezone("Europe/Paris")  # CET/CEST
 
@@ -827,6 +827,14 @@ def evaluate(
         return None
     if bias == "SHORT" and rsi_m5 > 52:
         return None
+
+    # 5c) VWAP alignment — close du bon côté du VWAP (SL direct Δ VWAP = -43)
+    vwap_val = float(cur.get("vwap", float("nan")) or float("nan"))
+    if not pd.isna(vwap_val):
+        if bias == "LONG"  and float(cur["close"]) < vwap_val:
+            return None
+        if bias == "SHORT" and float(cur["close"]) > vwap_val:
+            return None
 
     # 6) Candlestick pattern trigger (any single pattern is enough)
     entry = float(cur["close"])
