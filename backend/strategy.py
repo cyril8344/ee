@@ -823,9 +823,9 @@ def evaluate(
 
     # 5b) M5 RSI momentum confirmation — évite les entrées à contre-courant M5
     rsi_m5 = float(cur.get("rsi", 50) or 50)
-    if bias == "LONG"  and rsi_m5 < 45:
+    if bias == "LONG"  and rsi_m5 < 48:
         return None
-    if bias == "SHORT" and rsi_m5 > 55:
+    if bias == "SHORT" and rsi_m5 > 52:
         return None
 
     # 6) Candlestick pattern trigger (any single pattern is enough)
