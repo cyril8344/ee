@@ -118,6 +118,7 @@ class Position:
     risk_amount: float = 0.0
     session: str = ""
     meta: Dict[str, Any] = field(default_factory=dict)
+    mfe: float = 0.0
 
     def __post_init__(self):
         if self.remaining == 0.0:
@@ -216,6 +217,21 @@ class PaperBroker(BaseBroker):
             if unrealised < -(pos.risk_amount * 2):
                 pos.realised += pnl_for(price - self.slippage * sign, pos.remaining)
                 return {"closed": True, "reason": "emergency_stop",
+                        "exit_price": price, "pnl": pos.realised}
+
+        # Update MFE
+        if direction == "long":
+            pos.mfe = max(pos.mfe, price - pos.entry)
+        else:
+            pos.mfe = max(pos.mfe, pos.entry - price)
+
+        # Early exit: 15 min sans conviction — MFE < 0.2R
+        if not pos.tp1_done:
+            elapsed_min = (datetime.now(timezone.utc) - pos.open_time).total_seconds() / 60
+            risk_dist = abs(pos.entry - pos.stop_loss)
+            if elapsed_min >= 15 and risk_dist > 0 and pos.mfe / risk_dist < 0.2:
+                pos.realised += pnl_for(price - self.slippage * sign, pos.remaining)
+                return {"closed": True, "reason": "early_exit",
                         "exit_price": price, "pnl": pos.realised}
 
         # TP1 — sortie 50% à 0.7R, SL → soft-BE +0.2R
