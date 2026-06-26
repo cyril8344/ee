@@ -1116,12 +1116,14 @@ def evaluate_eurusd(
     if not triggers or sum(weights) < 1.0:
         _rej(_reject_log, "patterns"); return None
 
-    # 6) Niveaux de trade
+    # 6) Niveaux de trade — SL sous le low/high de la bougie signal (serré vs swing lookback XAU)
     if bias == "LONG":
-        sl = max(last_swing_low(m5, lookback=10), entry - SL_ATR_MULT * atr_val)
+        sl = min(float(prev["low"]), float(cur["low"])) - atr_val * 0.1
+        sl = max(sl, entry - SL_ATR_MULT * atr_val)  # plafond : jamais plus large que 1.4×ATR
         direction = "long"
     else:
-        sl = min(last_swing_high(m5, lookback=10), entry + SL_ATR_MULT * atr_val)
+        sl = max(float(prev["high"]), float(cur["high"])) + atr_val * 0.1
+        sl = min(sl, entry + SL_ATR_MULT * atr_val)
         direction = "short"
 
     risk = abs(entry - sl)
