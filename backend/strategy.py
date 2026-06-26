@@ -899,6 +899,12 @@ def evaluate(
     if len(triggers) < 2 or sum(weights) < min_weight_sum:
         _rej(_reject_log, "patterns"); return None
 
+    # Exige un pattern "ancre" : pullback EMA9 OU confluence Order Block
+    # Garantit une entrée à un niveau technique identifié (pas "en l'air")
+    ANCHOR_PATTERNS = {"ema9_pullback", "near_order_block"}
+    if not set(triggers) & ANCHOR_PATTERNS:
+        _rej(_reject_log, "no_anchor"); return None
+
     # Filtre corps de bougie : rejette les bougies indécises (corps < 40% de la range)
     # Exempt pour les patterns conçus avec petite bougie (hammer, pin_bar, doji, tweezer)
     SMALL_BODY_EXEMPT = {
