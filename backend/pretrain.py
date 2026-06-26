@@ -165,6 +165,7 @@ def run_pretrain(
         mfe_loss   = []   # MFE en R des trades perdants
         trades_log = []   # log détaillé par trade (pour analyse erreur/erreur)
         last_ob_ts = None  # verrou strat B : un seul trade par OB
+        rejection_counts: Dict[str, int] = {}  # compter les rejets par étape pipeline
 
         _set(bars_total=total, status="Analyse des trades historiques…")
 
@@ -323,6 +324,7 @@ def run_pretrain(
                     now=ts.to_pydatetime(),
                     check_session=True,
                     atr_min=effective_atr,
+                    _reject_log=rejection_counts,
                 )
 
             if sig is None:
@@ -592,6 +594,7 @@ def run_pretrain(
             "false_stop_spike_stats": false_stop_spike_stats,
             "false_stop_by_hour":     false_stop_by_hour,
             "false_stop_by_pattern":  false_stop_by_pattern,
+            "rejection_counts":       dict(sorted(rejection_counts.items(), key=lambda x: -x[1])),
         }
         _set(running=False, pct=100, bars_done=total, trades=n_trades,
              wins=n_wins, status="done", last_result=result)

@@ -1385,6 +1385,47 @@ export default function Dashboard({ onLogout }) {
                                   );
                                 })()}
 
+                                {/* Rejets pipeline */}
+                                {(() => {
+                                  const rc = pretrainStats.rejection_counts || {};
+                                  const entries = Object.entries(rc);
+                                  if (entries.length === 0) return null;
+                                  const total = entries.reduce((s, [, n]) => s + n, 0);
+                                  const stageLabels = {
+                                    timing: "Timing (lun/ven)", session: "Session (hors Lo/NY)",
+                                    h1_neutre: "H1 neutre (EMA50≈200)", h1_ema200: "H1 EMA200 mauvais côté",
+                                    h1_ema200_dist: "H1 dist EMA200 trop proche", h4_bias: "H4 biais contraire",
+                                    m15: "M15 EMA/RSI", atr_min: "ATR trop bas",
+                                    atr_max: "ATR trop haut", adx: "ADX H1 trop faible",
+                                    ema9: "EMA9 M5 désalignée", rsi_m5: "RSI M5 faible",
+                                    vwap: "VWAP mauvais côté", patterns: "Patterns insuffisants",
+                                    body: "Corps bougie < 40%",
+                                  };
+                                  return (
+                                    <div style={{ marginTop: 10 }}>
+                                      <div style={{ color: COLORS.sub, marginBottom: 5 }}>Rejets pipeline (total {total.toLocaleString()})</div>
+                                      {entries.map(([stage, n]) => {
+                                        const pct = total > 0 ? n / total * 100 : 0;
+                                        const barCol = pct >= 30 ? COLORS.red : pct >= 15 ? COLORS.amber : COLORS.green;
+                                        return (
+                                          <div key={stage} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
+                                            <div style={{ width: 140, fontSize: 9, color: COLORS.sub, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                              {stageLabels[stage] || stage}
+                                            </div>
+                                            <div style={{ flex: 1, background: COLORS.border + "44", borderRadius: 2, height: 8, overflow: "hidden" }}>
+                                              <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: barCol, borderRadius: 2 }} />
+                                            </div>
+                                            <div style={{ width: 60, textAlign: "right", fontSize: 9, color: COLORS.text, flexShrink: 0 }}>
+                                              {pct.toFixed(1)}% ({n.toLocaleString()})
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                      <div style={{ fontSize: 9, color: COLORS.sub, marginTop: 2 }}>rouge ≥ 30% · orange 15-30% · vert &lt;15%</div>
+                                    </div>
+                                  );
+                                })()}
+
                                 {/* Profondeur des faux stops */}
                                 {(() => {
                                   const sp = pretrainStats.false_stop_spike_stats;

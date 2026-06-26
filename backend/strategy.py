@@ -726,6 +726,11 @@ class Signal:
 # --------------------------------------------------------------------------- #
 # Master evaluation
 # --------------------------------------------------------------------------- #
+def _rej(log: Optional[Dict], stage: str) -> None:
+    if log is not None:
+        log[stage] = log.get(stage, 0) + 1
+
+
 def evaluate(
     m5: pd.DataFrame,
     m15: pd.DataFrame,
@@ -737,6 +742,7 @@ def evaluate(
     pattern_weights: Optional[Dict[str, float]] = None,
     ml_gate=None,
     adaptive_thresholds=None,
+    _reject_log: Optional[Dict] = None,
 ) -> Optional[Signal]:
     """
     Evaluate the full multi-timeframe stack on the *last closed* M5 bar.
@@ -755,18 +761,18 @@ def evaluate(
 
     # 0) Bad timing (Monday open / Friday close)
     if is_bad_timing(ts):
-        return None
+        _rej(_reject_log, "timing"); return None
 
     # 1) Session gate
     session = active_session(ts)
     if check_session and session is None:
-        return None
+        _rej(_reject_log, "session"); return None
     session = session or "London"
 
     # 2) H1 EMA200 bias
     bias = compute_bias(h1)
     if bias == "NEUTRE":
-        return None
+        _rej(_reject_log, "h1_neutre"); return None
 
     # 2b) Distance EMA200 — bloquer SHORT si prix trop haut au-dessus EMA200 (uptrend fort)
     if len(h1) > 0:
@@ -776,19 +782,19 @@ def evaluate(
         if not pd.isna(h1_ema200_val) and h1_atr_val > 0:
             price_vs_ema200 = (float(h1_last["close"]) - h1_ema200_val) / h1_atr_val
             if price_vs_ema200 > TREND_BIAS_DISTANCE and bias == "SHORT":
-                return None
+                _rej(_reject_log, "h1_ema200"); return None
             if price_vs_ema200 < -TREND_BIAS_DISTANCE and bias == "LONG":
-                return None
+                _rej(_reject_log, "h1_ema200"); return None
             if bias == "LONG"  and price_vs_ema200 < EMA200_MIN_DIST_LONG:
-                return None
+                _rej(_reject_log, "h1_ema200_dist"); return None
             if bias == "SHORT" and price_vs_ema200 > -EMA200_MIN_DIST_SHORT:
-                return None
+                _rej(_reject_log, "h1_ema200_dist"); return None
 
     # 2c) H4 EMA200 bias — doit confirmer le biais H1
     if h4 is not None and len(h4) > 0:
         h4_bias = compute_bias(h4)
         if h4_bias != "NEUTRE" and h4_bias != bias:
-            return None
+            _rej(_reject_log, "h4_bias"); return None
 
     # Seuils adaptatifs (si disponibles et entraînés)
     _adapt = adaptive_thresholds
@@ -799,42 +805,42 @@ def evaluate(
 
     # 3) M15 EMA9/21 + RSI confirmation
     if not confirm_m15(m15, bias, ema_mult=effective_m15_mult):
-        return None
+        _rej(_reject_log, "m15"); return None
 
     # 4) M5 volatility gate — plancher ET plafond
     atr_val = float(cur["atr"]) if not pd.isna(cur["atr"]) else 0.0
     if atr_val < effective_atr_min:
-        return None
+        _rej(_reject_log, "atr_min"); return None
     if atr_val > ATR_MAX:
-        return None  # trop volatile → whipsaw → SL direct
+        _rej(_reject_log, "atr_max"); return None  # trop volatile → whipsaw → SL direct
 
     # 4b) H1 ADX trend strength — ne trader qu'en vraie tendance
     h1_adx = float(h1.iloc[-1].get("adx", 0)) if len(h1) else 0.0
     adx_required = ADX_MIN if bias == "LONG" else ADX_MIN + 10.0  # SHORT exige ADX >= 35 (uptrend XAUUSD)
     if h1_adx < adx_required:
-        return None
+        _rej(_reject_log, "adx"); return None
 
     # 5) M5 EMA9 alignment — tolérance adaptative (défaut 0.5 ATR)
     ema9_tolerance = atr_val * effective_ema9_mult
     if bias == "LONG" and cur["close"] < cur["ema9"] - ema9_tolerance:
-        return None
+        _rej(_reject_log, "ema9"); return None
     if bias == "SHORT" and cur["close"] > cur["ema9"] + ema9_tolerance:
-        return None
+        _rej(_reject_log, "ema9"); return None
 
     # 5b) M5 RSI momentum confirmation — évite les entrées à contre-courant M5
     rsi_m5 = float(cur.get("rsi", 50) or 50)
     if bias == "LONG"  and rsi_m5 < 45:
-        return None
+        _rej(_reject_log, "rsi_m5"); return None
     if bias == "SHORT" and rsi_m5 > 55:
-        return None
+        _rej(_reject_log, "rsi_m5"); return None
 
     # 5c) VWAP alignment — close du bon côté du VWAP (SL direct Δ VWAP = -43)
     vwap_val = float(cur.get("vwap", float("nan")) or float("nan"))
     if not pd.isna(vwap_val):
         if bias == "LONG"  and float(cur["close"]) < vwap_val:
-            return None
+            _rej(_reject_log, "vwap"); return None
         if bias == "SHORT" and float(cur["close"]) > vwap_val:
-            return None
+            _rej(_reject_log, "vwap"); return None
 
     # 6) Candlestick pattern trigger (any single pattern is enough)
     entry = float(cur["close"])
@@ -891,7 +897,7 @@ def evaluate(
     # Exige au moins 2 patterns ET poids cumulé >= MIN_WEIGHT_SUM_LONG (>= 1.5 pour SHORT)
     min_weight_sum = MIN_WEIGHT_SUM_LONG if bias == "LONG" else 1.5
     if len(triggers) < 2 or sum(weights) < min_weight_sum:
-        return None
+        _rej(_reject_log, "patterns"); return None
 
     # Filtre corps de bougie : rejette les bougies indécises (corps < 40% de la range)
     # Exempt pour les patterns conçus avec petite bougie (hammer, pin_bar, doji, tweezer)
@@ -903,7 +909,7 @@ def evaluate(
         bar_range = float(cur["high"]) - float(cur["low"])
         bar_body  = abs(float(cur["close"]) - float(cur["open"]))
         if bar_range > 0 and bar_body / bar_range < 0.4:
-            return None
+            _rej(_reject_log, "body"); return None
 
     # 7) Build trade levels
     weight_sum = sum(weights)
