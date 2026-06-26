@@ -47,7 +47,7 @@ VOL_AVG_PERIOD = 20
 
 RSI_LOW = 38.0
 RSI_HIGH = 62.0
-ATR_MIN = 3.0
+ATR_MIN = 2.5
 ATR_MAX = 7.0   # plafond ATR M5 — au-delà = whipsaw → SL direct (SL dir avg 7.44 vs TP2 avg 5.99)
 ADX_MIN = 25.0
 SR_PROXIMITY_ATR = 0.7
@@ -812,18 +812,14 @@ def evaluate(
             if bias == "SHORT" and price_vs_ema200 > -EMA200_MIN_DIST_SHORT:
                 _rej(_reject_log, "h1_ema200_dist"); return None
 
-    # 2c) H4 EMA200 bias — doit confirmer le biais H1
-    if h4 is not None and len(h4) > 0:
-        h4_bias = compute_bias(h4)
-        if h4_bias != "NEUTRE" and h4_bias != bias:
-            _rej(_reject_log, "h4_bias"); return None
+    # H4 EMA200 bias filter supprimé — H1 suffit pour le biais directionnel
 
     # Seuils adaptatifs (si disponibles et entraînés)
     _adapt = adaptive_thresholds
     _adapt_ready = _adapt is not None and _adapt.is_ready
     effective_atr_min  = _adapt.atr_min   if _adapt_ready else atr_min
     effective_ema9_mult = _adapt.ema9_mult if _adapt_ready else 0.5
-    effective_m15_mult  = _adapt.m15_mult  if _adapt_ready else 1.0
+    effective_m15_mult  = _adapt.m15_mult  if _adapt_ready else 0.5
 
     # 3) M15 EMA9/21 + RSI confirmation
     if not confirm_m15(m15, bias, ema_mult=effective_m15_mult):
