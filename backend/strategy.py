@@ -45,8 +45,8 @@ ATR_PERIOD = 14
 ADX_PERIOD = 14
 VOL_AVG_PERIOD = 20
 
-RSI_LOW = 40.0
-RSI_HIGH = 60.0
+RSI_LOW = 38.0
+RSI_HIGH = 62.0
 ATR_MIN = 3.0
 ATR_MAX = 7.0   # plafond ATR M5 — au-delà = whipsaw → SL direct (SL dir avg 7.44 vs TP2 avg 5.99)
 ADX_MIN = 25.0
