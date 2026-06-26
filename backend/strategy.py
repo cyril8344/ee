@@ -913,9 +913,13 @@ def evaluate(
     triggers = [t for t in triggers if _w(t) >= PATTERN_FLOOR]
 
     weights = [_w(t) for t in triggers]
-    # Exige au moins 2 patterns ET poids cumulé >= MIN_WEIGHT_SUM_LONG (>= 1.5 pour SHORT)
-    min_weight_sum = MIN_WEIGHT_SUM_LONG if bias == "LONG" else 1.5
-    if len(triggers) < 2 or sum(weights) < min_weight_sum:
+    # Mode momentum fort : ADX H1 > 35 + RSI M5 extrême → 1 pattern suffit, poids >= 0.7
+    strong_momentum = h1_adx > 35 and (
+        (bias == "LONG" and rsi_m5 > 65) or (bias == "SHORT" and rsi_m5 < 35)
+    )
+    min_patterns    = 1   if strong_momentum else 2
+    min_weight_sum  = 0.7 if strong_momentum else (MIN_WEIGHT_SUM_LONG if bias == "LONG" else 1.5)
+    if len(triggers) < min_patterns or sum(weights) < min_weight_sum:
         _rej(_reject_log, "patterns"); return None
 
     # Exige un pattern "ancre" : pullback EMA9 OU micro_breakout
@@ -938,11 +942,6 @@ def evaluate(
 
     # 7) Build trade levels
     weight_sum = sum(weights)
-    quality_score = (
-        (1 if h1_adx > 35 else 0)
-        + (1 if (bias == "LONG" and rsi_m5 > 55) or (bias == "SHORT" and rsi_m5 < 45) else 0)
-        + (1 if weight_sum >= 1.5 else 0)
-    )
     sl_mult = SL_ATR_MULT
 
     if bias == "LONG":
