@@ -819,7 +819,7 @@ def evaluate(
     _adapt_ready = _adapt is not None and _adapt.is_ready
     effective_atr_min  = _adapt.atr_min   if _adapt_ready else atr_min
     effective_ema9_mult = _adapt.ema9_mult if _adapt_ready else 0.5
-    effective_m15_mult  = _adapt.m15_mult  if _adapt_ready else 0.7
+    effective_m15_mult  = _adapt.m15_mult  if _adapt_ready else 0.5
 
     # 3) M15 EMA9/21 + RSI confirmation
     if not confirm_m15(m15, bias, ema_mult=effective_m15_mult):
@@ -870,7 +870,8 @@ def evaluate(
         if is_pin_bar_bullish(cur, atr_val):          triggers.append("pin_bar")
         if is_marubozu_bullish(cur, atr_val):         triggers.append("marubozu")
         # morning_star exclu (WR 42.9% sur données historiques)
-        if is_bullish_harami(prev, cur):              triggers.append("harami")
+        # harami exclu (WR 20% sur données historiques)
+
         if is_three_white_soldiers(m5.iloc[-3:], atr_val): triggers.append("three_white_soldiers")
         if is_tweezer_bottom(prev, cur, atr_val):     triggers.append("tweezer_bottom")
         if is_piercing_line(prev, cur, atr_val):      triggers.append("piercing_line")
@@ -883,7 +884,7 @@ def evaluate(
         if is_pin_bar_bearish(cur, atr_val):          triggers.append("pin_bar")
         if is_marubozu_bearish(cur, atr_val):         triggers.append("marubozu")
         if is_evening_star(m5.iloc[-3:], atr_val):   triggers.append("evening_star")
-        if is_bearish_harami(prev, cur):              triggers.append("bearish_harami")
+        # bearish_harami exclu (WR 20% sur données historiques)
         if is_three_black_crows(m5.iloc[-3:], atr_val): triggers.append("three_black_crows")
         if is_tweezer_top(prev, cur, atr_val):        triggers.append("tweezer_top")
         if is_dark_cloud_cover(prev, cur, atr_val):   triggers.append("dark_cloud_cover")
