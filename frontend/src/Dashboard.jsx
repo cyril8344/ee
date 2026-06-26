@@ -862,6 +862,55 @@ export default function Dashboard({ onLogout }) {
                   min={mkt.indicators?.atr_min} />
               </div>
 
+              {/* risk summary — editable */}
+              <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 10, fontSize: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: COLORS.sub }}>Paramètres de risque</span>
+                  {!settingsEdit && (
+                    <button onClick={openSettingsEdit} style={{ background: "none", border: `1px solid ${COLORS.border}`, borderRadius: 4, padding: "1px 7px", color: COLORS.sub, cursor: "pointer", fontSize: 10 }}>
+                      ✏ Modifier
+                    </button>
+                  )}
+                </div>
+                {settingsEdit ? (
+                  <div style={{ fontSize: 11 }}>
+                    {[
+                      { label: "Capital ($)", key: "capital", min: 100, max: 1000000 },
+                      { label: "Risque / trade (%)", key: "risk_per_trade_pct", min: 0.1, max: 20 },
+                      { label: "Stop journalier (%)", key: "daily_stop_pct", min: 0.5, max: 50 },
+                      { label: "Trades max / jour", key: "max_trades_per_day", min: 1, max: 20 },
+                    ].map(({ label, key, min, max }) => (
+                      <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <span style={{ color: COLORS.sub, flex: 1 }}>{label}</span>
+                        <input
+                          type="number" min={min} max={max} step="any"
+                          value={settingsDraft[key] ?? ""}
+                          onChange={(e) => setSettingsDraft(d => ({ ...d, [key]: e.target.value }))}
+                          style={{ width: 70, background: COLORS.panelbg, border: `1px solid ${COLORS.border}`, borderRadius: 4, color: COLORS.text, padding: "2px 5px", fontSize: 11, textAlign: "right" }}
+                        />
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                      <button onClick={saveSettings} disabled={settingsSaving}
+                        style={{ flex: 1, background: COLORS.green, border: "none", borderRadius: 4, color: "#fff", padding: "4px 0", cursor: "pointer", fontSize: 11, opacity: settingsSaving ? 0.6 : 1 }}>
+                        {settingsSaving ? "…" : "Sauvegarder"}
+                      </button>
+                      <button onClick={() => setSettingsEdit(false)}
+                        style={{ flex: 1, background: "none", border: `1px solid ${COLORS.border}`, borderRadius: 4, color: COLORS.sub, padding: "4px 0", cursor: "pointer", fontSize: 11 }}>
+                        Annuler
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <Row k="Capital" v={`$${fmt(state?.risk?.capital, 2)}`} />
+                    <Row k="Risque / trade" v={`${fmt(state?.risk?.risk_per_trade_pct, 1)}% · $${fmt(state?.risk?.risk_amount_usd, 0)}`} />
+                    <Row k="Stop journalier" v={`-$${fmt(state?.risk?.daily_loss_limit_usd, 0)}`} />
+                    <Row k="Trades max / jour" v={`${state?.risk?.max_trades_per_day ?? "—"}`} />
+                  </>
+                )}
+              </div>
+
               {/* ---- trading conditions checklist ---- */}
               {mkt.conditions && (
                 <div style={{ background: "#0a1020", borderRadius: 6, padding: "8px 10px", marginBottom: 10, fontSize: 11 }}>
@@ -1825,55 +1874,6 @@ export default function Dashboard({ onLogout }) {
                   </div>
                 ) : (
                   <div style={{ fontSize: 13, color: COLORS.sub }}>Aucune news imminente</div>
-                )}
-              </div>
-
-              {/* risk summary — editable */}
-              <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 10, fontSize: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: COLORS.sub }}>Paramètres de risque</span>
-                  {!settingsEdit && (
-                    <button onClick={openSettingsEdit} style={{ background: "none", border: `1px solid ${COLORS.border}`, borderRadius: 4, padding: "1px 7px", color: COLORS.sub, cursor: "pointer", fontSize: 10 }}>
-                      ✏ Modifier
-                    </button>
-                  )}
-                </div>
-                {settingsEdit ? (
-                  <div style={{ fontSize: 11 }}>
-                    {[
-                      { label: "Capital ($)", key: "capital", min: 100, max: 1000000 },
-                      { label: "Risque / trade (%)", key: "risk_per_trade_pct", min: 0.1, max: 20 },
-                      { label: "Stop journalier (%)", key: "daily_stop_pct", min: 0.5, max: 50 },
-                      { label: "Trades max / jour", key: "max_trades_per_day", min: 1, max: 20 },
-                    ].map(({ label, key, min, max }) => (
-                      <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                        <span style={{ color: COLORS.sub, flex: 1 }}>{label}</span>
-                        <input
-                          type="number" min={min} max={max} step="any"
-                          value={settingsDraft[key] ?? ""}
-                          onChange={(e) => setSettingsDraft(d => ({ ...d, [key]: e.target.value }))}
-                          style={{ width: 70, background: COLORS.panelbg, border: `1px solid ${COLORS.border}`, borderRadius: 4, color: COLORS.text, padding: "2px 5px", fontSize: 11, textAlign: "right" }}
-                        />
-                      </div>
-                    ))}
-                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                      <button onClick={saveSettings} disabled={settingsSaving}
-                        style={{ flex: 1, background: COLORS.green, border: "none", borderRadius: 4, color: "#fff", padding: "4px 0", cursor: "pointer", fontSize: 11, opacity: settingsSaving ? 0.6 : 1 }}>
-                        {settingsSaving ? "…" : "Sauvegarder"}
-                      </button>
-                      <button onClick={() => setSettingsEdit(false)}
-                        style={{ flex: 1, background: "none", border: `1px solid ${COLORS.border}`, borderRadius: 4, color: COLORS.sub, padding: "4px 0", cursor: "pointer", fontSize: 11 }}>
-                        Annuler
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <Row k="Capital" v={`$${fmt(state?.risk?.capital, 2)}`} />
-                    <Row k="Risque / trade" v={`${fmt(state?.risk?.risk_per_trade_pct, 1)}% · $${fmt(state?.risk?.risk_amount_usd, 0)}`} />
-                    <Row k="Stop journalier" v={`-$${fmt(state?.risk?.daily_loss_limit_usd, 0)}`} />
-                    <Row k="Trades max / jour" v={`${state?.risk?.max_trades_per_day ?? "—"}`} />
-                  </>
                 )}
               </div>
 
