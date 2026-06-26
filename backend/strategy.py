@@ -918,9 +918,9 @@ def evaluate(
     if len(triggers) < 2 or sum(weights) < min_weight_sum:
         _rej(_reject_log, "patterns"); return None
 
-    # Exige un pattern "ancre" : pullback EMA9 OU confluence Order Block
-    # Garantit une entrée à un niveau technique identifié (pas "en l'air")
-    ANCHOR_PATTERNS = {"ema9_pullback", "near_order_block"}
+    # Exige un pattern "ancre" : pullback EMA9 OU micro_breakout
+    # near_order_block retiré de l'ancre (détection OB approximative)
+    ANCHOR_PATTERNS = {"ema9_pullback", "micro_breakout"}
     if not set(triggers) & ANCHOR_PATTERNS:
         _rej(_reject_log, "no_anchor"); return None
 
