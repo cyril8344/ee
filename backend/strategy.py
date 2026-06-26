@@ -71,7 +71,7 @@ MIN_WEIGHT_SUM_LONG = 1.0   # confluence minimale côté LONG (SHORT reste à 1.
 CET = pytz.timezone("Europe/Paris")  # CET/CEST
 
 # Sessions in CET local time
-LONDON = (time(8, 0), time(12, 0))
+LONDON = (time(8, 0), time(13, 0))
 NEWYORK = (time(14, 0), time(18, 0))
 
 
