@@ -938,50 +938,6 @@ export default function Dashboard({ onLogout }) {
                 )}
               </div>
 
-              {/* ---- Résultats multi-périodes (toujours visible) ---- */}
-              {(multiStatus?.running || multiStatus?.results?.length > 0) && (
-                <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 10 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: COLORS.sub, marginBottom: 6 }}>
-                    Robustesse multi-périodes
-                    {multiStatus?.running && (
-                      <span style={{ color: COLORS.amber, fontWeight: 400, marginLeft: 6 }}>
-                        période {multiStatus.current}/{multiStatus.total}…
-                      </span>
-                    )}
-                  </div>
-                  {multiStatus?.results?.length > 0 && (
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
-                      <thead>
-                        <tr style={{ color: COLORS.sub }}>
-                          <th style={{ textAlign: "left", paddingBottom: 4 }}>Période</th>
-                          <th style={{ textAlign: "right" }}>N</th>
-                          <th style={{ textAlign: "right" }}>WR</th>
-                          <th style={{ textAlign: "right" }}>PF</th>
-                          <th style={{ textAlign: "right" }}>Net$</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {multiStatus.results.map((r, i) => {
-                          const pfColor = r.profit_factor >= 1.2 ? COLORS.green : r.profit_factor >= 1.0 ? COLORS.amber : COLORS.red;
-                          const wrColor = r.win_rate >= 0.52 ? COLORS.green : r.win_rate >= 0.45 ? COLORS.amber : COLORS.red;
-                          return (
-                            <tr key={i} style={{ borderTop: `1px solid ${COLORS.border}33` }}>
-                              <td style={{ color: COLORS.sub, paddingTop: 4, fontSize: 9 }}>{r.label}</td>
-                              <td style={{ textAlign: "right", paddingTop: 4 }}>{r.n_trades}</td>
-                              <td style={{ textAlign: "right", color: wrColor, paddingTop: 4 }}>{(r.win_rate * 100).toFixed(0)}%</td>
-                              <td style={{ textAlign: "right", color: pfColor, fontWeight: 700, paddingTop: 4 }}>{r.profit_factor.toFixed(2)}</td>
-                              <td style={{ textAlign: "right", color: r.net_pnl >= 0 ? COLORS.green : COLORS.red, paddingTop: 4 }}>
-                                {r.net_pnl >= 0 ? "+" : ""}{r.net_pnl.toFixed(0)}$
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              )}
-
               {/* ---- trading conditions checklist ---- */}
               {mkt.conditions && (
                 <div style={{ background: "#0a1020", borderRadius: 6, padding: "8px 10px", marginBottom: 10, fontSize: 11 }}>
@@ -2155,6 +2111,92 @@ export default function Dashboard({ onLogout }) {
               </div>
             </div>
           </div>
+
+          {/* ===== Robustesse multi-périodes ===== */}
+          {(multiStatus?.running || multiStatus?.results?.length > 0) && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                <h3 style={{ margin: 0, fontSize: 14 }}>Robustesse multi-périodes</h3>
+                {multiStatus?.running && (
+                  <span style={{ fontSize: 11, color: COLORS.amber }}>
+                    ⏳ Période {multiStatus.current}/{multiStatus.total} en cours…
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+                {(multiStatus?.results?.length > 0 ? multiStatus.results : [{},{},{}]).map((r, i) => {
+                  const isLoading = multiStatus?.running && i >= (multiStatus?.results?.length ?? 0);
+                  const isEmpty   = !r.label;
+                  const pf   = r.profit_factor ?? 0;
+                  const wr   = r.win_rate ?? 0;
+                  const pfColor = pf >= 1.25 ? COLORS.green : pf >= 1.0 ? COLORS.amber : COLORS.red;
+                  const wrColor = wr >= 0.52 ? COLORS.green : wr >= 0.45 ? COLORS.amber : COLORS.red;
+                  const curve = r.equity_curve ?? [];
+                  const W = 260, H = 60;
+                  const vals = curve.map(p => p.equity);
+                  const minV = Math.min(...vals);
+                  const maxV = Math.max(...vals);
+                  const range = maxV - minV || 1;
+                  const pts = vals.map((v, j) =>
+                    `${(j / Math.max(vals.length - 1, 1)) * W},${H - ((v - minV) / range) * H}`
+                  ).join(" ");
+                  const finalColor = vals.length > 1
+                    ? (vals[vals.length - 1] >= vals[0] ? COLORS.green : COLORS.red)
+                    : COLORS.sub;
+                  return (
+                    <div key={i} className="dashboard-panel" style={{
+                      ...panel(),
+                      opacity: isLoading || isEmpty ? 0.4 : 1,
+                      minHeight: 160,
+                    }}>
+                      {isEmpty || isLoading ? (
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 140, color: COLORS.sub, fontSize: 12 }}>
+                          {isLoading ? "⏳ En cours…" : `Période ${i + 1}`}
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 8 }}>{r.label}</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 10 }}>
+                            <div style={{ textAlign: "center" }}>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: pfColor }}>{pf.toFixed(2)}</div>
+                              <div style={{ fontSize: 10, color: COLORS.sub }}>PF</div>
+                            </div>
+                            <div style={{ textAlign: "center" }}>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: wrColor }}>{(wr * 100).toFixed(0)}%</div>
+                              <div style={{ fontSize: 10, color: COLORS.sub }}>WR</div>
+                            </div>
+                            <div style={{ textAlign: "center" }}>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: COLORS.text }}>{r.n_trades}</div>
+                              <div style={{ fontSize: 10, color: COLORS.sub }}>trades</div>
+                            </div>
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginBottom: 10, fontSize: 11 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between" }}>
+                              <span style={{ color: COLORS.sub }}>Net PnL</span>
+                              <span style={{ color: r.net_pnl >= 0 ? COLORS.green : COLORS.red, fontWeight: 600 }}>
+                                {r.net_pnl >= 0 ? "+" : ""}{r.net_pnl?.toFixed(0)}$
+                              </span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between" }}>
+                              <span style={{ color: COLORS.sub }}>SL direct</span>
+                              <span style={{ color: r.sl_direct_pct <= 30 ? COLORS.green : COLORS.amber }}>
+                                {r.sl_direct_pct}%
+                              </span>
+                            </div>
+                          </div>
+                          {curve.length > 1 && (
+                            <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: "block" }}>
+                              <polyline points={pts} fill="none" stroke={finalColor} strokeWidth="1.5" />
+                            </svg>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* ===== active trade ===== */}
           {pos && (() => {

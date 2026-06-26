@@ -1172,15 +1172,19 @@ def start_multi_pretrain(req: PretrainRequest, _user: dict = Depends(get_current
                     capital=req.capital, risk_pct=req.risk_pct,
                     strategy_mode=req.strategy_mode,
                 )
+                n = r.get("n_trades", 0)
                 results.append({
                     "label":         label,
                     "start":         start,
                     "end":           end,
-                    "n_trades":      r.get("n_trades", 0),
+                    "n_trades":      n,
                     "win_rate":      r.get("win_rate", 0),
                     "profit_factor": r.get("profit_factor", 0),
                     "net_pnl":       r.get("net_pnl", 0),
-                    "sl_direct_pct": round(r.get("n_sl_direct", 0) / r.get("n_trades", 1) * 100, 1) if r.get("n_trades") else 0,
+                    "sl_direct_pct": round(r.get("n_sl_direct", 0) / max(n, 1) * 100, 1),
+                    "avg_win":       r.get("avg_win", 0),
+                    "avg_loss":      r.get("avg_loss", 0),
+                    "equity_curve":  [{"equity": p["equity"]} for p in r.get("equity_curve", [])],
                 })
         except Exception as exc:
             with _multi_lock:
