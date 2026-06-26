@@ -852,12 +852,13 @@ def evaluate(
     if bias == "SHORT" and rsi_m5 > 55:
         _rej(_reject_log, "rsi_m5"); return None
 
-    # 5c) VWAP alignment — close du bon côté du VWAP (SL direct Δ VWAP = -43)
+    # 5c) VWAP alignment — exige marge 0.15×ATR au-delà du VWAP (Δ −10 entre SL dir et TP2)
     vwap_val = float(cur.get("vwap", float("nan")) or float("nan"))
     if not pd.isna(vwap_val):
-        if bias == "LONG"  and float(cur["close"]) < vwap_val:
+        vwap_margin = 0.15 * atr_val
+        if bias == "LONG"  and float(cur["close"]) < vwap_val + vwap_margin:
             _rej(_reject_log, "vwap"); return None
-        if bias == "SHORT" and float(cur["close"]) > vwap_val:
+        if bias == "SHORT" and float(cur["close"]) > vwap_val - vwap_margin:
             _rej(_reject_log, "vwap"); return None
 
     # 6) Candlestick pattern trigger (any single pattern is enough)
