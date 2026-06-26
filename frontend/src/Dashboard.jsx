@@ -1842,8 +1842,8 @@ export default function Dashboard({ onLogout }) {
                   <div style={{ fontSize: 11 }}>
                     {[
                       { label: "Capital ($)", key: "capital", min: 100, max: 1000000 },
-                      { label: "Risque / trade (%)", key: "risk_per_trade_pct", min: 0.1, max: 5 },
-                      { label: "Stop journalier (%)", key: "daily_stop_pct", min: 0.5, max: 10 },
+                      { label: "Risque / trade (%)", key: "risk_per_trade_pct", min: 0.1, max: 20 },
+                      { label: "Stop journalier (%)", key: "daily_stop_pct", min: 0.5, max: 50 },
                       { label: "Trades max / jour", key: "max_trades_per_day", min: 1, max: 20 },
                     ].map(({ label, key, min, max }) => (
                       <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
