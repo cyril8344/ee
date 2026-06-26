@@ -465,17 +465,17 @@ export default function Dashboard({ onLogout }) {
     return () => clearInterval(id);
   }, []);
 
-  /* Multi-périodes — polling pendant l'exécution */
+  /* Multi-périodes — polling constant (évite le stale closure React) */
   useEffect(() => {
-    let id = null;
     const poll = () =>
       fetch(`${API}/api/pretrain/multi`, { headers: authHeaders() })
         .then(r => r.ok ? r.json() : null)
         .then(d => { if (d) setMultiStatus(d); })
         .catch(() => {});
-    id = setInterval(() => { if (multiStatus?.running) poll(); }, 4000);
+    poll();
+    const id = setInterval(poll, 4000);
     return () => clearInterval(id);
-  }, [multiStatus?.running]);
+  }, []);
 
   const setPretrainPeriod = (months) => {
     const end = new Date();
@@ -1712,20 +1712,20 @@ export default function Dashboard({ onLogout }) {
                           {pretrainLoading ? "Lancement…" : "Pré-entraîner maintenant"}
                         </button>
 
-                        {/* Bouton multi-périodes */}
-                        <button
-                          onClick={launchMultiPretrain}
-                          disabled={multiStatus?.running || pretrainLoading || pretrainStatus?.running}
-                          style={{ width: "100%", marginTop: 4, background: COLORS.amber + "22",
-                            border: `1px solid ${COLORS.amber}`, borderRadius: 4,
-                            color: COLORS.amber, padding: "5px 0", cursor: "pointer", fontSize: 11 }}>
-                          {multiStatus?.running
-                            ? `P${multiStatus.current}/${multiStatus.total} en cours…`
-                            : "Test 3 périodes (0-6M / 6-12M / 12-18M)"}
-                        </button>
-
                       </div>
                     )}
+
+                    {/* Bouton multi-périodes — toujours visible */}
+                    <button
+                      onClick={launchMultiPretrain}
+                      disabled={multiStatus?.running || pretrainLoading || pretrainStatus?.running}
+                      style={{ width: "100%", marginTop: 6, background: COLORS.amber + "22",
+                        border: `1px solid ${COLORS.amber}`, borderRadius: 4,
+                        color: COLORS.amber, padding: "5px 0", cursor: "pointer", fontSize: 11 }}>
+                      {multiStatus?.running
+                        ? `⏳ P${multiStatus.current}/${multiStatus.total} en cours…`
+                        : "Test 3 périodes (0-6M / 6-12M / 12-18M)"}
+                    </button>
                   </div>
 
                   {/* Adaptive thresholds */}
