@@ -72,7 +72,7 @@ CET = pytz.timezone("Europe/Paris")  # CET/CEST
 
 # Sessions in CET local time
 LONDON = (time(8, 0), time(12, 0))
-NEWYORK = (time(13, 0), time(18, 0))
+NEWYORK = (time(14, 0), time(18, 0))
 
 
 # --------------------------------------------------------------------------- #
