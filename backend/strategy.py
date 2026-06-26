@@ -64,7 +64,7 @@ MAX_TRADE_MINUTES = 45
 TREND_BIAS_DISTANCE   = 0.5  # multiples d'ATR H1 — bloque SHORT si prix > EMA200 + 0.5 ATR
 EMA200_MIN_DIST_LONG  = 0.3  # LONG doit être à ≥ 0.3×ATR au-dessus de EMA200
 EMA200_MIN_DIST_SHORT = 0.6  # SHORT doit être à ≥ 0.6×ATR en-dessous de EMA200 (XAUUSD uptrend)
-BAD_HOURS_CET         = {10} # 10h00-10h59 CET : WR 38% sur 37 trades (6M) — pire créneau London
+BAD_HOURS_CET         = {10, 14} # 10h London WR 38% (37 trades) + 14h NY open WR 36% (34 trades) — manipulation phases
 PATTERN_FLOOR = 0.67        # exclut les patterns avec WR historique < 67%
 MIN_WEIGHT_SUM_LONG = 1.0   # confluence minimale côté LONG (SHORT reste à 1.5)
 
@@ -823,9 +823,9 @@ def evaluate(
 
     # 5b) M5 RSI momentum confirmation — évite les entrées à contre-courant M5
     rsi_m5 = float(cur.get("rsi", 50) or 50)
-    if bias == "LONG"  and rsi_m5 < 48:
+    if bias == "LONG"  and rsi_m5 < 45:
         return None
-    if bias == "SHORT" and rsi_m5 > 52:
+    if bias == "SHORT" and rsi_m5 > 55:
         return None
 
     # 5c) VWAP alignment — close du bon côté du VWAP (SL direct Δ VWAP = -43)
