@@ -1134,6 +1134,71 @@ def start_pretrain(req: PretrainRequest, _user: dict = Depends(get_current_user)
     return {"ok": True, "message": "Pré-entraînement lancé", "progress": _pretrain_module.get_progress()}
 
 
+# ── Multi-period pretrain ─────────────────────────────────────────────────────
+_multi_state: dict = {"running": False, "current": 0, "total": 3, "results": [], "error": None}
+_multi_lock = threading.Lock()
+
+
+@app.post("/api/pretrain/multi")
+def start_multi_pretrain(req: PretrainRequest, _user: dict = Depends(get_current_user)):
+    """Lance le pré-entraînement sur 3 périodes de 6 mois consécutives."""
+    with _multi_lock:
+        if _multi_state["running"] or _pretrain_module.get_progress()["running"]:
+            return {"ok": False, "message": "Un pré-entraînement est déjà en cours"}
+        _multi_state.update(running=True, current=0, total=3, results=[], error=None)
+
+    from datetime import date, timedelta
+    today = date.today()
+
+    def _period(months_end: int, months_start: int) -> tuple[str, str]:
+        end   = today - timedelta(days=months_end * 30)
+        start = today - timedelta(days=months_start * 30)
+        return start.isoformat(), end.isoformat()
+
+    periods = [_period(0, 6), _period(6, 12), _period(12, 18)]
+    labels  = ["P1 (0-6M)", "P2 (6-12M)", "P3 (12-18M)"]
+
+    def _run():
+        results = []
+        try:
+            for i, ((start, end), label) in enumerate(zip(periods, labels)):
+                with _multi_lock:
+                    _multi_state["current"] = i + 1
+                r = _pretrain_module.run_pretrain(
+                    start=start, end=end,
+                    symbol=req.symbol, atr_min=req.atr_min,
+                    reset=(i == 0 and req.reset),
+                    capital=req.capital, risk_pct=req.risk_pct,
+                    strategy_mode=req.strategy_mode,
+                )
+                results.append({
+                    "label":         label,
+                    "start":         start,
+                    "end":           end,
+                    "n_trades":      r.get("n_trades", 0),
+                    "win_rate":      r.get("win_rate", 0),
+                    "profit_factor": r.get("profit_factor", 0),
+                    "net_pnl":       r.get("net_pnl", 0),
+                    "sl_direct_pct": round(r.get("n_sl_direct", 0) / r.get("n_trades", 1) * 100, 1) if r.get("n_trades") else 0,
+                })
+        except Exception as exc:
+            with _multi_lock:
+                _multi_state["error"] = str(exc)
+        finally:
+            with _multi_lock:
+                _multi_state.update(running=False, results=results)
+
+    threading.Thread(target=_run, daemon=True, name="pretrain-multi").start()
+    return {"ok": True, "message": "Multi-périodes lancé"}
+
+
+@app.get("/api/pretrain/multi")
+def get_multi_pretrain(_user: dict = Depends(get_current_user)):
+    """Statut et résultats du multi-period pretrain."""
+    with _multi_lock:
+        return dict(_multi_state)
+
+
 @app.get("/api/pretrain/status")
 def pretrain_status(_user: dict = Depends(get_current_user)):
     """Progression du pré-entraînement en cours."""

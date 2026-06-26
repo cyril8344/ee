@@ -329,6 +329,8 @@ export default function Dashboard({ onLogout }) {
   const [newsFeed, setNewsFeed] = useState(null);
   const [pretrainStatus, setPretrainStatus]   = useState(null);
   const [pretrainLoading, setPretrainLoading] = useState(false);
+  const [multiStatus, setMultiStatus]         = useState(null);
+  const [multiLoading, setMultiLoading]       = useState(false);
   const [pretrainTrades, setPretrainTrades]   = useState(null);
   const [pretrainFilter, setPretrainFilter]   = useState("losses");
   const [pretrainPage, setPretrainPage]       = useState(0);
@@ -463,6 +465,18 @@ export default function Dashboard({ onLogout }) {
     return () => clearInterval(id);
   }, []);
 
+  /* Multi-périodes — polling pendant l'exécution */
+  useEffect(() => {
+    let id = null;
+    const poll = () =>
+      fetch(`${API}/api/pretrain/multi`, { headers: authHeaders() })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) setMultiStatus(d); })
+        .catch(() => {});
+    id = setInterval(() => { if (multiStatus?.running) poll(); }, 4000);
+    return () => clearInterval(id);
+  }, [multiStatus?.running]);
+
   const setPretrainPeriod = (months) => {
     const end = new Date();
     const start = new Date(end);
@@ -490,6 +504,19 @@ export default function Dashboard({ onLogout }) {
         setPretrainStatus({ running: false, status: "error", error: "Impossible de contacter le serveur" });
         setPretrainLoading(false);
       });
+  };
+
+  const launchMultiPretrain = () => {
+    setMultiLoading(true);
+    setMultiStatus({ running: true, current: 0, total: 3, results: [], error: null });
+    fetch(`${API}/api/pretrain/multi`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol: activeMarket, reset: pretrainResetML, strategy_mode: strategyMode, capital: pretrainCapital, risk_pct: pretrainRiskPct }),
+    })
+      .then(r => r.json())
+      .then(() => setMultiLoading(false))
+      .catch(() => { setMultiStatus({ running: false, error: "Erreur réseau" }); setMultiLoading(false); });
   };
 
   const loadPretrainTrades = (filter, page) => {
@@ -1677,13 +1704,67 @@ export default function Dashboard({ onLogout }) {
                         </div>
                         <button
                           onClick={() => launchPretrain(activeMarket)}
-                          disabled={pretrainLoading}
+                          disabled={pretrainLoading || multiStatus?.running}
                           style={{ width: "100%", background: COLORS.blue + "33",
                             border: `1px solid ${COLORS.blue}`, borderRadius: 4,
                             color: COLORS.blue, padding: "6px 0", cursor: "pointer",
                             fontSize: 12, fontWeight: 600 }}>
                           {pretrainLoading ? "Lancement…" : "Pré-entraîner maintenant"}
                         </button>
+
+                        {/* Bouton multi-périodes */}
+                        <button
+                          onClick={launchMultiPretrain}
+                          disabled={multiStatus?.running || pretrainLoading || pretrainStatus?.running}
+                          style={{ width: "100%", marginTop: 4, background: COLORS.amber + "22",
+                            border: `1px solid ${COLORS.amber}`, borderRadius: 4,
+                            color: COLORS.amber, padding: "5px 0", cursor: "pointer", fontSize: 11 }}>
+                          {multiStatus?.running
+                            ? `P${multiStatus.current}/${multiStatus.total} en cours…`
+                            : "Test 3 périodes (0-6M / 6-12M / 12-18M)"}
+                        </button>
+
+                        {/* Tableau comparatif multi-périodes */}
+                        {multiStatus?.results?.length > 0 && (
+                          <div style={{ marginTop: 8, fontSize: 10 }}>
+                            <div style={{ color: COLORS.sub, marginBottom: 4, fontWeight: 600 }}>Comparaison multi-périodes</div>
+                            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                              <thead>
+                                <tr style={{ color: COLORS.sub }}>
+                                  <th style={{ textAlign: "left", paddingBottom: 3 }}>Période</th>
+                                  <th style={{ textAlign: "right" }}>N</th>
+                                  <th style={{ textAlign: "right" }}>WR</th>
+                                  <th style={{ textAlign: "right" }}>PF</th>
+                                  <th style={{ textAlign: "right" }}>Net PnL</th>
+                                  <th style={{ textAlign: "right" }}>SL dir</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {multiStatus.results.map((r, i) => {
+                                  const pfColor = r.profit_factor >= 1.3 ? COLORS.green : r.profit_factor >= 1.0 ? COLORS.amber : COLORS.red;
+                                  const wrColor = r.win_rate >= 0.50 ? COLORS.green : r.win_rate >= 0.40 ? COLORS.amber : COLORS.red;
+                                  return (
+                                    <tr key={i} style={{ borderTop: `1px solid ${COLORS.border}22` }}>
+                                      <td style={{ color: COLORS.sub, paddingTop: 3 }}>{r.label}</td>
+                                      <td style={{ textAlign: "right", paddingTop: 3 }}>{r.n_trades}</td>
+                                      <td style={{ textAlign: "right", color: wrColor, paddingTop: 3 }}>{(r.win_rate * 100).toFixed(0)}%</td>
+                                      <td style={{ textAlign: "right", color: pfColor, fontWeight: 600, paddingTop: 3 }}>{r.profit_factor.toFixed(2)}</td>
+                                      <td style={{ textAlign: "right", color: r.net_pnl >= 0 ? COLORS.green : COLORS.red, paddingTop: 3 }}>
+                                        {r.net_pnl >= 0 ? "+" : ""}{r.net_pnl.toFixed(0)}$
+                                      </td>
+                                      <td style={{ textAlign: "right", color: r.sl_direct_pct <= 30 ? COLORS.green : COLORS.amber, paddingTop: 3 }}>
+                                        {r.sl_direct_pct}%
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                            {multiStatus.error && (
+                              <div style={{ color: COLORS.red, marginTop: 4 }}>{multiStatus.error}</div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
