@@ -66,7 +66,7 @@ EMA200_MIN_DIST_LONG  = 0.3  # LONG doit être à ≥ 0.3×ATR au-dessus de EMA2
 EMA200_MIN_DIST_SHORT = 0.6  # SHORT doit être à ≥ 0.6×ATR en-dessous de EMA200 (XAUUSD uptrend)
 BAD_HOURS_CET         = {10, 14} # 10h London WR 38% (37 trades) + 14h NY open WR 36% (34 trades) — manipulation phases
 PATTERN_FLOOR = 0.67        # exclut les patterns avec WR historique < 67%
-MIN_WEIGHT_SUM_LONG = 0.7   # 2-candle system : 1 pattern suffit si poids ≥ 0.7 (SHORT reste à 1.0)
+MIN_WEIGHT_SUM_LONG = 1.0   # confluence minimale côté LONG (SHORT reste à 1.5)
 
 CET = pytz.timezone("Europe/Paris")  # CET/CEST
 
@@ -747,13 +747,9 @@ def evaluate(
     if len(m5) < max(EMA_SLOW, 30) or len(m15) < 1 or len(h1) < 1:
         return None
 
-    confirm    = m5.iloc[-1]   # bougie de confirmation — entrée ici
-    setup      = m5.iloc[-2]   # bougie setup — patterns détectés ici
-    setup_prev = m5.iloc[-3] if len(m5) >= 3 else m5.iloc[-2]
-    m5_setup   = m5.iloc[:-1]  # DataFrame se terminant à la bougie setup
-    cur  = confirm  # alias pour le code aval (ATR, ML, ts)
-    prev = setup    # alias pour compatibilité
-    ts = now or confirm.name.to_pydatetime()
+    cur = m5.iloc[-1]
+    prev = m5.iloc[-2]
+    ts = now or cur.name.to_pydatetime()
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=timezone.utc)
 
@@ -818,38 +814,58 @@ def evaluate(
     if h1_adx < adx_required:
         return None
 
-    # RSI M5 du setup — utilisé pour les features ML uniquement (plus de filtre hard)
-    rsi_m5 = float(setup.get("rsi", 50) or 50)
+    # 5) M5 EMA9 alignment — tolérance adaptative (défaut 0.5 ATR)
+    ema9_tolerance = atr_val * effective_ema9_mult
+    if bias == "LONG" and cur["close"] < cur["ema9"] - ema9_tolerance:
+        return None
+    if bias == "SHORT" and cur["close"] > cur["ema9"] + ema9_tolerance:
+        return None
 
-    # 6) Candlestick pattern trigger — détecté sur la bougie SETUP (m5.iloc[-2])
-    entry = float(confirm["close"])
+    # 5b) M5 RSI momentum confirmation — évite les entrées à contre-courant M5
+    rsi_m5 = float(cur.get("rsi", 50) or 50)
+    if bias == "LONG"  and rsi_m5 < 45:
+        return None
+    if bias == "SHORT" and rsi_m5 > 55:
+        return None
+
+    # 5c) VWAP alignment — close du bon côté du VWAP (SL direct Δ VWAP = -43)
+    vwap_val = float(cur.get("vwap", float("nan")) or float("nan"))
+    if not pd.isna(vwap_val):
+        if bias == "LONG"  and float(cur["close"]) < vwap_val:
+            return None
+        if bias == "SHORT" and float(cur["close"]) > vwap_val:
+            return None
+
+    # 6) Candlestick pattern trigger (any single pattern is enough)
+    entry = float(cur["close"])
     triggers = []
 
     if bias == "LONG":
-        if is_bullish_engulfing(setup_prev, setup, atr_val): triggers.append("bullish_engulfing")
-        if is_hammer(setup, atr_val):                        triggers.append("hammer")
-        if is_pin_bar_bullish(setup, atr_val):               triggers.append("pin_bar")
-        if is_marubozu_bullish(setup, atr_val):              triggers.append("marubozu")
-        if is_bullish_harami(setup_prev, setup):             triggers.append("harami")
-        if is_three_white_soldiers(m5_setup.iloc[-3:], atr_val): triggers.append("three_white_soldiers")
-        if is_tweezer_bottom(setup_prev, setup, atr_val):   triggers.append("tweezer_bottom")
-        if is_piercing_line(setup_prev, setup, atr_val):    triggers.append("piercing_line")
-        if ema9_pullback_bounce(m5_setup, bias):            triggers.append("ema9_pullback")
-        if micro_breakout(m5_setup, bias):                  triggers.append("micro_breakout")
-        if is_doji(setup_prev):                             triggers.append("doji_reversal")
+        if is_bullish_engulfing(prev, cur, atr_val):  triggers.append("bullish_engulfing")
+        if is_hammer(cur, atr_val):                   triggers.append("hammer")
+        if is_pin_bar_bullish(cur, atr_val):          triggers.append("pin_bar")
+        if is_marubozu_bullish(cur, atr_val):         triggers.append("marubozu")
+        # morning_star exclu (WR 42.9% sur données historiques)
+        if is_bullish_harami(prev, cur):              triggers.append("harami")
+        if is_three_white_soldiers(m5.iloc[-3:], atr_val): triggers.append("three_white_soldiers")
+        if is_tweezer_bottom(prev, cur, atr_val):     triggers.append("tweezer_bottom")
+        if is_piercing_line(prev, cur, atr_val):      triggers.append("piercing_line")
+        if ema9_pullback_bounce(m5, bias):            triggers.append("ema9_pullback")
+        if micro_breakout(m5, bias):                  triggers.append("micro_breakout")
+        if is_doji(prev):                             triggers.append("doji_reversal")
     else:
-        if is_bearish_engulfing(setup_prev, setup, atr_val): triggers.append("bearish_engulfing")
-        if is_shooting_star(setup, atr_val):                 triggers.append("shooting_star")
-        if is_pin_bar_bearish(setup, atr_val):               triggers.append("pin_bar")
-        if is_marubozu_bearish(setup, atr_val):              triggers.append("marubozu")
-        if is_evening_star(m5_setup.iloc[-3:], atr_val):    triggers.append("evening_star")
-        if is_bearish_harami(setup_prev, setup):             triggers.append("bearish_harami")
-        if is_three_black_crows(m5_setup.iloc[-3:], atr_val): triggers.append("three_black_crows")
-        if is_tweezer_top(setup_prev, setup, atr_val):       triggers.append("tweezer_top")
-        if is_dark_cloud_cover(setup_prev, setup, atr_val):  triggers.append("dark_cloud_cover")
-        if ema9_pullback_bounce(m5_setup, bias):             triggers.append("ema9_pullback")
-        if micro_breakout(m5_setup, bias):                   triggers.append("micro_breakout")
-        if is_doji(setup_prev):                              triggers.append("doji_reversal")
+        if is_bearish_engulfing(prev, cur, atr_val):  triggers.append("bearish_engulfing")
+        if is_shooting_star(cur, atr_val):            triggers.append("shooting_star")
+        if is_pin_bar_bearish(cur, atr_val):          triggers.append("pin_bar")
+        if is_marubozu_bearish(cur, atr_val):         triggers.append("marubozu")
+        if is_evening_star(m5.iloc[-3:], atr_val):   triggers.append("evening_star")
+        if is_bearish_harami(prev, cur):              triggers.append("bearish_harami")
+        if is_three_black_crows(m5.iloc[-3:], atr_val): triggers.append("three_black_crows")
+        if is_tweezer_top(prev, cur, atr_val):        triggers.append("tweezer_top")
+        if is_dark_cloud_cover(prev, cur, atr_val):   triggers.append("dark_cloud_cover")
+        if ema9_pullback_bounce(m5, bias):            triggers.append("ema9_pullback")
+        if micro_breakout(m5, bias):                  triggers.append("micro_breakout")
+        if is_doji(prev):                             triggers.append("doji_reversal")
 
     # Order block proximity — confluence only, never a standalone trigger
     obs = find_order_blocks(m5)
@@ -872,53 +888,41 @@ def evaluate(
     triggers = [t for t in triggers if _w(t) >= PATTERN_FLOOR]
 
     weights = [_w(t) for t in triggers]
-    # 2-candle system : 1 pattern suffit, poids ≥ 0.7 LONG / 1.0 SHORT
-    min_weight_sum = MIN_WEIGHT_SUM_LONG if bias == "LONG" else 1.0
-    if len(triggers) < 1 or sum(weights) < min_weight_sum:
+    # Exige au moins 2 patterns ET poids cumulé >= MIN_WEIGHT_SUM_LONG (>= 1.5 pour SHORT)
+    min_weight_sum = MIN_WEIGHT_SUM_LONG if bias == "LONG" else 1.5
+    if len(triggers) < 2 or sum(weights) < min_weight_sum:
         return None
 
-    # Filtre corps de bougie sur la bougie SETUP (pas la confirmation)
+    # Filtre corps de bougie : rejette les bougies indécises (corps < 40% de la range)
+    # Exempt pour les patterns conçus avec petite bougie (hammer, pin_bar, doji, tweezer)
     SMALL_BODY_EXEMPT = {
         "hammer", "pin_bar", "doji_reversal", "shooting_star",
         "tweezer_bottom", "tweezer_top", "piercing_line", "dark_cloud_cover",
     }
     if not set(triggers) & SMALL_BODY_EXEMPT:
-        bar_range = float(setup["high"]) - float(setup["low"])
-        bar_body  = abs(float(setup["close"]) - float(setup["open"]))
+        bar_range = float(cur["high"]) - float(cur["low"])
+        bar_body  = abs(float(cur["close"]) - float(cur["open"]))
         if bar_range > 0 and bar_body / bar_range < 0.4:
             return None
 
-    # 6b) Bougie de confirmation — prouve le mouvement avant l'entrée
-    # Absorbe : EMA9 alignment + VWAP (filtrés naturellement par la clôture directionnelle)
-    if bias == "LONG":
-        if float(confirm["close"]) <= float(confirm["open"]):
-            return None
-        conf_ema9 = float(confirm.get("ema9", 0) or 0)
-        if conf_ema9 > 0 and float(confirm["close"]) < conf_ema9:
-            return None
-        conf_vwap = float(confirm.get("vwap", float("nan")) or float("nan"))
-        if not pd.isna(conf_vwap) and float(confirm["close"]) < conf_vwap:
-            return None
-    else:
-        if float(confirm["close"]) >= float(confirm["open"]):
-            return None
-        conf_ema9 = float(confirm.get("ema9", 0) or 0)
-        if conf_ema9 > 0 and float(confirm["close"]) > conf_ema9:
-            return None
-        conf_vwap = float(confirm.get("vwap", float("nan")) or float("nan"))
-        if not pd.isna(conf_vwap) and float(confirm["close"]) > conf_vwap:
-            return None
-
-    # 7) SL derrière la bougie setup (niveau structurel) plafonné à SL_ATR_MULT×ATR
+    # 7) Build trade levels
     weight_sum = sum(weights)
+    quality_score = (
+        (1 if h1_adx > 35 else 0)
+        + (1 if (bias == "LONG" and rsi_m5 > 55) or (bias == "SHORT" and rsi_m5 < 45) else 0)
+        + (1 if weight_sum >= 1.5 else 0)
+    )
+    sl_mult = SL_ATR_MULT
 
     if bias == "LONG":
-        raw_sl = float(setup["low"]) - 0.3 * atr_val
-        sl = max(raw_sl, entry - SL_ATR_MULT * atr_val)
+        swing = last_swing_low(m5, lookback=10)
+        raw_sl = min(swing, entry - 1e-6)
+        sl = max(raw_sl, entry - sl_mult * atr_val)
         direction = "long"
     else:
-        raw_sl = float(setup["high"]) + 0.3 * atr_val
-        sl = min(raw_sl, entry + SL_ATR_MULT * atr_val)
+        swing = last_swing_high(m5, lookback=10)
+        raw_sl = max(swing, entry + 1e-6)
+        sl = min(raw_sl, entry + sl_mult * atr_val)
         direction = "short"
 
     risk = abs(entry - sl)
