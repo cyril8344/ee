@@ -70,7 +70,7 @@ Entry threshold: 0.50 (boosted when on a losing streak). **Reset ML weights (pas
 
 - TP1 = 0.7R → exits 50% of position (pas de déplacement SL après TP1)
 - TP2 = 1.8R → exits remaining 50%
-- SL = 1.0–1.4 × ATR (adaptatif selon quality_score); pas de déplacement après TP1 — SL reste au niveau initial; timeout at 45 minutes
+- SL = sous la mèche de la bougie pattern (`cur["low"] - 0.3×ATR` LONG / `cur["high"] + 0.3×ATR` SHORT), plafonné à 1.4×ATR; pas de déplacement après TP1; timeout at 45 minutes
 - Risk: 5% capital per trade (configurable), max 4 trades/day, daily stop at −2%
 
 ### Data Flow
