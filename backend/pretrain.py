@@ -26,7 +26,7 @@ from typing import Dict, Any, Optional, Callable
 import pandas as pd
 
 from strategy import (
-    add_indicators, evaluate, active_session,
+    add_indicators, evaluate, active_session, compute_bias,
     MAX_TRADE_MINUTES, SL_ATR_MULT, CET,
 )
 from strategy_ict import evaluate_ict
@@ -290,6 +290,7 @@ def run_pretrain(
                         "vwap_side":     _snap.get("vwap_side", 0),
                         "h1_rsi":        _snap.get("h1_rsi", 50),
                         "body_ratio":    _snap.get("body_ratio", 0),
+                        "h4_bias":       _snap.get("h4_bias", 0),
                     })
 
                     open_trade = None
@@ -307,6 +308,7 @@ def run_pretrain(
             h1_s  = h1_full.iloc[:h1_full.index.searchsorted(ts, side="right")]
 
             # evaluate() / evaluate_ict() SANS ml_gate ni adaptive → signal brut
+            h4_s = None
             if strategy_mode == "B":
                 ICT_M5_WINDOW = 576
                 m5_win = m5.iloc[max(0, i - ICT_M5_WINDOW + 1): i + 1]
@@ -379,11 +381,40 @@ def run_pretrain(
                         abs(float(bar.get("close", 0) or 0) - float(bar.get("open", 0) or 0))
                         / max(float(bar.get("atr", 1) or 1), 0.001), 2
                     ),
+                    "h4_bias": (
+                        1 if compute_bias(h4_s) == "LONG"
+                        else -1 if compute_bias(h4_s) == "SHORT"
+                        else 0
+                    ) if h4_s is not None and len(h4_s) > 0 else 0,
                 },
             }
 
-        # ---- WR par heure CET ----
+        # ---- WR par pattern ----
         from collections import defaultdict as _dd
+        _by_pat: dict = _dd(lambda: {"n": 0, "wins": 0})
+        for _t in trades_log:
+            for _p in _t.get("patterns", []):
+                _by_pat[_p]["n"] += 1
+                _by_pat[_p]["wins"] += int(_t["won"])
+        wr_by_pattern = {
+            _p: {"n": _v["n"], "wr": round(_v["wins"] / _v["n"], 3)}
+            for _p, _v in sorted(_by_pat.items(), key=lambda x: -x[1]["n"])
+            if _v["n"] >= 3
+        }
+
+        # ---- WR par session ----
+        _by_sess: dict = _dd(lambda: {"n": 0, "wins": 0})
+        for _t in trades_log:
+            _s = _t.get("session", "")
+            if _s:
+                _by_sess[_s]["n"] += 1
+                _by_sess[_s]["wins"] += int(_t["won"])
+        wr_by_session = {
+            _s: {"n": _v["n"], "wr": round(_v["wins"] / _v["n"], 3)}
+            for _s, _v in _by_sess.items() if _v["n"] >= 3
+        }
+
+        # ---- WR par heure CET ----
         _by_hour: dict = _dd(lambda: {"n": 0, "wins": 0})
         for _t in trades_log:
             _h = _t.get("hour_cet")
@@ -479,6 +510,7 @@ def run_pretrain(
                 ),
                 "h1_rsi":    round(_mean("h1_rsi", 50), 1),
                 "body_ratio": round(_mean("body_ratio", 0), 2),
+                "h4_bias":   round(_mean("h4_bias", 0), 2),
                 "london_pct": round(
                     sum(1 for t in grp if t.get("session") == "London") / len(grp) * 100, 1
                 ),
@@ -590,6 +622,8 @@ def run_pretrain(
                 ) if n_be_for_false_check else 0.0,
             },
             "indicator_diagnostic":   indicator_diagnostic,
+            "wr_by_pattern":          wr_by_pattern,
+            "wr_by_session":          wr_by_session,
             "wr_by_hour":             wr_by_hour,
             "false_stop_spike_stats": false_stop_spike_stats,
             "false_stop_by_hour":     false_stop_by_hour,

@@ -1302,6 +1302,7 @@ export default function Dashboard({ onLogout }) {
                                     { key: "london_pct",     label: "London %"       },
                                     { key: "h1_rsi",         label: "RSI H1"         },
                                     { key: "body_ratio",     label: "Corps/ATR"      },
+                                    { key: "h4_bias",        label: "Biais H4 (+1L/-1S)"},
                                   ];
                                   return (
                                     <div style={{ marginTop: 8 }}>
@@ -1381,6 +1382,73 @@ export default function Dashboard({ onLogout }) {
                                       <div style={{ color: COLORS.sub, fontSize: 9, marginTop: 2 }}>
                                         Lo=London 8-12h · NY=14-18h · vert≥40% · orange30-40% · rouge&lt;30%
                                       </div>
+                                    </div>
+                                  );
+                                })()}
+
+                                {/* WR par session */}
+                                {(() => {
+                                  const wbs = pretrainStats.wr_by_session || {};
+                                  const sessions = Object.entries(wbs);
+                                  if (sessions.length === 0) return null;
+                                  return (
+                                    <div style={{ marginTop: 10 }}>
+                                      <div style={{ color: COLORS.sub, marginBottom: 5 }}>WR par session</div>
+                                      <div style={{ display: "flex", gap: 6 }}>
+                                        {sessions.map(([sess, d]) => {
+                                          const wr = d.wr * 100;
+                                          const col = wr >= 55 ? COLORS.green : wr >= 45 ? COLORS.amber : COLORS.red;
+                                          return (
+                                            <div key={sess} style={{ flex: 1, textAlign: "center", background: COLORS.border + "55", borderRadius: 4, padding: "5px 4px" }}>
+                                              <div style={{ fontSize: 9, color: COLORS.sub }}>{sess}</div>
+                                              <div style={{ fontSize: 14, color: col, fontWeight: 600 }}>{wr.toFixed(0)}%</div>
+                                              <div style={{ fontSize: 9, color: COLORS.sub }}>{d.n} trades</div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+
+                                {/* WR par pattern */}
+                                {(() => {
+                                  const wbp = pretrainStats.wr_by_pattern || {};
+                                  const entries = Object.entries(wbp);
+                                  if (entries.length === 0) return null;
+                                  const patLabels = {
+                                    bullish_engulfing: "Engulfing haussier", bearish_engulfing: "Engulfing baissier",
+                                    hammer: "Hammer", shooting_star: "Shooting star",
+                                    pin_bar: "Pin bar", marubozu: "Marubozu",
+                                    harami: "Harami haussier", bearish_harami: "Harami baissier",
+                                    three_white_soldiers: "3 soldats blancs", three_black_crows: "3 corbeaux",
+                                    tweezer_bottom: "Tweezer bottom", tweezer_top: "Tweezer top",
+                                    piercing_line: "Piercing line", dark_cloud_cover: "Dark cloud",
+                                    ema9_pullback: "EMA9 pullback", micro_breakout: "Micro breakout",
+                                    doji_reversal: "Doji reversal", evening_star: "Evening star",
+                                    near_order_block: "OB confluent", near_fvg: "FVG confluent",
+                                  };
+                                  return (
+                                    <div style={{ marginTop: 10 }}>
+                                      <div style={{ color: COLORS.sub, marginBottom: 5 }}>WR par pattern</div>
+                                      {entries.map(([pat, d]) => {
+                                        const wr = d.wr * 100;
+                                        const col = wr >= 55 ? COLORS.green : wr >= 45 ? COLORS.amber : COLORS.red;
+                                        return (
+                                          <div key={pat} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
+                                            <div style={{ width: 120, fontSize: 9, color: COLORS.sub, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                              {patLabels[pat] || pat}
+                                            </div>
+                                            <div style={{ flex: 1, background: COLORS.border + "44", borderRadius: 2, height: 8, overflow: "hidden" }}>
+                                              <div style={{ width: `${Math.min(wr, 100)}%`, height: "100%", background: col, borderRadius: 2 }} />
+                                            </div>
+                                            <div style={{ width: 62, textAlign: "right", fontSize: 9, color: col, flexShrink: 0 }}>
+                                              {wr.toFixed(0)}% ({d.n})
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                      <div style={{ fontSize: 9, color: COLORS.sub, marginTop: 2 }}>vert ≥55% · orange 45-55% · rouge &lt;45%</div>
                                     </div>
                                   );
                                 })()}
