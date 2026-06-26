@@ -45,8 +45,8 @@ ATR_PERIOD = 14
 ADX_PERIOD = 14
 VOL_AVG_PERIOD = 20
 
-RSI_LOW = 40.0
-RSI_HIGH = 60.0
+RSI_LOW = 38.0
+RSI_HIGH = 62.0
 ATR_MIN = 3.0
 ATR_MAX = 7.0   # plafond ATR M5 — au-delà = whipsaw → SL direct (SL dir avg 7.44 vs TP2 avg 5.99)
 ADX_MIN = 25.0
@@ -898,6 +898,12 @@ def evaluate(
     min_weight_sum = MIN_WEIGHT_SUM_LONG if bias == "LONG" else 1.5
     if len(triggers) < 2 or sum(weights) < min_weight_sum:
         _rej(_reject_log, "patterns"); return None
+
+    # Exige un pattern "ancre" : pullback EMA9 OU confluence Order Block
+    # Garantit une entrée à un niveau technique identifié (pas "en l'air")
+    ANCHOR_PATTERNS = {"ema9_pullback", "near_order_block"}
+    if not set(triggers) & ANCHOR_PATTERNS:
+        _rej(_reject_log, "no_anchor"); return None
 
     # Filtre corps de bougie : rejette les bougies indécises (corps < 40% de la range)
     # Exempt pour les patterns conçus avec petite bougie (hammer, pin_bar, doji, tweezer)
