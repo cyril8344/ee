@@ -819,7 +819,7 @@ def evaluate(
     _adapt_ready = _adapt is not None and _adapt.is_ready
     effective_atr_min  = _adapt.atr_min   if _adapt_ready else atr_min
     effective_ema9_mult = _adapt.ema9_mult if _adapt_ready else 0.5
-    effective_m15_mult  = _adapt.m15_mult  if _adapt_ready else 0.5
+    effective_m15_mult  = _adapt.m15_mult  if _adapt_ready else 0.7
 
     # 3) M15 EMA9/21 + RSI confirmation
     if not confirm_m15(m15, bias, ema_mult=effective_m15_mult):
