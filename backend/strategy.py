@@ -649,19 +649,41 @@ def is_dark_cloud_cover(prev, cur, atr_val: float = 0.0) -> bool:
             cur["close"] > prev["open"])
 
 
-def ema9_pullback_bounce(m5: pd.DataFrame, bias: str) -> bool:
-    """Pullback to EMA9 then rejection in bias direction."""
-    if len(m5) < 3:
+def ema9_pullback_bounce(m5: pd.DataFrame, bias: str, min_pullback_atr: float = 0.5) -> bool:
+    """Pullback to EMA9 then rejection in bias direction.
+
+    Exige que le prix ait fait ≥ min_pullback_atr×ATR de pullback depuis EMA9
+    dans les 6 bougies précédentes — évite les effleurements sans conviction.
+    """
+    if len(m5) < 5:
         return False
     cur, prev = m5.iloc[-1], m5.iloc[-2]
+    atr_val = float(cur.get("atr", 0) or 0)
+
     if bias == "LONG":
         touched = prev["low"] <= prev["ema9"]
-        bounce = cur["close"] > cur["ema9"] and cur["close"] > cur["open"]
-        return touched and bounce
+        bounce  = cur["close"] > cur["ema9"] and cur["close"] > cur["open"]
+        if not (touched and bounce):
+            return False
+        if atr_val > 0:
+            lookback = m5.iloc[-8:-2]
+            if len(lookback) > 0:
+                recent_high = float(lookback["high"].max())
+                if recent_high - float(prev["ema9"]) < min_pullback_atr * atr_val:
+                    return False
+        return True
     else:
         touched = prev["high"] >= prev["ema9"]
-        bounce = cur["close"] < cur["ema9"] and cur["close"] < cur["open"]
-        return touched and bounce
+        bounce  = cur["close"] < cur["ema9"] and cur["close"] < cur["open"]
+        if not (touched and bounce):
+            return False
+        if atr_val > 0:
+            lookback = m5.iloc[-8:-2]
+            if len(lookback) > 0:
+                recent_low = float(lookback["low"].min())
+                if float(prev["ema9"]) - recent_low < min_pullback_atr * atr_val:
+                    return False
+        return True
 
 
 def micro_breakout(m5: pd.DataFrame, bias: str) -> bool:
