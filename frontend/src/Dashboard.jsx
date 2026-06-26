@@ -938,6 +938,50 @@ export default function Dashboard({ onLogout }) {
                 )}
               </div>
 
+              {/* ---- Résultats multi-périodes (toujours visible) ---- */}
+              {(multiStatus?.running || multiStatus?.results?.length > 0) && (
+                <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: COLORS.sub, marginBottom: 6 }}>
+                    Robustesse multi-périodes
+                    {multiStatus?.running && (
+                      <span style={{ color: COLORS.amber, fontWeight: 400, marginLeft: 6 }}>
+                        période {multiStatus.current}/{multiStatus.total}…
+                      </span>
+                    )}
+                  </div>
+                  {multiStatus?.results?.length > 0 && (
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+                      <thead>
+                        <tr style={{ color: COLORS.sub }}>
+                          <th style={{ textAlign: "left", paddingBottom: 4 }}>Période</th>
+                          <th style={{ textAlign: "right" }}>N</th>
+                          <th style={{ textAlign: "right" }}>WR</th>
+                          <th style={{ textAlign: "right" }}>PF</th>
+                          <th style={{ textAlign: "right" }}>Net$</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {multiStatus.results.map((r, i) => {
+                          const pfColor = r.profit_factor >= 1.2 ? COLORS.green : r.profit_factor >= 1.0 ? COLORS.amber : COLORS.red;
+                          const wrColor = r.win_rate >= 0.52 ? COLORS.green : r.win_rate >= 0.45 ? COLORS.amber : COLORS.red;
+                          return (
+                            <tr key={i} style={{ borderTop: `1px solid ${COLORS.border}33` }}>
+                              <td style={{ color: COLORS.sub, paddingTop: 4, fontSize: 9 }}>{r.label}</td>
+                              <td style={{ textAlign: "right", paddingTop: 4 }}>{r.n_trades}</td>
+                              <td style={{ textAlign: "right", color: wrColor, paddingTop: 4 }}>{(r.win_rate * 100).toFixed(0)}%</td>
+                              <td style={{ textAlign: "right", color: pfColor, fontWeight: 700, paddingTop: 4 }}>{r.profit_factor.toFixed(2)}</td>
+                              <td style={{ textAlign: "right", color: r.net_pnl >= 0 ? COLORS.green : COLORS.red, paddingTop: 4 }}>
+                                {r.net_pnl >= 0 ? "+" : ""}{r.net_pnl.toFixed(0)}$
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
+
               {/* ---- trading conditions checklist ---- */}
               {mkt.conditions && (
                 <div style={{ background: "#0a1020", borderRadius: 6, padding: "8px 10px", marginBottom: 10, fontSize: 11 }}>
@@ -1724,47 +1768,6 @@ export default function Dashboard({ onLogout }) {
                             : "Test 3 périodes (0-6M / 6-12M / 12-18M)"}
                         </button>
 
-                        {/* Tableau comparatif multi-périodes */}
-                        {multiStatus?.results?.length > 0 && (
-                          <div style={{ marginTop: 8, fontSize: 10 }}>
-                            <div style={{ color: COLORS.sub, marginBottom: 4, fontWeight: 600 }}>Comparaison multi-périodes</div>
-                            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                              <thead>
-                                <tr style={{ color: COLORS.sub }}>
-                                  <th style={{ textAlign: "left", paddingBottom: 3 }}>Période</th>
-                                  <th style={{ textAlign: "right" }}>N</th>
-                                  <th style={{ textAlign: "right" }}>WR</th>
-                                  <th style={{ textAlign: "right" }}>PF</th>
-                                  <th style={{ textAlign: "right" }}>Net PnL</th>
-                                  <th style={{ textAlign: "right" }}>SL dir</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {multiStatus.results.map((r, i) => {
-                                  const pfColor = r.profit_factor >= 1.3 ? COLORS.green : r.profit_factor >= 1.0 ? COLORS.amber : COLORS.red;
-                                  const wrColor = r.win_rate >= 0.50 ? COLORS.green : r.win_rate >= 0.40 ? COLORS.amber : COLORS.red;
-                                  return (
-                                    <tr key={i} style={{ borderTop: `1px solid ${COLORS.border}22` }}>
-                                      <td style={{ color: COLORS.sub, paddingTop: 3 }}>{r.label}</td>
-                                      <td style={{ textAlign: "right", paddingTop: 3 }}>{r.n_trades}</td>
-                                      <td style={{ textAlign: "right", color: wrColor, paddingTop: 3 }}>{(r.win_rate * 100).toFixed(0)}%</td>
-                                      <td style={{ textAlign: "right", color: pfColor, fontWeight: 600, paddingTop: 3 }}>{r.profit_factor.toFixed(2)}</td>
-                                      <td style={{ textAlign: "right", color: r.net_pnl >= 0 ? COLORS.green : COLORS.red, paddingTop: 3 }}>
-                                        {r.net_pnl >= 0 ? "+" : ""}{r.net_pnl.toFixed(0)}$
-                                      </td>
-                                      <td style={{ textAlign: "right", color: r.sl_direct_pct <= 30 ? COLORS.green : COLORS.amber, paddingTop: 3 }}>
-                                        {r.sl_direct_pct}%
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                            {multiStatus.error && (
-                              <div style={{ color: COLORS.red, marginTop: 4 }}>{multiStatus.error}</div>
-                            )}
-                          </div>
-                        )}
                       </div>
                     )}
                   </div>

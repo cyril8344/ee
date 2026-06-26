@@ -1156,7 +1156,8 @@ def start_multi_pretrain(req: PretrainRequest, _user: dict = Depends(get_current
         return start.isoformat(), end.isoformat()
 
     periods = [_period(0, 6), _period(6, 12), _period(12, 18)]
-    labels  = ["P1 (0-6M)", "P2 (6-12M)", "P3 (12-18M)"]
+    def _label(start, end): return f"{start[:7]} → {end[:7]}"
+    labels  = [_label(s, e) for s, e in periods]
 
     def _run():
         results = []
