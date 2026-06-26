@@ -64,7 +64,7 @@ MAX_TRADE_MINUTES = 45
 TREND_BIAS_DISTANCE   = 0.5  # multiples d'ATR H1 — bloque SHORT si prix > EMA200 + 0.5 ATR
 EMA200_MIN_DIST_LONG  = 0.3  # LONG doit être à ≥ 0.3×ATR au-dessus de EMA200
 EMA200_MIN_DIST_SHORT = 0.6  # SHORT doit être à ≥ 0.6×ATR en-dessous de EMA200 (XAUUSD uptrend)
-BAD_HOURS_CET         = {10, 14} # 10h London WR 38% (37 trades) + 14h NY open WR 36% (34 trades) — manipulation phases
+BAD_HOURS_CET         = {10, 14, 17} # 10h London WR 38% + 14h NY open WR 36% + 17h NY close
 PATTERN_FLOOR = 0.67        # exclut les patterns avec WR historique < 67%
 MIN_WEIGHT_SUM_LONG = 1.0   # confluence minimale côté LONG (SHORT reste à 1.5)
 
@@ -913,13 +913,9 @@ def evaluate(
     triggers = [t for t in triggers if _w(t) >= PATTERN_FLOOR]
 
     weights = [_w(t) for t in triggers]
-    # Mode momentum fort : ADX H1 > 35 + RSI M5 extrême → 1 pattern suffit, poids >= 0.7
-    strong_momentum = h1_adx > 35 and (
-        (bias == "LONG" and rsi_m5 > 65) or (bias == "SHORT" and rsi_m5 < 35)
-    )
-    min_patterns    = 1   if strong_momentum else 2
-    min_weight_sum  = 0.7 if strong_momentum else (MIN_WEIGHT_SUM_LONG if bias == "LONG" else 1.5)
-    if len(triggers) < min_patterns or sum(weights) < min_weight_sum:
+    # Exige au moins 2 patterns ET poids cumulé >= MIN_WEIGHT_SUM_LONG (>= 1.5 pour SHORT)
+    min_weight_sum = MIN_WEIGHT_SUM_LONG if bias == "LONG" else 1.5
+    if len(triggers) < 2 or sum(weights) < min_weight_sum:
         _rej(_reject_log, "patterns"); return None
 
     # Exige un pattern "ancre" : pullback EMA9 OU micro_breakout
