@@ -866,11 +866,11 @@ def evaluate(
 
     if bias == "LONG":
         if is_bullish_engulfing(prev, cur, atr_val):  triggers.append("bullish_engulfing")
-        if is_hammer(cur, atr_val):                   triggers.append("hammer")
+        # hammer exclu (WR 20% sur données historiques)
         if is_pin_bar_bullish(cur, atr_val):          triggers.append("pin_bar")
         if is_marubozu_bullish(cur, atr_val):         triggers.append("marubozu")
         # morning_star exclu (WR 42.9% sur données historiques)
-        # harami exclu (WR 20% sur données historiques)
+        if is_bullish_harami(prev, cur):              triggers.append("harami")
 
         if is_three_white_soldiers(m5.iloc[-3:], atr_val): triggers.append("three_white_soldiers")
         if is_tweezer_bottom(prev, cur, atr_val):     triggers.append("tweezer_bottom")
@@ -884,7 +884,7 @@ def evaluate(
         if is_pin_bar_bearish(cur, atr_val):          triggers.append("pin_bar")
         if is_marubozu_bearish(cur, atr_val):         triggers.append("marubozu")
         if is_evening_star(m5.iloc[-3:], atr_val):   triggers.append("evening_star")
-        # bearish_harami exclu (WR 20% sur données historiques)
+        if is_bearish_harami(prev, cur):              triggers.append("bearish_harami")
         if is_three_black_crows(m5.iloc[-3:], atr_val): triggers.append("three_black_crows")
         if is_tweezer_top(prev, cur, atr_val):        triggers.append("tweezer_top")
         if is_dark_cloud_cover(prev, cur, atr_val):   triggers.append("dark_cloud_cover")
