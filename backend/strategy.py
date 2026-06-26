@@ -913,9 +913,9 @@ def evaluate(
     triggers = [t for t in triggers if _w(t) >= PATTERN_FLOOR]
 
     weights = [_w(t) for t in triggers]
-    # 1 pattern suffit si ancre présente — les 8 filtres techniques contextualisent déjà l'entrée
-    # Poids cumulé >= 1.0 (LONG et SHORT) — ancre seule suffit si weight >= 1.0
-    if not triggers or sum(weights) < 1.0:
+    # Exige au moins 2 patterns ET poids cumulé >= MIN_WEIGHT_SUM_LONG (>= 1.5 pour SHORT)
+    min_weight_sum = MIN_WEIGHT_SUM_LONG if bias == "LONG" else 1.5
+    if len(triggers) < 2 or sum(weights) < min_weight_sum:
         _rej(_reject_log, "patterns"); return None
 
     # Exige un pattern "ancre" : pullback EMA9 OU micro_breakout
