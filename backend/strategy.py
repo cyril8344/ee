@@ -915,11 +915,13 @@ def evaluate(
     sl_mult = SL_ATR_MULT
 
     if bias == "LONG":
-        raw_sl = float(cur["low"]) - 0.3 * atr_val
+        swing = last_swing_low(m5, lookback=10)
+        raw_sl = min(swing, entry - 1e-6)
         sl = max(raw_sl, entry - sl_mult * atr_val)
         direction = "long"
     else:
-        raw_sl = float(cur["high"]) + 0.3 * atr_val
+        swing = last_swing_high(m5, lookback=10)
+        raw_sl = max(swing, entry + 1e-6)
         sl = min(raw_sl, entry + sl_mult * atr_val)
         direction = "short"
 

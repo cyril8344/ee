@@ -70,7 +70,7 @@ Entry threshold: 0.50 (boosted when on a losing streak). **Reset ML weights (pas
 
 - TP1 = 0.7R → exits 50% of position (pas de déplacement SL après TP1)
 - TP2 = 1.8R → exits remaining 50%
-- SL = sous la mèche de la bougie pattern (`cur["low"] - 0.3×ATR` LONG / `cur["high"] + 0.3×ATR` SHORT), plafonné à 1.4×ATR; pas de déplacement après TP1; timeout at 45 minutes
+- SL = dernier swing low/high M5 (lookback=10), plafonné à 1.4×ATR; pas de déplacement après TP1; timeout at 45 minutes. **SL sous mèche pattern testé → rejeté** (PF 1.36→1.26, SL direct 34.5→36.2% — l'or chasse les mèches avant de partir)
 - Risk: 5% capital per trade (configurable), max 4 trades/day, daily stop at −2%
 
 ### Data Flow
