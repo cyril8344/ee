@@ -103,7 +103,7 @@ MARKET_CONFIG = {
         "spread_pips": 0.2,
         "slippage_pips": 0.05,
         "pip_size": 0.0001,    # 1 pip EUR/USD = 0.0001
-        "default_strategy": "B",  # ICT/Order Blocks
+        "default_strategy": "eurusd_simple",  # EMA pullback + OB + patterns
     },
 }
 
@@ -366,6 +366,13 @@ def trading_tick() -> Dict[str, Any]:
                         sig = _eval_ict(m5, m15, h1, now=now,
                                         check_session=session_filter,
                                         atr_min=ms.config["atr_min"])
+                    elif sym_strategy == "eurusd_simple":
+                        from strategy import evaluate_eurusd as _eval_eurusd
+                        sig = _eval_eurusd(m5, m15, h1, now=now,
+                                           check_session=session_filter,
+                                           atr_min=ms.config["atr_min"],
+                                           pattern_weights=state.pattern_weights,
+                                           ml_gate=ms.ml_gate)
                     else:
                         sig = evaluate(m5, m15, h1, h4=h4, now=now, check_session=session_filter,
                                        atr_min=ms.config["atr_min"],

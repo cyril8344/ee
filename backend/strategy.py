@@ -1024,6 +1024,129 @@ def evaluate(
     )
 
 
+def evaluate_eurusd(
+    m5: pd.DataFrame,
+    m15: pd.DataFrame,
+    h1: pd.DataFrame,
+    now: Optional[datetime] = None,
+    check_session: bool = True,
+    atr_min: float = 0.00030,
+    pattern_weights: Optional[Dict[str, float]] = None,
+    ml_gate=None,
+    _reject_log: Optional[Dict] = None,
+) -> Optional[Signal]:
+    """
+    Stratégie EUR/USD simplifiée : H1 EMA200 bias + ancre EMA9/OB + patterns.
+    Pas de filtre M15, ADX, VWAP, RSI. ATR en valeur absolue (EUR/USD natif).
+    """
+    if len(m5) < 3 or len(h1) < 1:
+        return None
+
+    cur  = m5.iloc[-1]
+    prev = m5.iloc[-2]
+    if hasattr(cur.name, "tzinfo") and cur.name.tzinfo is None:
+        ts = now or pd.Timestamp(cur.name).tz_localize("UTC")
+    else:
+        ts = now or pd.Timestamp(cur.name)
+
+    # 1) Bad timing (lundi matin, vendredi soir, heures bloquées)
+    if is_bad_timing(ts):
+        _rej(_reject_log, "timing"); return None
+
+    # 2) Session gate
+    local = ts.astimezone(CET)
+    if LONDON[0] <= local.time() < LONDON[1]:
+        session = "London"
+    elif NEWYORK[0] <= local.time() < NEWYORK[1]:
+        session = "NewYork"
+    else:
+        if check_session:
+            _rej(_reject_log, "session"); return None
+        session = "London"
+
+    # 3) H1 EMA200 bias
+    bias = compute_bias(h1)
+    if bias == "NEUTRE":
+        _rej(_reject_log, "h1_neutre"); return None
+
+    # 4) ATR gate
+    atr_val = float(cur.get("atr", 0) or 0)
+    if atr_val < atr_min:
+        _rej(_reject_log, "atr_min"); return None
+
+    entry = float(cur["close"])
+
+    # 5) Patterns — bons patterns uniquement, pas de morning_star/hammer/doji/shooting_star
+    triggers: List[str] = []
+    if bias == "LONG":
+        if is_bullish_engulfing(prev, cur, atr_val):        triggers.append("bullish_engulfing")
+        if is_pin_bar_bullish(cur, atr_val):                triggers.append("pin_bar")
+        if is_bullish_harami(prev, cur):                    triggers.append("harami")
+        if is_three_white_soldiers(m5.iloc[-3:], atr_val): triggers.append("three_white_soldiers")
+        if is_tweezer_bottom(prev, cur, atr_val):           triggers.append("tweezer_bottom")
+        if is_marubozu_bullish(cur, atr_val):               triggers.append("marubozu")
+        if ema9_pullback_bounce(m5, bias):                  triggers.append("ema9_pullback")
+        obs = find_order_blocks(m5)
+        if near_orderblock(entry, bias, obs, atr_val):      triggers.append("near_order_block")
+    else:
+        if is_bearish_engulfing(prev, cur, atr_val):        triggers.append("bearish_engulfing")
+        if is_pin_bar_bearish(cur, atr_val):                triggers.append("pin_bar")
+        if is_bearish_harami(prev, cur):                    triggers.append("bearish_harami")
+        if is_three_black_crows(m5.iloc[-3:], atr_val):    triggers.append("three_black_crows")
+        if is_tweezer_top(prev, cur, atr_val):              triggers.append("tweezer_top")
+        if is_marubozu_bearish(cur, atr_val):               triggers.append("marubozu")
+        if ema9_pullback_bounce(m5, bias):                  triggers.append("ema9_pullback")
+        obs = find_order_blocks(m5)
+        if near_orderblock(entry, bias, obs, atr_val):      triggers.append("near_order_block")
+
+    # Filtre qualité (PATTERN_FLOOR)
+    def _w(t: str) -> float:
+        if pattern_weights is None:
+            return 1.0
+        info = pattern_weights.get(t)
+        return info["weight"] if isinstance(info, dict) else float(info) if info else 1.0
+
+    triggers = [t for t in triggers if _w(t) >= PATTERN_FLOOR]
+
+    # Ancre obligatoire : EMA9 pullback OU Order Block
+    if not set(triggers) & {"ema9_pullback", "near_order_block"}:
+        _rej(_reject_log, "no_anchor"); return None
+
+    weights = [_w(t) for t in triggers]
+    if not triggers or sum(weights) < 1.0:
+        _rej(_reject_log, "patterns"); return None
+
+    # 6) Niveaux de trade
+    if bias == "LONG":
+        sl = max(last_swing_low(m5, lookback=10), entry - SL_ATR_MULT * atr_val)
+        direction = "long"
+    else:
+        sl = min(last_swing_high(m5, lookback=10), entry + SL_ATR_MULT * atr_val)
+        direction = "short"
+
+    risk = abs(entry - sl)
+    if risk <= 0:
+        return None
+
+    tp1 = entry + 0.7 * risk if direction == "long" else entry - 0.7 * risk
+    tp2 = entry + 1.8 * risk if direction == "long" else entry - 1.8 * risk
+
+    return Signal(
+        direction=direction,
+        bias=bias,
+        session=session,
+        entry=entry,
+        stop_loss=sl,
+        take_profit1=tp1,
+        take_profit2=tp2,
+        atr=atr_val,
+        reason="+".join(triggers),
+        risk_distance=risk,
+        timestamp=ts,
+        meta={"triggers": triggers, "bias": bias, "strategy": "eurusd_simple"},
+    )
+
+
 def batch_signals(
     m5: pd.DataFrame,
     m15: pd.DataFrame,
