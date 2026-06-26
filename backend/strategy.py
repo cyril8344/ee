@@ -1129,7 +1129,7 @@ def evaluate_eurusd(
         return None
 
     tp1 = entry + 0.7 * risk if direction == "long" else entry - 0.7 * risk
-    tp2 = entry + 1.8 * risk if direction == "long" else entry - 1.8 * risk
+    tp2 = entry + 1.2 * risk if direction == "long" else entry - 1.2 * risk  # EUR/USD : TP2 réduit vs XAU (1.8R)
 
     return Signal(
         direction=direction,
