@@ -1173,6 +1173,9 @@ def start_multi_pretrain(req: PretrainRequest, _user: dict = Depends(get_current
                     strategy_mode=req.strategy_mode,
                 )
                 n = r.get("n_trades", 0)
+                diag = r.get("indicator_diagnostic", {})
+                _sl  = diag.get("SL_direct", {})
+                _tp2 = diag.get("TP2", {})
                 results.append({
                     "label":         label,
                     "start":         start,
@@ -1185,6 +1188,9 @@ def start_multi_pretrain(req: PretrainRequest, _user: dict = Depends(get_current
                     "avg_win":       r.get("avg_win", 0),
                     "avg_loss":      r.get("avg_loss", 0),
                     "equity_curve":  [{"equity": p["equity"]} for p in r.get("equity_curve", [])],
+                    "diag_sl":  {"n": _sl.get("n", 0), "rsi_m5": _sl.get("rsi_m5"), "adx_h1": _sl.get("adx_h1"), "atr": _sl.get("atr"), "london_pct": _sl.get("london_pct")},
+                    "diag_tp2": {"n": _tp2.get("n", 0), "rsi_m5": _tp2.get("rsi_m5"), "adx_h1": _tp2.get("adx_h1"), "atr": _tp2.get("atr"), "london_pct": _tp2.get("london_pct")},
+                    "wr_by_hour":    r.get("wr_by_hour", {}),
                 })
         except Exception as exc:
             with _multi_lock:
