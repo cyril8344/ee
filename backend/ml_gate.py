@@ -21,7 +21,7 @@ import math
 from typing import Dict, List, Optional, Tuple
 
 N_MIN_TRADES  = 10    # actif dès 10 trades de pretrain
-THRESHOLD     = 0.50  # seuil aligné sur le WR de base (~50%)
+THRESHOLD     = 0.0   # 0.50→0 pour amorçage — ML Gate ne bloque rien pendant bootstrapping
 STREAK_BOOST  = 0.02  # boost du seuil par perte au-delà de 2 consécutives
 STREAK_CAP    = 0.30  # boost maximum (+30 % → seuil max 0.85)
 LEARNING_RATE = 0.05
