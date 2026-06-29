@@ -62,7 +62,10 @@ FVG_MIN_SIZE_ATR  = 0.3     # taille minimale d'un FVG pour être valide
 MICRO_RANGE_BARS = 3        # micro-consolidation length
 MAX_TRADE_MINUTES = 45
 TREND_BIAS_DISTANCE   = 0.5  # multiples d'ATR H1 — bloque SHORT si prix > EMA200 + 0.5 ATR
-BAD_HOURS_CET         = {10}  # 10h London WR 38% / 37 trades (seule heure statistiquement solide)
+EMA200_MIN_DIST_LONG  = 0.3  # LONG doit être à ≥ 0.3×ATR au-dessus de EMA200
+EMA200_MIN_DIST_SHORT = 0.6  # SHORT doit être à ≥ 0.6×ATR en-dessous de EMA200 (XAUUSD uptrend)
+BAD_HOURS_CET         = {10, 14} # 10h London WR 38% (37 trades) + 14h NY open WR 36% (34 trades) — manipulation phases
+ATR_REGIME_MIN_RATIO  = 0.75     # ATR actuel doit être ≥ 75% de la moyenne 20 bougies — filtre régime range
 PATTERN_FLOOR = 0.67        # exclut les patterns avec WR historique < 67%
 MIN_WEIGHT_SUM_LONG = 1.0   # confluence minimale côté LONG (SHORT reste à 1.5)
 
@@ -825,6 +828,12 @@ def evaluate(
         _rej(_reject_log, "atr_min"); return None
     if atr_val > ATR_MAX:
         _rej(_reject_log, "atr_max"); return None  # trop volatile → whipsaw → SL direct
+
+    # 4c) Régime volatilité — ATR actuel vs moyenne 20 bougies (filtre marché range)
+    if len(m5) >= 20:
+        atr_avg = float(m5["atr"].iloc[-20:].mean())
+        if atr_avg > 0 and atr_val / atr_avg < ATR_REGIME_MIN_RATIO:
+            return None
 
     # 4b) H1 ADX trend strength — ne trader qu'en vraie tendance
     h1_adx = float(h1.iloc[-1].get("adx", 0)) if len(h1) else 0.0
