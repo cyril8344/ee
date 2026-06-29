@@ -45,11 +45,11 @@ ATR_PERIOD = 14
 ADX_PERIOD = 14
 VOL_AVG_PERIOD = 20
 
-RSI_LOW = 35.0   # assoupli 38→35 pour amorcer apprentissage — LiveAdaptiveAgent ajustera
-RSI_HIGH = 65.0  # assoupli 62→65 pour amorcer apprentissage — LiveAdaptiveAgent ajustera
-ATR_MIN = 2.5
-ATR_MAX = 7.0   # plafond ATR M5 — au-delà = whipsaw → SL direct (SL dir avg 7.44 vs TP2 avg 5.99)
-ADX_MIN = 20.0
+RSI_LOW = 0.0    # 35→0 pour amorçage — LiveAdaptiveAgent ajustera
+RSI_HIGH = 100.0 # 65→100 pour amorçage — LiveAdaptiveAgent ajustera
+ATR_MIN = 0.0    # 2.5→0 pour amorçage — LiveAdaptiveAgent ajustera
+ATR_MAX = 7.0    # plafond ATR M5 — au-delà = whipsaw → SL direct (SL dir avg 7.44 vs TP2 avg 5.99)
+ADX_MIN = 0.0    # 20→0 pour amorçage — LiveAdaptiveAgent ajustera
 SR_PROXIMITY_ATR = 0.7
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
 SL_ATR_MULT = 1.4
@@ -64,12 +64,19 @@ MAX_TRADE_MINUTES = 45
 TREND_BIAS_DISTANCE   = 0.5  # multiples d'ATR H1 — bloque SHORT si prix > EMA200 + 0.5 ATR
 EMA200_MIN_DIST_LONG  = 0.3  # LONG doit être à ≥ 0.3×ATR au-dessus de EMA200
 EMA200_MIN_DIST_SHORT = 0.6  # SHORT doit être à ≥ 0.6×ATR en-dessous de EMA200 (XAUUSD uptrend)
-BAD_HOURS_CET         = {10}     # 14h débloquée pour amorcer l'apprentissage — LiveAdaptiveAgent ajustera
-ATR_REGIME_MIN_RATIO  = 0.65     # assoupli 0.75→0.65 pour amorcer l'apprentissage — LiveAdaptiveAgent ajustera
-RSI_M5_LONG_MIN       = 42.0    # assoupli 45→42 pour amorcer apprentissage — LiveAdaptiveAgent ajustera
-RSI_M5_SHORT_MAX      = 58.0    # assoupli 55→58 pour amorcer apprentissage — LiveAdaptiveAgent ajustera
-PATTERN_FLOOR = 0.0         # assoupli 0.67→0.0 pour amorcer apprentissage — LiveAdaptiveAgent ajustera
-MIN_WEIGHT_SUM_LONG = 0.0   # assoupli 1.0→0.0 pour amorcer apprentissage — LiveAdaptiveAgent ajustera
+BAD_HOURS_CET         = set()    # aucune heure bloquée pour amorçage — LiveAdaptiveAgent ajustera
+ATR_REGIME_MIN_RATIO  = 0.0      # 0.65→0 pour amorçage — LiveAdaptiveAgent ajustera
+RSI_M5_LONG_MIN       = 0.0     # 42→0 pour amorçage — LiveAdaptiveAgent ajustera
+RSI_M5_SHORT_MAX      = 100.0   # 58→100 pour amorçage — LiveAdaptiveAgent ajustera
+PATTERN_FLOOR         = 0.0     # 0.67→0 pour amorçage — LiveAdaptiveAgent ajustera
+MIN_WEIGHT_SUM_LONG   = 0.0     # 1.0→0 pour amorçage — LiveAdaptiveAgent ajustera
+
+# Filtres booléens — désactivés pour amorçage, réactiver manuellement ou via l'agent
+M15_FILTER_ENABLED    = False   # confirmation M15 EMA9/21 + RSI
+ADX_SLOPE_ENABLED     = False   # ADX doit être en hausse (momentum non épuisé)
+EMA9_FILTER_ENABLED   = False   # close M5 aligné avec EMA9
+VWAP_FILTER_ENABLED   = False   # close du bon côté du VWAP
+BODY_FILTER_ENABLED   = False   # corps bougie ≥ 40% de la range
 
 CET = pytz.timezone("Europe/Paris")  # CET/CEST
 
@@ -821,7 +828,7 @@ def evaluate(
     effective_m15_mult  = _adapt.m15_mult  if _adapt_ready else 0.5
 
     # 3) M15 EMA9/21 + RSI confirmation
-    if not confirm_m15(m15, bias, ema_mult=effective_m15_mult):
+    if M15_FILTER_ENABLED and not confirm_m15(m15, bias, ema_mult=effective_m15_mult):
         _rej(_reject_log, "m15"); return None
 
     # 4) M5 volatility gate — plancher ET plafond
@@ -844,18 +851,18 @@ def evaluate(
         _rej(_reject_log, "adx"); return None
 
     # 4d) ADX pente — évite les entrées sur momentum épuisé
-    # ADX doit être en hausse sur la dernière bougie H1 (1 bougie — amorçage apprentissage)
-    if len(h1) >= 2:
+    if ADX_SLOPE_ENABLED and len(h1) >= 2:
         adx_prev1 = float(h1.iloc[-2].get("adx", h1_adx))
         if h1_adx < adx_prev1:
             _rej(_reject_log, "adx_slope"); return None
 
     # 5) M5 EMA9 alignment — tolérance adaptative (défaut 0.5 ATR)
     ema9_tolerance = atr_val * effective_ema9_mult
-    if bias == "LONG" and cur["close"] < cur["ema9"] - ema9_tolerance:
-        _rej(_reject_log, "ema9"); return None
-    if bias == "SHORT" and cur["close"] > cur["ema9"] + ema9_tolerance:
-        _rej(_reject_log, "ema9"); return None
+    if EMA9_FILTER_ENABLED:
+        if bias == "LONG" and cur["close"] < cur["ema9"] - ema9_tolerance:
+            _rej(_reject_log, "ema9"); return None
+        if bias == "SHORT" and cur["close"] > cur["ema9"] + ema9_tolerance:
+            _rej(_reject_log, "ema9"); return None
 
     # 5b) M5 RSI momentum confirmation — seuils ajustables par LiveAdaptiveAgent
     rsi_m5 = float(cur.get("rsi", 50) or 50)
@@ -866,7 +873,7 @@ def evaluate(
 
     # 5c) VWAP alignment — close du bon côté du VWAP
     vwap_val = float(cur.get("vwap", float("nan")) or float("nan"))
-    if not pd.isna(vwap_val):
+    if VWAP_FILTER_ENABLED and not pd.isna(vwap_val):
         if bias == "LONG"  and float(cur["close"]) < vwap_val:
             _rej(_reject_log, "vwap"); return None
         if bias == "SHORT" and float(cur["close"]) > vwap_val:
@@ -937,7 +944,7 @@ def evaluate(
         "hammer", "pin_bar", "doji_reversal", "shooting_star",
         "tweezer_bottom", "tweezer_top", "piercing_line", "dark_cloud_cover",
     }
-    if not set(triggers) & SMALL_BODY_EXEMPT:
+    if BODY_FILTER_ENABLED and not set(triggers) & SMALL_BODY_EXEMPT:
         bar_range = float(cur["high"]) - float(cur["low"])
         bar_body  = abs(float(cur["close"]) - float(cur["open"]))
         if bar_range > 0 and bar_body / bar_range < 0.4:
