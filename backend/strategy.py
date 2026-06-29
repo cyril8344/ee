@@ -841,6 +841,14 @@ def evaluate(
     if h1_adx < adx_required:
         _rej(_reject_log, "adx"); return None
 
+    # 4d) ADX pente — évite les entrées sur momentum épuisé
+    # ADX doit être en hausse sur les 2 dernières bougies H1
+    if len(h1) >= 3:
+        adx_prev1 = float(h1.iloc[-2].get("adx", h1_adx))
+        adx_prev2 = float(h1.iloc[-3].get("adx", h1_adx))
+        if h1_adx < adx_prev1 and adx_prev1 < adx_prev2:
+            _rej(_reject_log, "adx_slope"); return None
+
     # 5) M5 EMA9 alignment — tolérance adaptative (défaut 0.5 ATR)
     ema9_tolerance = atr_val * effective_ema9_mult
     if bias == "LONG" and cur["close"] < cur["ema9"] - ema9_tolerance:
