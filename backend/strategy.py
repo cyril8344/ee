@@ -809,7 +809,8 @@ def evaluate(
     # Seuils adaptatifs (si disponibles et entraînés)
     _adapt = adaptive_thresholds
     _adapt_ready = _adapt is not None and _adapt.is_ready
-    effective_atr_min  = _adapt.atr_min   if _adapt_ready else atr_min
+    # Si ATR_MIN==0.0 (mode bootstrapping), ignorer les adaptive thresholds pour l'ATR
+    effective_atr_min  = 0.0 if ATR_MIN == 0.0 else (_adapt.atr_min if _adapt_ready else atr_min)
     effective_ema9_mult = _adapt.ema9_mult if _adapt_ready else 0.5
     effective_m15_mult  = _adapt.m15_mult  if _adapt_ready else 0.5
 
