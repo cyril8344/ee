@@ -61,7 +61,7 @@ OB_PROXIMITY_ATR  = 0.4     # tolérance de proximité OB en multiples d'ATR
 FVG_MIN_SIZE_ATR  = 0.3     # taille minimale d'un FVG pour être valide
 MICRO_RANGE_BARS = 3        # micro-consolidation length
 MAX_TRADE_MINUTES = 45
-TREND_BIAS_DISTANCE   = 0.5  # multiples d'ATR H1 — bloque SHORT si prix > EMA200 + 0.5 ATR
+TREND_BIAS_DISTANCE   = 999.0  # désactivé pour amorçage (était 0.5)
 EMA200_MIN_DIST_LONG  = 0.3  # LONG doit être à ≥ 0.3×ATR au-dessus de EMA200
 EMA200_MIN_DIST_SHORT = 0.6  # SHORT doit être à ≥ 0.6×ATR en-dessous de EMA200 (XAUUSD uptrend)
 BAD_HOURS_CET         = set()    # aucune heure bloquée pour amorçage — LiveAdaptiveAgent ajustera
@@ -416,28 +416,14 @@ def near_fvg(price: float, bias: str, fvgs: List[Dict[str, Any]]) -> bool:
 # Bias / confirmation / entry primitives
 # --------------------------------------------------------------------------- #
 def compute_bias(h1: pd.DataFrame) -> str:
-    """LONG / SHORT : EMA50 donne la direction, EMA200 bloque si contradictoire.
-    On ne trade QUE dans le sens du flux majeur (price > EMA200 → LONG autorisé)."""
+    """LONG / SHORT selon EMA50 — filtre EMA200 désactivé pour amorçage."""
     if len(h1) < 1:
         return "NEUTRE"
     row = h1.iloc[-1]
-    price  = row["close"]
-    ema50  = row.get("ema50",  float("nan"))
-    ema200 = row.get("ema200", float("nan"))
-
+    ema50 = row.get("ema50", float("nan"))
     if pd.isna(ema50):
         return "NEUTRE"
-
-    bias = "LONG" if price > ema50 else "SHORT"
-
-    # Filtre dur EMA200 : interdit de trader contre le flux majeur
-    if not pd.isna(ema200):
-        if bias == "LONG"  and price < ema200:
-            return "NEUTRE"
-        if bias == "SHORT" and price > ema200:
-            return "NEUTRE"
-
-    return bias
+    return "LONG" if float(row["close"]) > float(ema50) else "SHORT"
 
 
 def confirm_m15(m15: pd.DataFrame, bias: str, ema_mult: float = 0.3) -> bool:
@@ -934,9 +920,11 @@ def evaluate(
     weights = [_w(t) for t in triggers]
     weight_total = sum(weights)
 
-    # Passage : au moins 1 pattern détecté (seuils de confluence mis à 0)
+    # Passage : au moins 1 pattern détecté — fallback "any_bar" si aucun (amorçage)
     if not triggers:
-        _rej(_reject_log, "patterns"); return None
+        triggers = ["any_bar"]
+        weights  = [1.0]
+        weight_total = 1.0
 
     # Filtre corps de bougie : rejette les bougies indécises (corps < 40% de la range)
     # Exempt pour les patterns conçus avec petite bougie (hammer, pin_bar, doji, tweezer)

@@ -53,15 +53,16 @@ def test_active_session():
 
 def test_bias_confusion_zone_is_neutral():
     h1 = add_indicators(_frame(np.linspace(2000, 2010, 250)))
-    # force price between ema50 and ema200 by construction is hard;
-    # instead assert the three branches via direct values
+    # compute_bias uses only EMA50 for direction (EMA200 filter disabled for bootstrapping)
+    # price between ema50 and ema200 → still returns LONG or SHORT based on EMA50 alone
     row = h1.iloc[-1].copy()
     lo, hi = min(row["ema50"], row["ema200"]), max(row["ema50"], row["ema200"])
-    # build a tiny synthetic h1 where close sits between the emas
     test = h1.copy()
     mid = (lo + hi) / 2
     test.iloc[-1, test.columns.get_loc("close")] = mid
-    assert compute_bias(test) == "NEUTRE"
+    # mid is between ema50 and ema200 — result depends on which side of ema50 mid falls
+    result = compute_bias(test)
+    assert result in ("LONG", "SHORT")  # never NEUTRE when EMA50 is available
 
 
 def test_engulfing_patterns():
