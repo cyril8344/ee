@@ -47,9 +47,9 @@ VOL_AVG_PERIOD = 20
 
 RSI_LOW = 38.0
 RSI_HIGH = 62.0
-ATR_MIN = 2.5
+ATR_MIN = 2.0
 ATR_MAX = 7.0   # plafond ATR M5 — au-delà = whipsaw → SL direct (SL dir avg 7.44 vs TP2 avg 5.99)
-ADX_MIN = 25.0
+ADX_MIN = 20.0
 SR_PROXIMITY_ATR = 0.7
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
 SL_ATR_MULT = 1.4
@@ -62,9 +62,7 @@ FVG_MIN_SIZE_ATR  = 0.3     # taille minimale d'un FVG pour être valide
 MICRO_RANGE_BARS = 3        # micro-consolidation length
 MAX_TRADE_MINUTES = 45
 TREND_BIAS_DISTANCE   = 0.5  # multiples d'ATR H1 — bloque SHORT si prix > EMA200 + 0.5 ATR
-EMA200_MIN_DIST_LONG  = 0.3  # LONG doit être à ≥ 0.3×ATR au-dessus de EMA200
-EMA200_MIN_DIST_SHORT = 0.6  # SHORT doit être à ≥ 0.6×ATR en-dessous de EMA200 (XAUUSD uptrend)
-BAD_HOURS_CET         = {10, 14, 17} # 10h London WR 38% + 14h NY open WR 36% + 17h NY close
+BAD_HOURS_CET         = {10}  # 10h London uniquement (WR 38% / 37 trades)
 PATTERN_FLOOR = 0.67        # exclut les patterns avec WR historique < 67%
 MIN_WEIGHT_SUM_LONG = 1.0   # confluence minimale côté LONG (SHORT reste à 1.5)
 
@@ -807,10 +805,6 @@ def evaluate(
                 _rej(_reject_log, "h1_ema200"); return None
             if price_vs_ema200 < -TREND_BIAS_DISTANCE and bias == "LONG":
                 _rej(_reject_log, "h1_ema200"); return None
-            if bias == "LONG"  and price_vs_ema200 < EMA200_MIN_DIST_LONG:
-                _rej(_reject_log, "h1_ema200_dist"); return None
-            if bias == "SHORT" and price_vs_ema200 > -EMA200_MIN_DIST_SHORT:
-                _rej(_reject_log, "h1_ema200_dist"); return None
 
     # H4 EMA200 bias filter supprimé — H1 suffit pour le biais directionnel
 
@@ -834,7 +828,7 @@ def evaluate(
 
     # 4b) H1 ADX trend strength — ne trader qu'en vraie tendance
     h1_adx = float(h1.iloc[-1].get("adx", 0)) if len(h1) else 0.0
-    adx_required = ADX_MIN if bias == "LONG" else ADX_MIN + 10.0  # SHORT exige ADX >= 35 (uptrend XAUUSD)
+    adx_required = ADX_MIN  # même seuil LONG et SHORT
     if h1_adx < adx_required:
         _rej(_reject_log, "adx"); return None
 
