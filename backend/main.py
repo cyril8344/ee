@@ -118,6 +118,8 @@ class MarketState:
     last_snapshot: Dict[str, Any] = field(default_factory=dict)
     adaptive: Optional[Any] = None   # AdaptiveThresholds instance
     ml_gate: Optional[Any] = None    # OnlineLogisticRegression instance (per symbol)
+    circuit_breaker_until: Optional[datetime] = None
+    recent_results: List[bool] = field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- #
@@ -355,9 +357,16 @@ def trading_tick() -> Dict[str, Any]:
                 macro_blocked, macro_reason = state.macro.blocks_entry(ms.symbol, snap.get("bias", "NEUTRE"))
                 if macro_blocked:
                     state.push_alert("warn", f"[{ms.symbol}] Macro bloqué: {macro_reason}")
+                # Circuit breaker — lever la pause si le délai est écoulé
+                if ms.circuit_breaker_until is not None and now >= ms.circuit_breaker_until:
+                    ms.circuit_breaker_until = None
+                    ms.recent_results.clear()
+                    state.push_alert("info", f"[{ms.symbol}] Circuit breaker levé — reprise du trading")
+
                 if (ms.position is None and can_enter_session
                         and not state.risk.blocked and not news_status["blocked"]
                         and not macro_blocked
+                        and ms.circuit_breaker_until is None
                         and state.settings.get("bot_enabled", True)):
                     # Strategy is fixed per symbol in MARKET_CONFIG (not user-switchable)
                     sym_strategy = ms.config.get("default_strategy", "A")
@@ -468,6 +477,17 @@ def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], 
     # Update pattern performance stats
     triggers = pos.meta.get("triggers", [])
     won = pnl > 0
+
+    # Circuit breaker — WR glissant sur les 15 derniers trades
+    ms.recent_results.append(won)
+    if len(ms.recent_results) > 15:
+        ms.recent_results = ms.recent_results[-15:]
+    if len(ms.recent_results) >= 10:
+        rolling_wr = sum(ms.recent_results) / len(ms.recent_results)
+        if rolling_wr < 0.38 and ms.circuit_breaker_until is None:
+            ms.circuit_breaker_until = now + timedelta(hours=2)
+            state.push_alert("warn", f"[{ms.symbol}] Circuit breaker: WR {rolling_wr:.0%} sur {len(ms.recent_results)} trades → pause 2h")
+
     if triggers:
         db.update_pattern_stats(triggers, won)
         state.pattern_weights = db.get_pattern_stats()
