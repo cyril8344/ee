@@ -68,8 +68,8 @@ BAD_HOURS_CET         = {10}     # 14h débloquée pour amorcer l'apprentissage 
 ATR_REGIME_MIN_RATIO  = 0.65     # assoupli 0.75→0.65 pour amorcer l'apprentissage — LiveAdaptiveAgent ajustera
 RSI_M5_LONG_MIN       = 42.0    # assoupli 45→42 pour amorcer apprentissage — LiveAdaptiveAgent ajustera
 RSI_M5_SHORT_MAX      = 58.0    # assoupli 55→58 pour amorcer apprentissage — LiveAdaptiveAgent ajustera
-PATTERN_FLOOR = 0.67        # exclut les patterns avec WR historique < 67%
-MIN_WEIGHT_SUM_LONG = 1.0   # confluence minimale côté LONG (SHORT reste à 1.5)
+PATTERN_FLOOR = 0.0         # assoupli 0.67→0.0 pour amorcer apprentissage — LiveAdaptiveAgent ajustera
+MIN_WEIGHT_SUM_LONG = 0.0   # assoupli 1.0→0.0 pour amorcer apprentissage — LiveAdaptiveAgent ajustera
 
 CET = pytz.timezone("Europe/Paris")  # CET/CEST
 
@@ -914,29 +914,21 @@ def evaluate(
     if triggers and near_fvg(entry, bias, fvgs):
         triggers.append("near_fvg")
 
-    # Entry gating: sum of weights >= 1.0 AND average weight >= 0.45
+    # Entry gating — poids assouplis à 0 pour amorcer l'apprentissage
     def _w(t: str) -> float:
         if pattern_weights is None:
             return 1.0
         info = pattern_weights.get(t)
         return info["weight"] if isinstance(info, dict) else float(info) if info else 1.0
 
-    # Exclure les patterns sous le seuil de qualité
+    # Exclure les patterns sous le seuil de qualité (PATTERN_FLOOR = 0.0 → aucun exclu)
     triggers = [t for t in triggers if _w(t) >= PATTERN_FLOOR]
 
     weights = [_w(t) for t in triggers]
     weight_total = sum(weights)
-    min_weight_sum = MIN_WEIGHT_SUM_LONG if bias == "LONG" else 1.5
 
-    ANCHOR_PATTERNS = {"ema9_pullback", "micro_breakout"}
-    has_anchor = bool(set(triggers) & ANCHOR_PATTERNS)
-
-    # Passage : soit 1 pattern fort (ancre obligatoire, weight ≥ 0.85)
-    #           soit 2+ patterns avec confluence suffisante (ancre toujours requise)
-    single_strong = (len(triggers) == 1 and weight_total >= 0.85 and has_anchor)
-    multi_ok      = (len(triggers) >= 2 and weight_total >= min_weight_sum and has_anchor)
-
-    if not (single_strong or multi_ok):
+    # Passage : au moins 1 pattern détecté (seuils de confluence mis à 0)
+    if not triggers:
         _rej(_reject_log, "patterns"); return None
 
     # Filtre corps de bougie : rejette les bougies indécises (corps < 40% de la range)
