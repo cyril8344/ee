@@ -84,9 +84,17 @@ class LiveAdaptiveAgent:
             data = db.live_agent_load(self.symbol)
             if data:
                 saved = data.get("params", {})
+                # Params dont une valeur BASSE est plus permissive (seuils plancher)
+                _lower_is_looser = {"RSI_M5_LONG_MIN", "RSI_LOW", "ATR_REGIME_MIN_RATIO", "ADX_MIN"}
                 for k in self._params:
                     if k in saved:
-                        self._params[k] = float(saved[k])
+                        saved_val = float(saved[k])
+                        default_val = self._params[k]
+                        # Toujours prendre la valeur la plus permissive entre sauvegardée et défaut module
+                        if k in _lower_is_looser:
+                            self._params[k] = min(saved_val, default_val)
+                        else:  # RSI_M5_SHORT_MAX, RSI_HIGH — valeur haute = plus permissive
+                            self._params[k] = max(saved_val, default_val)
                 self._trade_log = data.get("trade_log", [])
                 self._total_trades = len(self._trade_log)
                 self._apply_to_strategy()
