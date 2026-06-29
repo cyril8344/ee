@@ -66,6 +66,8 @@ EMA200_MIN_DIST_LONG  = 0.3  # LONG doit être à ≥ 0.3×ATR au-dessus de EMA2
 EMA200_MIN_DIST_SHORT = 0.6  # SHORT doit être à ≥ 0.6×ATR en-dessous de EMA200 (XAUUSD uptrend)
 BAD_HOURS_CET         = {10, 14} # 10h London WR 38% (37 trades) + 14h NY open WR 36% (34 trades) — manipulation phases
 ATR_REGIME_MIN_RATIO  = 0.75     # ATR actuel doit être ≥ 75% de la moyenne 20 bougies — filtre régime range
+RSI_M5_LONG_MIN       = 45.0    # momentum M5 minimum pour LONG (ajustable par LiveAdaptiveAgent)
+RSI_M5_SHORT_MAX      = 55.0    # momentum M5 maximum pour SHORT (ajustable par LiveAdaptiveAgent)
 PATTERN_FLOOR = 0.67        # exclut les patterns avec WR historique < 67%
 MIN_WEIGHT_SUM_LONG = 1.0   # confluence minimale côté LONG (SHORT reste à 1.5)
 
@@ -856,11 +858,11 @@ def evaluate(
     if bias == "SHORT" and cur["close"] > cur["ema9"] + ema9_tolerance:
         _rej(_reject_log, "ema9"); return None
 
-    # 5b) M5 RSI momentum confirmation — évite les entrées à contre-courant M5
+    # 5b) M5 RSI momentum confirmation — seuils ajustables par LiveAdaptiveAgent
     rsi_m5 = float(cur.get("rsi", 50) or 50)
-    if bias == "LONG"  and rsi_m5 < 45:
+    if bias == "LONG"  and rsi_m5 < RSI_M5_LONG_MIN:
         _rej(_reject_log, "rsi_m5"); return None
-    if bias == "SHORT" and rsi_m5 > 55:
+    if bias == "SHORT" and rsi_m5 > RSI_M5_SHORT_MAX:
         _rej(_reject_log, "rsi_m5"); return None
 
     # 5c) VWAP alignment — close du bon côté du VWAP

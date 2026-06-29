@@ -82,6 +82,7 @@ import realtime_feed
 import correlations as corr_engine
 import finnhub_feed as _fh_module
 from agent_manager import AgentManager
+from live_agent import LiveAdaptiveAgent
 import agent_memory
 from ml_gate import OnlineLogisticRegression, AdaptiveThresholds
 import pretrain as _pretrain_module
@@ -176,10 +177,13 @@ class BotState:
         self._hydrate_today()
         self._restore_open_positions()
 
-        # Agent IA — perpetual optimisation
+        # Agent IA — perpetual optimisation (backtest-based, EURUSD only)
         self.agent = AgentManager(self)
         self.agent.load_saved_config()
         self.agent.start()
+
+        # Agent live adaptatif — apprend uniquement des vrais trades paper XAUUSD
+        self.live_agent = LiveAdaptiveAgent(symbol="XAUUSD")
 
     def _restore_open_positions(self):
         """On restart, rebuild in-memory Position objects from DB open trades."""
@@ -477,6 +481,14 @@ def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], 
     # Update pattern performance stats
     triggers = pos.meta.get("triggers", [])
     won = pnl > 0
+
+    # Agent live adaptatif XAUUSD — apprend de chaque trade réel
+    if ms.symbol == "XAUUSD":
+        try:
+            state.live_agent.on_trade_closed(won=won, pnl=pnl,
+                                             features=pos.meta.get("ml_features"))
+        except Exception:
+            pass
 
     # Circuit breaker — WR glissant sur les 15 derniers trades
     ms.recent_results.append(won)
@@ -1385,6 +1397,12 @@ async def get_agent_status(user=Depends(get_current_user)):
 async def get_agent_history(user=Depends(get_current_user)):
     """Return the list of past Agent IA optimization runs (newest first)."""
     return state.agent.history()
+
+
+@app.get("/api/live-agent")
+async def get_live_agent_status(user=Depends(get_current_user)):
+    """Statut de l'agent adaptatif live XAUUSD (paramètres actuels, WR glissant, ajustements)."""
+    return state.live_agent.status()
 
 
 # ── Portfolio index ─────────────────────────────────────────────────────────

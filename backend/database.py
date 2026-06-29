@@ -149,6 +149,12 @@ def init_db() -> None:
                 data      BLOB NOT NULL,
                 saved_at  TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS live_agent (
+                symbol     TEXT PRIMARY KEY,
+                params     TEXT NOT NULL,
+                trade_log  TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             """
         )
 
@@ -551,6 +557,30 @@ def ohlcv_cache_save(key: str, symbol: str, start: str, end: str, data: bytes) -
             ON CONFLICT(key) DO UPDATE SET data = ?, saved_at = ?
             """,
             (key, symbol, start, end, data, now, data, now),
+        )
+
+
+def live_agent_load(symbol: str) -> Optional[dict]:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT params, trade_log FROM live_agent WHERE symbol = ?", (symbol,)
+        ).fetchone()
+    if row is None:
+        return None
+    return {"params": json.loads(row["params"]), "trade_log": json.loads(row["trade_log"])}
+
+
+def live_agent_save(symbol: str, params: dict, trade_log: list) -> None:
+    now = _utcnow_iso()
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO live_agent (symbol, params, trade_log, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(symbol) DO UPDATE SET params = ?, trade_log = ?, updated_at = ?
+            """,
+            (symbol, json.dumps(params), json.dumps(trade_log), now,
+             json.dumps(params), json.dumps(trade_log), now),
         )
 
 
