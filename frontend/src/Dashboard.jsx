@@ -2191,81 +2191,9 @@ export default function Dashboard({ onLogout }) {
                           )}
 
                           {/* Mini-diagnostic indicateurs */}
-                          {r.diag_sl && r.diag_tp2 && (() => {
-                            const sl = r.diag_sl;
-                            const tp = r.diag_tp2;
-                            const rows = [
-                              ["RSI M5",  sl.rsi_m5,      tp.rsi_m5,     1],
-                              ["ADX H1",  sl.adx_h1,      tp.adx_h1,     1],
-                              ["ATR",     sl.atr,         tp.atr,        2],
-                              ["London%", sl.london_pct != null ? (sl.london_pct * 100).toFixed(0) + "%" : null,
-                                          tp.london_pct  != null ? (tp.london_pct  * 100).toFixed(0) + "%" : null, null],
-                            ];
-                            return (
-                              <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 6, marginTop: 2 }}>
-                                <div style={{ fontSize: 10, color: COLORS.sub, marginBottom: 4 }}>
-                                  Diag SL({sl.n}) vs TP2({tp.n})
-                                </div>
-                                <table style={{ width: "100%", fontSize: 10, borderCollapse: "collapse" }}>
-                                  <thead>
-                                    <tr>
-                                      <td style={{ color: COLORS.sub, paddingBottom: 2 }}></td>
-                                      <td style={{ color: COLORS.red,   textAlign: "right", paddingBottom: 2 }}>SL dir</td>
-                                      <td style={{ color: COLORS.green, textAlign: "right", paddingBottom: 2 }}>TP2</td>
-                                      <td style={{ color: COLORS.amber, textAlign: "right", paddingBottom: 2 }}>Δ</td>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {rows.map(([lbl, sv, tv, dec]) => {
-                                      const svF = sv != null ? (dec != null ? Number(sv).toFixed(dec) : sv) : "—";
-                                      const tvF = tv != null ? (dec != null ? Number(tv).toFixed(dec) : tv) : "—";
-                                      const delta = (sv != null && tv != null && dec != null)
-                                        ? (Number(sv) - Number(tv)).toFixed(dec) : "";
-                                      const dNum = parseFloat(delta);
-                                      const dColor = Math.abs(dNum) >= 3 ? COLORS.amber : COLORS.sub;
-                                      return (
-                                        <tr key={lbl}>
-                                          <td style={{ color: COLORS.sub }}>{lbl}</td>
-                                          <td style={{ textAlign: "right", color: COLORS.text }}>{svF}</td>
-                                          <td style={{ textAlign: "right", color: COLORS.text }}>{tvF}</td>
-                                          <td style={{ textAlign: "right", color: dColor }}>
-                                            {delta ? (dNum >= 0 ? "+" : "") + delta : "—"}
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-
-                                {/* WR par heure — top 3 pires heures */}
-                                {r.wr_by_hour && Object.keys(r.wr_by_hour).length > 0 && (() => {
-                                  const hours = Object.entries(r.wr_by_hour)
-                                    .map(([h, v]) => ({ h: parseInt(h), ...v }))
-                                    .sort((a, b) => a.wr - b.wr);
-                                  return (
-                                    <div style={{ marginTop: 6 }}>
-                                      <div style={{ fontSize: 10, color: COLORS.sub, marginBottom: 3 }}>WR/heure CET</div>
-                                      {hours.map(({ h, n, wr: w }) => {
-                                        const barW = Math.round(w * 100);
-                                        const barColor = barW >= 50 ? COLORS.green : barW >= 40 ? COLORS.amber : COLORS.red;
-                                        return (
-                                          <div key={h} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
-                                            <span style={{ width: 22, fontSize: 9, color: COLORS.sub, flexShrink: 0 }}>{h}h</span>
-                                            <div style={{ flex: 1, background: COLORS.border, borderRadius: 2, height: 6 }}>
-                                              <div style={{ width: `${barW}%`, background: barColor, height: 6, borderRadius: 2 }} />
-                                            </div>
-                                            <span style={{ width: 36, fontSize: 9, color: barColor, textAlign: "right", flexShrink: 0 }}>
-                                              {barW}% <span style={{ color: COLORS.sub }}>({n})</span>
-                                            </span>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-                            );
-                          })()}
+                          {r.diag_sl != null && r.diag_tp2 != null && (
+                            <DiagSection sl={r.diag_sl} tp={r.diag_tp2} wrByHour={r.wr_by_hour} />
+                          )}
                         </>
                       )}
                     </div>
@@ -2565,6 +2493,73 @@ function Stat({ label, value, color, big }) {
     <div style={panel()}>
       <div style={{ fontSize: 11, color: COLORS.sub, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
       <div style={{ fontSize: big ? 24 : 18, fontWeight: 700, color, marginTop: 4 }}>{value}</div>
+    </div>
+  );
+}
+function DiagSection({ sl, tp, wrByHour }) {
+  const diagRows = [
+    ["RSI M5",  sl.rsi_m5,  tp.rsi_m5,  1],
+    ["ADX H1",  sl.adx_h1,  tp.adx_h1,  1],
+    ["ATR",     sl.atr,     tp.atr,     2],
+    ["London%", sl.london_pct, tp.london_pct, 0],
+  ];
+  const hours = wrByHour
+    ? Object.entries(wrByHour).map(([h, v]) => ({ h: parseInt(h), ...v })).sort((a, b) => a.wr - b.wr)
+    : [];
+  return (
+    <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 6, marginTop: 6 }}>
+      <div style={{ fontSize: 10, color: COLORS.sub, marginBottom: 4 }}>
+        Diag — SL direct ({sl.n ?? 0}) vs TP2 ({tp.n ?? 0})
+      </div>
+      <table style={{ width: "100%", fontSize: 10, borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            <td style={{ color: COLORS.sub, paddingBottom: 2 }}></td>
+            <td style={{ color: COLORS.red,   textAlign: "right", paddingBottom: 2 }}>SL dir</td>
+            <td style={{ color: COLORS.green, textAlign: "right", paddingBottom: 2 }}>TP2</td>
+            <td style={{ color: COLORS.amber, textAlign: "right", paddingBottom: 2 }}>Δ</td>
+          </tr>
+        </thead>
+        <tbody>
+          {diagRows.map(([lbl, sv, tv, dec]) => {
+            const fmt = (v) => v != null ? Number(v).toFixed(dec) + (lbl === "London%" ? "%" : "") : "—";
+            const svF = fmt(sv);
+            const tvF = fmt(tv);
+            const delta = (sv != null && tv != null) ? Number(sv) - Number(tv) : null;
+            const dColor = delta != null && Math.abs(delta) >= 3 ? COLORS.amber : COLORS.sub;
+            return (
+              <tr key={lbl}>
+                <td style={{ color: COLORS.sub }}>{lbl}</td>
+                <td style={{ textAlign: "right", color: COLORS.text }}>{svF}</td>
+                <td style={{ textAlign: "right", color: COLORS.text }}>{tvF}</td>
+                <td style={{ textAlign: "right", color: dColor }}>
+                  {delta != null ? (delta >= 0 ? "+" : "") + delta.toFixed(dec) : "—"}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {hours.length > 0 && (
+        <div style={{ marginTop: 6 }}>
+          <div style={{ fontSize: 10, color: COLORS.sub, marginBottom: 3 }}>WR / heure CET</div>
+          {hours.map(({ h, n, wr: w }) => {
+            const pct = Math.round(w * 100);
+            const bc = pct >= 50 ? COLORS.green : pct >= 40 ? COLORS.amber : COLORS.red;
+            return (
+              <div key={h} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
+                <span style={{ width: 22, fontSize: 9, color: COLORS.sub, flexShrink: 0 }}>{h}h</span>
+                <div style={{ flex: 1, background: COLORS.border, borderRadius: 2, height: 5 }}>
+                  <div style={{ width: `${pct}%`, background: bc, height: 5, borderRadius: 2 }} />
+                </div>
+                <span style={{ width: 40, fontSize: 9, color: bc, textAlign: "right", flexShrink: 0 }}>
+                  {pct}% <span style={{ color: COLORS.sub }}>({n})</span>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

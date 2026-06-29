@@ -1173,9 +1173,10 @@ def start_multi_pretrain(req: PretrainRequest, _user: dict = Depends(get_current
                     strategy_mode=req.strategy_mode,
                 )
                 n = r.get("n_trades", 0)
+                n_sl = r.get("false_stops", {}).get("n_sl_direct", 0)
                 diag = r.get("indicator_diagnostic", {})
-                _sl  = diag.get("SL_direct", {})
-                _tp2 = diag.get("TP2", {})
+                _sl  = diag.get("SL_direct", {}) or {}
+                _tp2 = diag.get("TP2", {}) or {}
                 results.append({
                     "label":         label,
                     "start":         start,
@@ -1184,7 +1185,7 @@ def start_multi_pretrain(req: PretrainRequest, _user: dict = Depends(get_current
                     "win_rate":      r.get("win_rate", 0),
                     "profit_factor": r.get("profit_factor", 0),
                     "net_pnl":       r.get("net_pnl", 0),
-                    "sl_direct_pct": round(r.get("n_sl_direct", 0) / max(n, 1) * 100, 1),
+                    "sl_direct_pct": round(n_sl / max(n, 1) * 100, 1),
                     "avg_win":       r.get("avg_win", 0),
                     "avg_loss":      r.get("avg_loss", 0),
                     "equity_curve":  [{"equity": p["equity"]} for p in r.get("equity_curve", [])],
