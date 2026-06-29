@@ -45,8 +45,8 @@ ATR_PERIOD = 14
 ADX_PERIOD = 14
 VOL_AVG_PERIOD = 20
 
-RSI_LOW = 38.0
-RSI_HIGH = 62.0
+RSI_LOW = 35.0   # assoupli 38→35 pour amorcer apprentissage — LiveAdaptiveAgent ajustera
+RSI_HIGH = 65.0  # assoupli 62→65 pour amorcer apprentissage — LiveAdaptiveAgent ajustera
 ATR_MIN = 2.5
 ATR_MAX = 7.0   # plafond ATR M5 — au-delà = whipsaw → SL direct (SL dir avg 7.44 vs TP2 avg 5.99)
 ADX_MIN = 20.0
@@ -66,8 +66,8 @@ EMA200_MIN_DIST_LONG  = 0.3  # LONG doit être à ≥ 0.3×ATR au-dessus de EMA2
 EMA200_MIN_DIST_SHORT = 0.6  # SHORT doit être à ≥ 0.6×ATR en-dessous de EMA200 (XAUUSD uptrend)
 BAD_HOURS_CET         = {10}     # 14h débloquée pour amorcer l'apprentissage — LiveAdaptiveAgent ajustera
 ATR_REGIME_MIN_RATIO  = 0.65     # assoupli 0.75→0.65 pour amorcer l'apprentissage — LiveAdaptiveAgent ajustera
-RSI_M5_LONG_MIN       = 45.0    # momentum M5 minimum pour LONG (ajustable par LiveAdaptiveAgent)
-RSI_M5_SHORT_MAX      = 55.0    # momentum M5 maximum pour SHORT (ajustable par LiveAdaptiveAgent)
+RSI_M5_LONG_MIN       = 42.0    # assoupli 45→42 pour amorcer apprentissage — LiveAdaptiveAgent ajustera
+RSI_M5_SHORT_MAX      = 58.0    # assoupli 55→58 pour amorcer apprentissage — LiveAdaptiveAgent ajustera
 PATTERN_FLOOR = 0.67        # exclut les patterns avec WR historique < 67%
 MIN_WEIGHT_SUM_LONG = 1.0   # confluence minimale côté LONG (SHORT reste à 1.5)
 
