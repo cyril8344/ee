@@ -387,11 +387,16 @@ def trading_tick() -> Dict[str, Any]:
                                            pattern_weights=state.pattern_weights,
                                            ml_gate=ms.ml_gate)
                     else:
+                        _rlog: Dict[str, Any] = {}
                         sig = evaluate(m5, m15, h1, h4=h4, now=now, check_session=session_filter,
                                        atr_min=ms.config["atr_min"],
                                        pattern_weights=state.pattern_weights,
                                        ml_gate=ms.ml_gate,
-                                       adaptive_thresholds=ms.adaptive)
+                                       adaptive_thresholds=ms.adaptive,
+                                       _reject_log=_rlog)
+                        if sig is None and _rlog:
+                            ms.last_snapshot["reject_log"] = _rlog
+                            logger.info("[%s] evaluate() rejet: %s", ms.symbol, _rlog)
                     if sig is not None:
                         ms.last_signal = sig.to_dict()
                         decision = state.risk.can_open_trade(
