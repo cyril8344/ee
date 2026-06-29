@@ -41,12 +41,12 @@ The 10-stage filter runs in strict order — a rejection at any stage short-circ
 2. Session gate (London 8–12h, NY 14–18h CET)
 3. H1 EMA200 bias — NEUTRAL if EMA50 and EMA200 disagree
 4. M15 EMA9/21 trend + RSI 35–65
-5. M5 ATR ≥ 2.0 (volatility gate)
+5. M5 ATR ≥ 2.5 (volatility gate)
 6. H1 ADX ≥ 20 (trend strength — LONG et SHORT identique)
 7. M5 EMA9 alignment (adaptive tolerance)
 8. M5 RSI momentum (LONG > 45, SHORT < 55)
 9. VWAP alignment (close ≥ VWAP for LONG, ≤ VWAP for SHORT)
-10. Candle patterns (≥ 2 patterns, each weight ≥ 0.67, sum ≥ 1.0 LONG / 1.5 SHORT)
+10. Candle patterns — soit 1 pattern fort (ancre, weight ≥ 0.85) soit 2+ patterns (sum ≥ 1.0 LONG / 1.5 SHORT) — ancre (ema9_pullback ou micro_breakout) toujours requise
 11. ML Gate — logistic regression, activates after 15 trades
 
 ### ML Gate (`ml_gate.py`)
@@ -133,7 +133,7 @@ After merging to `main`:
 - **Pattern floor 0.67** blocks patterns that lose 67%+ of the time (was 0.65 → 0.67)
 - **TREND_BIAS_DISTANCE = 0.5 ATR H1** blocks SHORT when price > EMA200 + 0.5×ATR and LONG when price < EMA200 − 0.5×ATR
 - **EMA200_MIN_DIST supprimé** : entrée AT EMA200 valide en scalp M5 avec pattern + VWAP
-- **BAD_HOURS_CET = {10}** : uniquement 10h CET (WR 38% / 37 trades). 14h et 17h retirés — trop peu de trades sans eux
+- **BAD_HOURS_CET = {8, 10}** : 8h London open (manipulation pre-session) + 10h CET (WR 38% / 37 trades)
 - **ADX_MIN = 20** LONG et SHORT identique (était 25 LONG / 35 SHORT — trop restrictif, ne discrimine pas SL vs TP2)
 - **Mode momentum fort supprimé** : ADX H1 > 35/40 → 1 pattern testé → PF 1.34 vs 1.42, rejeté. Toujours 2 patterns requis.
 - **MAX_TRADE_MINUTES = 45** (was 30) — more time for TP targets to be reached

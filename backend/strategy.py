@@ -47,7 +47,7 @@ VOL_AVG_PERIOD = 20
 
 RSI_LOW = 38.0
 RSI_HIGH = 62.0
-ATR_MIN = 2.0
+ATR_MIN = 2.5
 ATR_MAX = 7.0   # plafond ATR M5 — au-delà = whipsaw → SL direct (SL dir avg 7.44 vs TP2 avg 5.99)
 ADX_MIN = 20.0
 SR_PROXIMITY_ATR = 0.7
@@ -62,7 +62,7 @@ FVG_MIN_SIZE_ATR  = 0.3     # taille minimale d'un FVG pour être valide
 MICRO_RANGE_BARS = 3        # micro-consolidation length
 MAX_TRADE_MINUTES = 45
 TREND_BIAS_DISTANCE   = 0.5  # multiples d'ATR H1 — bloque SHORT si prix > EMA200 + 0.5 ATR
-BAD_HOURS_CET         = {10}  # 10h London uniquement (WR 38% / 37 trades)
+BAD_HOURS_CET         = {8, 10}  # 8h London open (manipulation) + 10h London WR 38%
 PATTERN_FLOOR = 0.67        # exclut les patterns avec WR historique < 67%
 MIN_WEIGHT_SUM_LONG = 1.0   # confluence minimale côté LONG (SHORT reste à 1.5)
 
@@ -907,16 +907,19 @@ def evaluate(
     triggers = [t for t in triggers if _w(t) >= PATTERN_FLOOR]
 
     weights = [_w(t) for t in triggers]
-    # Exige au moins 2 patterns ET poids cumulé >= MIN_WEIGHT_SUM_LONG (>= 1.5 pour SHORT)
+    weight_total = sum(weights)
     min_weight_sum = MIN_WEIGHT_SUM_LONG if bias == "LONG" else 1.5
-    if len(triggers) < 2 or sum(weights) < min_weight_sum:
-        _rej(_reject_log, "patterns"); return None
 
-    # Exige un pattern "ancre" : pullback EMA9 OU micro_breakout
-    # near_order_block retiré de l'ancre (détection OB approximative)
     ANCHOR_PATTERNS = {"ema9_pullback", "micro_breakout"}
-    if not set(triggers) & ANCHOR_PATTERNS:
-        _rej(_reject_log, "no_anchor"); return None
+    has_anchor = bool(set(triggers) & ANCHOR_PATTERNS)
+
+    # Passage : soit 1 pattern fort (ancre obligatoire, weight ≥ 0.85)
+    #           soit 2+ patterns avec confluence suffisante (ancre toujours requise)
+    single_strong = (len(triggers) == 1 and weight_total >= 0.85 and has_anchor)
+    multi_ok      = (len(triggers) >= 2 and weight_total >= min_weight_sum and has_anchor)
+
+    if not (single_strong or multi_ok):
+        _rej(_reject_log, "patterns"); return None
 
     # Filtre corps de bougie : rejette les bougies indécises (corps < 40% de la range)
     # Exempt pour les patterns conçus avec petite bougie (hammer, pin_bar, doji, tweezer)
@@ -931,7 +934,7 @@ def evaluate(
             _rej(_reject_log, "body"); return None
 
     # 7) Build trade levels
-    weight_sum = sum(weights)
+    weight_sum = weight_total
     sl_mult = SL_ATR_MULT
 
     if bias == "LONG":
