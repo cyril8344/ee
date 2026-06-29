@@ -32,8 +32,10 @@ WR_LOW       = 0.42  # en dessous → resserrer les filtres
 WR_HIGH      = 0.62  # au-dessus  → assouplir légèrement
 
 BOUNDS = {
-    "RSI_M5_LONG_MIN":      (40.0, 52.0),
-    "RSI_M5_SHORT_MAX":     (48.0, 60.0),
+    "RSI_M5_LONG_MIN":      (38.0, 52.0),
+    "RSI_M5_SHORT_MAX":     (48.0, 62.0),
+    "RSI_LOW":              (30.0, 45.0),
+    "RSI_HIGH":             (55.0, 70.0),
     "ATR_REGIME_MIN_RATIO": (0.60, 0.90),
     "ADX_MIN":              (15.0, 30.0),
 }
@@ -41,6 +43,8 @@ BOUNDS = {
 STEP = {
     "RSI_M5_LONG_MIN":      1.0,
     "RSI_M5_SHORT_MAX":     1.0,
+    "RSI_LOW":              1.0,
+    "RSI_HIGH":             1.0,
     "ATR_REGIME_MIN_RATIO": 0.05,
     "ADX_MIN":              2.0,
 }
@@ -66,9 +70,11 @@ class LiveAdaptiveAgent:
     def _default_params(self) -> Dict[str, float]:
         import strategy as st
         return {
-            "RSI_M5_LONG_MIN":      getattr(st, "RSI_M5_LONG_MIN",      45.0),
-            "RSI_M5_SHORT_MAX":     getattr(st, "RSI_M5_SHORT_MAX",      55.0),
-            "ATR_REGIME_MIN_RATIO": getattr(st, "ATR_REGIME_MIN_RATIO",  0.75),
+            "RSI_M5_LONG_MIN":      getattr(st, "RSI_M5_LONG_MIN",      42.0),
+            "RSI_M5_SHORT_MAX":     getattr(st, "RSI_M5_SHORT_MAX",      58.0),
+            "RSI_LOW":              getattr(st, "RSI_LOW",               35.0),
+            "RSI_HIGH":             getattr(st, "RSI_HIGH",              65.0),
+            "ATR_REGIME_MIN_RATIO": getattr(st, "ATR_REGIME_MIN_RATIO",  0.65),
             "ADX_MIN":              getattr(st, "ADX_MIN",               20.0),
         }
 
