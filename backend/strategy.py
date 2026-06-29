@@ -64,8 +64,8 @@ MAX_TRADE_MINUTES = 45
 TREND_BIAS_DISTANCE   = 0.5  # multiples d'ATR H1 — bloque SHORT si prix > EMA200 + 0.5 ATR
 EMA200_MIN_DIST_LONG  = 0.3  # LONG doit être à ≥ 0.3×ATR au-dessus de EMA200
 EMA200_MIN_DIST_SHORT = 0.6  # SHORT doit être à ≥ 0.6×ATR en-dessous de EMA200 (XAUUSD uptrend)
-BAD_HOURS_CET         = {10, 14} # 10h London WR 38% (37 trades) + 14h NY open WR 36% (34 trades) — manipulation phases
-ATR_REGIME_MIN_RATIO  = 0.75     # ATR actuel doit être ≥ 75% de la moyenne 20 bougies — filtre régime range
+BAD_HOURS_CET         = {10}     # 14h débloquée pour amorcer l'apprentissage — LiveAdaptiveAgent ajustera
+ATR_REGIME_MIN_RATIO  = 0.65     # assoupli 0.75→0.65 pour amorcer l'apprentissage — LiveAdaptiveAgent ajustera
 RSI_M5_LONG_MIN       = 45.0    # momentum M5 minimum pour LONG (ajustable par LiveAdaptiveAgent)
 RSI_M5_SHORT_MAX      = 55.0    # momentum M5 maximum pour SHORT (ajustable par LiveAdaptiveAgent)
 PATTERN_FLOOR = 0.67        # exclut les patterns avec WR historique < 67%
@@ -844,11 +844,10 @@ def evaluate(
         _rej(_reject_log, "adx"); return None
 
     # 4d) ADX pente — évite les entrées sur momentum épuisé
-    # ADX doit être en hausse sur les 2 dernières bougies H1
-    if len(h1) >= 3:
+    # ADX doit être en hausse sur la dernière bougie H1 (1 bougie — amorçage apprentissage)
+    if len(h1) >= 2:
         adx_prev1 = float(h1.iloc[-2].get("adx", h1_adx))
-        adx_prev2 = float(h1.iloc[-3].get("adx", h1_adx))
-        if h1_adx < adx_prev1 and adx_prev1 < adx_prev2:
+        if h1_adx < adx_prev1:
             _rej(_reject_log, "adx_slope"); return None
 
     # 5) M5 EMA9 alignment — tolérance adaptative (défaut 0.5 ATR)
