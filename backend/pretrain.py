@@ -101,6 +101,11 @@ def run_pretrain(
     _set(running=True, pct=0, bars_done=0, trades=0, wins=0,
          status="running", error=None, last_result=None)
 
+    # Désactiver BOOTSTRAP_MODE pendant le pretrain : on veut les filtres réels pour
+    # produire des signaux de qualité qui entraînent bien la ML Gate (pas du bruit).
+    _bootstrap_was = strategy.BOOTSTRAP_MODE
+    strategy.BOOTSTRAP_MODE = False
+
     contract_size = 100.0   if symbol == "XAUUSD" else 100000.0
     pip_size      = 0.1     if symbol == "XAUUSD" else 0.0001
     default_atr   = 3.0     if symbol == "XAUUSD" else 0.00030
@@ -637,6 +642,9 @@ def run_pretrain(
     except Exception as exc:
         _set(running=False, status="error", error=str(exc))
         raise
+
+    finally:
+        strategy.BOOTSTRAP_MODE = _bootstrap_was
 
 
 # --------------------------------------------------------------------------- #
