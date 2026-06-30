@@ -325,6 +325,12 @@ def trading_tick() -> Dict[str, Any]:
                                adaptive_thresholds=ms.adaptive)
                 ms.last_snapshot = snap
 
+                def _set_loop_gate(reason: str):
+                    """Surcharge blocking_reason dans conditions pour debug dashboard."""
+                    c = ms.last_snapshot.get("conditions")
+                    if isinstance(c, dict) and not c.get("blocking_reason"):
+                        c["blocking_reason"] = reason
+
                 # Vérifier la fiabilité des données AVANT toute gestion de position.
                 # Sur données synthétiques, ni les entrées ni la gestion TP/SL ne doivent
                 # s'exécuter — les prix simulés sont aléatoires et fermeraient les positions
@@ -335,6 +341,7 @@ def trading_tick() -> Dict[str, Any]:
                     if not ms.last_snapshot.get("_was_synthetic"):
                         state.push_alert("warn", f"[{ms.symbol}] Données synthétiques — gestion suspendue (retry dans 15s)")
                     ms.last_snapshot["_was_synthetic"] = True
+                    _set_loop_gate("données_synthétiques")
                     if ms.position is not None:
                         any_active = True
                     continue
@@ -367,6 +374,23 @@ def trading_tick() -> Dict[str, Any]:
                     ms.recent_results.clear()
                     state.push_alert("info", f"[{ms.symbol}] Circuit breaker levé — reprise du trading")
 
+                # Calculer la raison de blocage boucle externe (indépendant de evaluate())
+                if ms.position is None:
+                    if not can_enter_session:
+                        _set_loop_gate("hors_session")
+                    elif state.risk.blocked:
+                        _set_loop_gate(f"risk: {state.risk.block_reason}")
+                    elif news_status["blocked"]:
+                        _set_loop_gate("actualités")
+                    elif macro_blocked:
+                        _set_loop_gate(f"macro: {macro_reason}")
+                    elif ms.circuit_breaker_until is not None:
+                        _set_loop_gate("circuit_breaker")
+                    elif not state.settings.get("bot_enabled", True):
+                        _set_loop_gate("bot_désactivé")
+                    elif state.risk.trades_today >= state.risk.max_trades_per_day:
+                        _set_loop_gate(f"max_trades: {state.risk.trades_today}/{state.risk.max_trades_per_day}")
+
                 if (ms.position is None and can_enter_session
                         and not state.risk.blocked and not news_status["blocked"]
                         and not macro_blocked
@@ -396,6 +420,7 @@ def trading_tick() -> Dict[str, Any]:
                                        _reject_log=_rlog)
                         if sig is None and _rlog:
                             ms.last_snapshot["reject_log"] = _rlog
+                            _set_loop_gate("evaluate: " + list(_rlog.keys())[0])
                             logger.info("[%s] evaluate() rejet: %s", ms.symbol, _rlog)
                     if sig is not None:
                         ms.last_signal = sig.to_dict()
@@ -406,6 +431,7 @@ def trading_tick() -> Dict[str, Any]:
                         if decision.allowed:
                             _open_trade(ms, sig, decision, now)
                         else:
+                            _set_loop_gate(f"risk_trade: {decision.reason}")
                             state.push_alert("warn", f"[{ms.symbol}] Signal ignoré: {decision.reason}")
 
                 if ms.position is not None:
@@ -653,6 +679,7 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
             "position": _position_payload(ms),
             "last_signal": ms.last_signal,
             "conditions": snap.get("conditions"),
+            "reject_log": snap.get("reject_log"),
             "ml_gate": ms.ml_gate.status() if ms.ml_gate else {},
             "data_provider": getattr(getattr(ms.broker, "data", None), "provider", None),
             "data_errors": {k: v for k, v in __import__("data_provider").get_last_errors().items()
