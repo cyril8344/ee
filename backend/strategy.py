@@ -1401,7 +1401,7 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
 
     pattern_weight_detail = {t: round(_pw(t), 3) for t in patterns_detected}
     pattern_weight_sum = round(sum(pattern_weight_detail.values()), 3)
-    weight_gate_ok = pattern_weight_sum >= 1.0 if patterns_detected else False
+    weight_gate_ok = pattern_weight_sum >= MIN_WEIGHT_SUM_LONG if patterns_detected else False
 
     # ML gate probability (display only — no blocking in snapshot)
     ml_prob: Optional[float] = None
@@ -1421,7 +1421,7 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
     blocking_reason = None
     if bias == "NEUTRE":
         blocking_reason = "bias_neutre"
-    elif not m15_confirmed:
+    elif M15_FILTER_ENABLED and not m15_confirmed:
         # Diagnostic fin : on précise quelle sous-condition M15 bloque.
         if m15_ema_aligned is False and m15_rsi_ok is False:
             blocking_reason = "m15_ema_et_rsi"
