@@ -146,9 +146,15 @@ class BotState:
     def __init__(self):
         db.init_db()
         self.settings = db.get_settings()
-        # En mode amorçage, forcer le bot actif même si la DB a conservé bot_enabled=False
-        if strategy.BOOTSTRAP_MODE and not self.settings.get("bot_enabled", True):
-            self.settings = db.update_settings({"bot_enabled": True})
+        # En mode amorçage : forcer bot_enabled=True et daily_stop_pct=100% (pas de blocage risk)
+        if strategy.BOOTSTRAP_MODE:
+            _bootstrap_updates = {}
+            if not self.settings.get("bot_enabled", True):
+                _bootstrap_updates["bot_enabled"] = True
+            if float(self.settings.get("daily_stop_pct", 2.0)) < 100.0:
+                _bootstrap_updates["daily_stop_pct"] = 100.0
+            if _bootstrap_updates:
+                self.settings = db.update_settings(_bootstrap_updates)
         self.risk = RiskManager()
         self.risk.sync_from_settings(self.settings)
         self.news = NewsFilter(window_minutes=30, currencies=("USD", "EUR"))
@@ -187,6 +193,12 @@ class BotState:
 
         # Agent live adaptatif — apprend uniquement des vrais trades paper XAUUSD
         self.live_agent = LiveAdaptiveAgent(symbol="XAUUSD")
+
+        # En BOOTSTRAP_MODE : débloquer le risk au démarrage (stop journalier non pertinent)
+        if strategy.BOOTSTRAP_MODE and self.risk.blocked:
+            self.risk.blocked = False
+            self.risk.block_reason = ""
+            db.update_daily(db.today_utc(), {"blocked": 0})
 
     def _restore_open_positions(self):
         """On restart, rebuild in-memory Position objects from DB open trades."""
