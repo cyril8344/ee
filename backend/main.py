@@ -66,7 +66,7 @@ def _send_telegram(message: str) -> None:
         pass
 
 import database as db
-from risk_manager import RiskManager
+from risk_manager import RiskManager, RiskDecision
 from news_filter import NewsFilter
 from macro_filter import MacroFilter
 from broker import make_broker, Position
@@ -401,6 +401,18 @@ def trading_tick() -> Dict[str, Any]:
                     if isinstance(c, dict) and not c.get("blocking_reason"):
                         c["blocking_reason"] = reason
 
+                # BOOTSTRAP_MODE : lever tous les blocages à chaque tick
+                # (daily stop, max trades, circuit breaker) — collecte de données prioritaire
+                if strategy.BOOTSTRAP_MODE:
+                    if state.risk.blocked:
+                        state.risk.blocked = False
+                        state.risk.block_reason = ""
+                        db.update_daily(db.today_utc(), {"blocked": 0})
+                    state.risk.trades_today = 0   # ignorer max trades/jour
+                    if ms.circuit_breaker_until is not None:
+                        ms.circuit_breaker_until = None
+                        ms.recent_results.clear()
+
                 # Vérifier la fiabilité des données AVANT toute gestion de position.
                 # Sur données synthétiques, ni les entrées ni la gestion TP/SL ne doivent
                 # s'exécuter — les prix simulés sont aléatoires et fermeraient les positions
@@ -461,11 +473,15 @@ def trading_tick() -> Dict[str, Any]:
                     elif state.risk.trades_today >= state.risk.max_trades_per_day:
                         _set_loop_gate(f"max_trades: {state.risk.trades_today}/{state.risk.max_trades_per_day}")
 
+                _bs = strategy.BOOTSTRAP_MODE
                 if (ms.position is None and can_enter_session
-                        and not state.risk.blocked and not news_status["blocked"]
-                        and not macro_blocked
-                        and ms.circuit_breaker_until is None
-                        and state.settings.get("bot_enabled", True)):
+                        and (_bs or (
+                            not state.risk.blocked
+                            and not news_status["blocked"]
+                            and not macro_blocked
+                            and ms.circuit_breaker_until is None
+                            and state.settings.get("bot_enabled", True)
+                        ))):
                     # Strategy is fixed per symbol in MARKET_CONFIG (not user-switchable)
                     sym_strategy = ms.config.get("default_strategy", "A")
                     if sym_strategy == "B":
@@ -505,6 +521,15 @@ def trading_tick() -> Dict[str, Any]:
                             sig.entry, sig.stop_loss,
                             contract_size=ms.config["contract_size"],
                         )
+                        # BOOTSTRAP_MODE : si bloqué par capital / lot trop petit,
+                        # forcer lot minimum 0.01 pour collecter les données quand même
+                        if not decision.allowed and strategy.BOOTSTRAP_MODE:
+                            sl_dist = abs(sig.entry - sig.stop_loss)
+                            if sl_dist > 0:
+                                risk_amt = 0.01 * sl_dist * ms.config["contract_size"]
+                                decision = RiskDecision(True, "bootstrap_min_lot",
+                                                        volume=0.01, risk_amount=risk_amt,
+                                                        stop_distance=sl_dist)
                         if decision.allowed:
                             _open_trade(ms, sig, decision, now)
                         else:
