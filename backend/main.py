@@ -1171,7 +1171,7 @@ def test_signal(symbol: str = "XAUUSD", direction: str = "long",
 class BacktestRequest(BaseModel):
     start: str
     end: str
-    capital: float = 1000.0
+    capital: float = 10_000.0
     risk_pct: float = 5.0
     spread_pips: float = 0.3
     slippage_pips: float = 0.1
@@ -1221,7 +1221,7 @@ class OptimizeRequest(BaseModel):
     start: str
     end: str
     symbol: str = "XAUUSD"
-    capital: float = 1000.0
+    capital: float = 10_000.0
     risk_pct: float = 5.0
     spread_pips: float = 0.3
     slippage_pips: float = 0.1
@@ -1318,7 +1318,7 @@ class PretrainRequest(BaseModel):
     symbol:        str = "XAUUSD"
     atr_min:       Optional[float] = None
     reset:         bool = True
-    capital:       float = 1_000.0
+    capital:       float = 10_000.0
     risk_pct:      float = 5.0
     strategy_mode: str = "A"
 
