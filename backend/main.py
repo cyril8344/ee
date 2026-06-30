@@ -146,6 +146,9 @@ class BotState:
     def __init__(self):
         db.init_db()
         self.settings = db.get_settings()
+        # En mode amorçage, forcer le bot actif même si la DB a conservé bot_enabled=False
+        if strategy.BOOTSTRAP_MODE and not self.settings.get("bot_enabled", True):
+            self.settings = db.update_settings({"bot_enabled": True})
         self.risk = RiskManager()
         self.risk.sync_from_settings(self.settings)
         self.news = NewsFilter(window_minutes=30, currencies=("USD", "EUR"))
