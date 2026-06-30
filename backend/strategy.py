@@ -1433,11 +1433,11 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
             blocking_reason = "m15_non_confirmé"
     elif not atr_ok:
         blocking_reason = "atr_trop_bas"
-    elif not ema9_aligned:
+    elif EMA9_FILTER_ENABLED and not ema9_aligned:
         blocking_reason = "ema9_non_aligné"
     elif not patterns_detected:
         blocking_reason = "aucun_pattern"
-    elif not weight_gate_ok:
+    elif MIN_WEIGHT_SUM_LONG > 0 and not weight_gate_ok:
         blocking_reason = "poids_insuffisants"
 
     return {
