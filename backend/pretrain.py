@@ -102,10 +102,27 @@ def run_pretrain(
     _set(running=True, pct=0, bars_done=0, trades=0, wins=0,
          status="running", error=None, last_result=None)
 
-    # Désactiver BOOTSTRAP_MODE pendant le pretrain : on veut les filtres réels pour
-    # produire des signaux de qualité qui entraînent bien la ML Gate (pas du bruit).
-    _bootstrap_was = strategy.BOOTSTRAP_MODE
-    strategy.BOOTSTRAP_MODE = False
+    # Pendant le pretrain : désactiver BOOTSTRAP_MODE ET restaurer les seuils réels.
+    # Sans ça, tous les filtres sont à 0 (valeurs bootstrap) → 5000+ trades bruités
+    # → ML Gate apprend du bruit au lieu de vrais signaux de qualité (~200-300 trades).
+    _PRETRAIN_OVERRIDES = {
+        "BOOTSTRAP_MODE":        False,
+        "ATR_MIN":               2.5,
+        "ADX_MIN":               20.0,
+        "RSI_M5_LONG_MIN":       45.0,
+        "RSI_M5_SHORT_MAX":      55.0,
+        "PATTERN_FLOOR":         0.67,
+        "MIN_WEIGHT_SUM_LONG":   1.0,
+        "ATR_REGIME_MIN_RATIO":  0.65,
+        "TREND_BIAS_DISTANCE":   0.5,
+        "M15_FILTER_ENABLED":    True,
+        "EMA9_FILTER_ENABLED":   True,
+        "VWAP_FILTER_ENABLED":   True,
+        "BAD_HOURS_CET":         {8, 10},
+    }
+    _saved_strategy = {k: getattr(strategy, k) for k in _PRETRAIN_OVERRIDES}
+    for k, v in _PRETRAIN_OVERRIDES.items():
+        setattr(strategy, k, v)
 
     contract_size = 100.0   if symbol == "XAUUSD" else 100000.0
     pip_size      = 0.1     if symbol == "XAUUSD" else 0.0001
@@ -645,7 +662,8 @@ def run_pretrain(
         raise
 
     finally:
-        strategy.BOOTSTRAP_MODE = _bootstrap_was
+        for k, v in _saved_strategy.items():
+            setattr(strategy, k, v)
 
 
 # --------------------------------------------------------------------------- #
