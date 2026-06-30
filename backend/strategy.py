@@ -1310,7 +1310,7 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
     # Seuils adaptatifs pour le diagnostic
     _adapt = adaptive_thresholds
     _adapt_ready = _adapt is not None and _adapt.is_ready
-    snap_atr_min   = _adapt.atr_min    if _adapt_ready else atr_min_override
+    snap_atr_min   = 0.0 if ATR_MIN == 0.0 else (_adapt.atr_min if _adapt_ready else atr_min_override)
     snap_ema9_mult = _adapt.ema9_mult  if _adapt_ready else 0.5
     snap_m15_mult  = _adapt.m15_mult   if _adapt_ready else 0.3
 
