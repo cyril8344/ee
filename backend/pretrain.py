@@ -87,9 +87,10 @@ def run_pretrain(
     symbol: str = "XAUUSD",
     atr_min: Optional[float] = None,
     reset: bool = True,
-    capital: float = 1_000.0,
+    capital: float = 10_000.0,
     risk_pct: float = 5.0,
     strategy_mode: str = "A",
+    extra_overrides: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Lance le pré-entraînement en mode bloquant.
@@ -120,6 +121,8 @@ def run_pretrain(
         "VWAP_FILTER_ENABLED":   True,
         "BAD_HOURS_CET":         {8, 10},
     }
+    if extra_overrides:
+        _PRETRAIN_OVERRIDES.update(extra_overrides)
     _saved_strategy = {k: getattr(strategy, k) for k in _PRETRAIN_OVERRIDES}
     for k, v in _PRETRAIN_OVERRIDES.items():
         setattr(strategy, k, v)
@@ -675,10 +678,11 @@ def launch_pretrain(
     symbol: str = "XAUUSD",
     atr_min: Optional[float] = None,
     reset: bool = True,
-    capital: float = 1_000.0,
+    capital: float = 10_000.0,
     risk_pct: float = 5.0,
     strategy_mode: str = "A",
     on_complete=None,
+    extra_overrides: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Lance le pré-entraînement dans un thread daemon (non-bloquant)."""
     if get_progress()["running"]:
@@ -692,7 +696,8 @@ def launch_pretrain(
     def _run():
         try:
             run_pretrain(start, end, symbol=symbol, atr_min=atr_min, reset=reset,
-                         capital=capital, risk_pct=risk_pct, strategy_mode=strategy_mode)
+                         capital=capital, risk_pct=risk_pct, strategy_mode=strategy_mode,
+                         extra_overrides=extra_overrides)
             if on_complete:
                 on_complete()
         except Exception as exc:

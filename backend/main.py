@@ -66,7 +66,7 @@ def _send_telegram(message: str) -> None:
         pass
 
 import database as db
-from risk_manager import RiskManager
+from risk_manager import RiskManager, RiskDecision
 from news_filter import NewsFilter
 from macro_filter import MacroFilter
 from broker import make_broker, Position
@@ -86,6 +86,8 @@ from live_agent import LiveAdaptiveAgent
 import agent_memory
 from ml_gate import OnlineLogisticRegression, AdaptiveThresholds
 import pretrain as _pretrain_module
+from llm_gate import LLMGate
+from researcher_agent import ResearcherAgent
 
 
 MARKET_CONFIG = {
@@ -193,6 +195,12 @@ class BotState:
 
         # Agent live adaptatif — apprend uniquement des vrais trades paper XAUUSD
         self.live_agent = LiveAdaptiveAgent(symbol="XAUUSD")
+
+        # LLM gate — validation contextuelle des signaux (désactivé si ANTHROPIC_API_KEY absent)
+        self.llm_gate = LLMGate()
+
+        # Chercheur de paramètres — optimise RSI/ADX en arrière-plan hors session
+        self.researcher = ResearcherAgent(capital=self.risk.capital)
 
         # En BOOTSTRAP_MODE : débloquer le risk au démarrage (stop journalier non pertinent)
         if strategy.BOOTSTRAP_MODE and self.risk.blocked:
@@ -335,6 +343,31 @@ def _launch_auto_pretrain(label: str = "auto", window_months: int = 3, reset: bo
     logger.info("[AutoPretrain:%s] lancé %s → %s", label, start_d, end_d)
 
 
+def _build_llm_snap(ms, sig, m5, m15, h1) -> Dict[str, Any]:
+    """Construit le snapshot de marché pour la LLM gate."""
+    cur     = m5.iloc[-1]  if len(m5)  > 0 else {}
+    m15_cur = m15.iloc[-1] if len(m15) > 0 else {}
+    h1_cur  = h1.iloc[-1]  if len(h1)  > 0 else {}
+    close     = float(getattr(cur,     "close",  0) or 0)
+    ema200    = float(getattr(h1_cur,  "ema200", 0) or 0)
+    atr_h1    = float(getattr(h1_cur,  "atr",    1) or 1)
+    ema200_dist = (close - ema200) / max(atr_h1, 0.001) if ema200 else 0.0
+    vwap      = float(getattr(cur, "vwap", close) or close)
+    return {
+        "session":       sig.session,
+        "rsi_m5":        float(sig.meta.get("rsi_m5",  50)),
+        "rsi_m15":       float(sig.meta.get("rsi_m15", 50)),
+        "atr":           sig.atr,
+        "adx_h1":        float(getattr(h1_cur, "adx", 0) or 0),
+        "bias":          sig.bias,
+        "vwap_side":     1 if close >= vwap else 0,
+        "patterns":      list(sig.meta.get("triggers", [])),
+        "pattern_weight": float(sig.meta.get("weight_sum", 0.0)),
+        "ml_score":      float(sig.meta.get("ml_prob") or 0.5),
+        "ema200_dist":   round(ema200_dist, 3),
+    }
+
+
 # --------------------------------------------------------------------------- #
 # Trading loop (one decision per tick)
 # --------------------------------------------------------------------------- #
@@ -367,6 +400,18 @@ def trading_tick() -> Dict[str, Any]:
                     c = ms.last_snapshot.get("conditions")
                     if isinstance(c, dict) and not c.get("blocking_reason"):
                         c["blocking_reason"] = reason
+
+                # BOOTSTRAP_MODE : lever tous les blocages à chaque tick
+                # (daily stop, max trades, circuit breaker) — collecte de données prioritaire
+                if strategy.BOOTSTRAP_MODE:
+                    if state.risk.blocked:
+                        state.risk.blocked = False
+                        state.risk.block_reason = ""
+                        db.update_daily(db.today_utc(), {"blocked": 0})
+                    state.risk.trades_today = 0   # ignorer max trades/jour
+                    if ms.circuit_breaker_until is not None:
+                        ms.circuit_breaker_until = None
+                        ms.recent_results.clear()
 
                 # Vérifier la fiabilité des données AVANT toute gestion de position.
                 # Sur données synthétiques, ni les entrées ni la gestion TP/SL ne doivent
@@ -428,11 +473,15 @@ def trading_tick() -> Dict[str, Any]:
                     elif state.risk.trades_today >= state.risk.max_trades_per_day:
                         _set_loop_gate(f"max_trades: {state.risk.trades_today}/{state.risk.max_trades_per_day}")
 
+                _bs = strategy.BOOTSTRAP_MODE
                 if (ms.position is None and can_enter_session
-                        and not state.risk.blocked and not news_status["blocked"]
-                        and not macro_blocked
-                        and ms.circuit_breaker_until is None
-                        and state.settings.get("bot_enabled", True)):
+                        and (_bs or (
+                            not state.risk.blocked
+                            and not news_status["blocked"]
+                            and not macro_blocked
+                            and ms.circuit_breaker_until is None
+                            and state.settings.get("bot_enabled", True)
+                        ))):
                     # Strategy is fixed per symbol in MARKET_CONFIG (not user-switchable)
                     sym_strategy = ms.config.get("default_strategy", "A")
                     if sym_strategy == "B":
@@ -459,12 +508,28 @@ def trading_tick() -> Dict[str, Any]:
                             ms.last_snapshot["reject_log"] = _rlog
                             _set_loop_gate("evaluate: " + list(_rlog.keys())[0])
                             logger.info("[%s] evaluate() rejet: %s", ms.symbol, _rlog)
+                        # LLM gate — validation contextuelle (hors BOOTSTRAP_MODE)
+                        if sig is not None and state.llm_gate.enabled and not strategy.BOOTSTRAP_MODE:
+                            _snap_llm = _build_llm_snap(ms, sig, m5, m15, h1)
+                            _llm = state.llm_gate.analyze(_snap_llm, sig.direction)
+                            if _llm["action"] == "HOLD" or _llm["confidence"] < 0.55:
+                                sig = None
+                                _set_loop_gate(f"llm: {_llm['reason'][:40]}")
                     if sig is not None:
                         ms.last_signal = sig.to_dict()
                         decision = state.risk.can_open_trade(
                             sig.entry, sig.stop_loss,
                             contract_size=ms.config["contract_size"],
                         )
+                        # BOOTSTRAP_MODE : si bloqué par capital / lot trop petit,
+                        # forcer lot minimum 0.01 pour collecter les données quand même
+                        if not decision.allowed and strategy.BOOTSTRAP_MODE:
+                            sl_dist = abs(sig.entry - sig.stop_loss)
+                            if sl_dist > 0:
+                                risk_amt = 0.01 * sl_dist * ms.config["contract_size"]
+                                decision = RiskDecision(True, "bootstrap_min_lot",
+                                                        volume=0.01, risk_amount=risk_amt,
+                                                        stop_distance=sl_dist)
                         if decision.allowed:
                             _open_trade(ms, sig, decision, now)
                         else:
@@ -489,6 +554,9 @@ def trading_tick() -> Dict[str, Any]:
             state.bot_status = "ACTIF"
         else:
             state.bot_status = "ACTIF"
+
+        # Chercheur de paramètres — appel périodique hors session sans position active
+        state.researcher.maybe_run(has_active_position=any_active)
 
         return _public_state(session, news_status)
 
@@ -741,6 +809,8 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
         "news": news_status,
         "macro": state.macro.status(),
         "live_agent": state.live_agent.status(),
+        "llm_gate": state.llm_gate.status(),
+        "researcher": state.researcher.status(),
         "alerts": state.alerts[-8:],
         "settings": {
             "session_filter": state.settings.get("session_filter", True),
@@ -1101,7 +1171,7 @@ def test_signal(symbol: str = "XAUUSD", direction: str = "long",
 class BacktestRequest(BaseModel):
     start: str
     end: str
-    capital: float = 1000.0
+    capital: float = 10_000.0
     risk_pct: float = 5.0
     spread_pips: float = 0.3
     slippage_pips: float = 0.1
@@ -1151,7 +1221,7 @@ class OptimizeRequest(BaseModel):
     start: str
     end: str
     symbol: str = "XAUUSD"
-    capital: float = 1000.0
+    capital: float = 10_000.0
     risk_pct: float = 5.0
     spread_pips: float = 0.3
     slippage_pips: float = 0.1
@@ -1248,7 +1318,7 @@ class PretrainRequest(BaseModel):
     symbol:        str = "XAUUSD"
     atr_min:       Optional[float] = None
     reset:         bool = True
-    capital:       float = 1_000.0
+    capital:       float = 10_000.0
     risk_pct:      float = 5.0
     strategy_mode: str = "A"
 

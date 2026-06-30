@@ -26,6 +26,9 @@ beautifulsoup4==4.12.3
 # Real-time WebSocket price feed (Twelve Data)
 websocket-client==1.8.0
 
+# Anthropic SDK (LLM gate + researcher agent)
+anthropic>=0.40.0
+
 # Testing
 pytest==8.2.2
 httpx==0.27.0
