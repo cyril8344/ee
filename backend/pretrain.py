@@ -25,6 +25,7 @@ from typing import Dict, Any, Optional, Callable
 
 import pandas as pd
 
+import strategy
 from strategy import (
     add_indicators, evaluate, active_session, compute_bias,
     MAX_TRADE_MINUTES, SL_ATR_MULT, CET,
