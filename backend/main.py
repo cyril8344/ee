@@ -33,7 +33,7 @@ import threading
 import traceback
 import urllib.request
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, date, timezone, timedelta
 from typing import Optional, Dict, Any, List
 
 logger = logging.getLogger("main")
@@ -302,6 +302,28 @@ def current_equity() -> float:
 
 
 # --------------------------------------------------------------------------- #
+# Boucle d'apprentissage autonome — helpers
+# --------------------------------------------------------------------------- #
+def _launch_auto_pretrain(label: str = "auto", window_months: int = 3, reset: bool = True) -> None:
+    """Lance un pretrain en arrière-plan sur les `window_months` derniers mois."""
+    if _pretrain_module.get_progress()["running"]:
+        logger.info("[AutoPretrain:%s] pretrain déjà en cours — ignoré", label)
+        return
+    end_d   = date.today().isoformat()
+    start_d = (date.today() - timedelta(days=window_months * 30)).isoformat()
+    capital = state.risk.capital
+
+    def _done():
+        state.push_alert("info", f"[AutoApprenant] Pretrain '{label}' terminé — ML Gate rafraîchie")
+
+    _pretrain_module.launch_pretrain(
+        start_d, end_d, symbol="XAUUSD", reset=reset,
+        capital=capital, on_complete=_done,
+    )
+    logger.info("[AutoPretrain:%s] lancé %s → %s", label, start_d, end_d)
+
+
+# --------------------------------------------------------------------------- #
 # Trading loop (one decision per tick)
 # --------------------------------------------------------------------------- #
 def trading_tick() -> Dict[str, Any]:
@@ -521,6 +543,12 @@ def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], 
         try:
             state.live_agent.on_trade_closed(won=won, pnl=pnl,
                                              features=pos.meta.get("ml_features"))
+            # Transition BOOTSTRAP → filtres calibrés : lancer pretrain automatique
+            if state.live_agent.consume_bootstrap_exit():
+                from live_agent import BOOTSTRAP_EXIT_TRADES
+                state.push_alert("info",
+                    f"[AutoApprenant] {BOOTSTRAP_EXIT_TRADES} trades live — BOOTSTRAP désactivé, pretrain lancé")
+                _launch_auto_pretrain(label="post_bootstrap", window_months=3)
         except Exception:
             pass
 
@@ -700,6 +728,7 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
         "risk": state.risk.status(),
         "news": news_status,
         "macro": state.macro.status(),
+        "live_agent": state.live_agent.status(),
         "alerts": state.alerts[-8:],
         "settings": {
             "session_filter": state.settings.get("session_filter", True),
@@ -724,6 +753,7 @@ async def _startup():
     except Exception:
         traceback.print_exc()
     asyncio.create_task(_loop())
+    asyncio.create_task(_learning_loop())
 
 
 async def _loop():
@@ -734,6 +764,34 @@ async def _loop():
         except Exception:
             traceback.print_exc()
         await asyncio.sleep(5)
+
+
+async def _learning_loop():
+    """Pretrain hebdomadaire automatique chaque dimanche 22h CET — garde la ML Gate fraîche."""
+    import pytz
+    _CET = pytz.timezone("Europe/Paris")
+    while True:
+        try:
+            now_cet = datetime.now(timezone.utc).astimezone(_CET)
+            # Dimanche = weekday 6. Calculer les secondes jusqu'au prochain dimanche 22h00 CET.
+            days_to_sunday = (6 - now_cet.weekday()) % 7
+            target = now_cet.replace(hour=22, minute=0, second=0, microsecond=0)
+            if days_to_sunday == 0 and now_cet >= target:
+                days_to_sunday = 7   # ce dimanche est déjà passé → prochain
+            target += timedelta(days=days_to_sunday)
+            sleep_secs = (target - now_cet).total_seconds()
+            logger.info("[LearningLoop] prochain pretrain hebdo dans %.1fh (dimanche 22h CET)", sleep_secs / 3600)
+            await asyncio.sleep(max(sleep_secs, 3600))   # au moins 1h entre les vérifications
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            traceback.print_exc()
+            await asyncio.sleep(3600)
+            continue
+
+        with state.lock:
+            state.push_alert("info", "[AutoApprenant] Pretrain hebdomadaire — 3 mois glissants, ML Gate rafraîchie")
+            _launch_auto_pretrain(label="hebdomadaire", window_months=3, reset=False)
 
 
 # --------------------------------------------------------------------------- #
