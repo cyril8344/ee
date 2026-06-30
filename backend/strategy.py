@@ -71,7 +71,11 @@ RSI_M5_SHORT_MAX      = 100.0   # 58→100 pour amorçage — LiveAdaptiveAgent 
 PATTERN_FLOOR         = 0.0     # 0.67→0 pour amorçage — LiveAdaptiveAgent ajustera
 MIN_WEIGHT_SUM_LONG   = 0.0     # 1.0→0 pour amorçage — LiveAdaptiveAgent ajustera
 
-# Filtres booléens — désactivés pour amorçage, réactiver manuellement ou via l'agent
+# Mode amorçage — court-circuite TOUS les filtres sauf session + biais direction
+# Mettre à False une fois ~50 trades accumulés et LiveAdaptiveAgent opérationnel
+BOOTSTRAP_MODE        = True
+
+# Filtres booléens — ignorés quand BOOTSTRAP_MODE=True
 M15_FILTER_ENABLED    = False   # confirmation M15 EMA9/21 + RSI
 ADX_SLOPE_ENABLED     = False   # ADX doit être en hausse (momentum non épuisé)
 EMA9_FILTER_ENABLED   = False   # close M5 aligné avec EMA9
@@ -809,39 +813,40 @@ def evaluate(
     # Seuils adaptatifs (si disponibles et entraînés)
     _adapt = adaptive_thresholds
     _adapt_ready = _adapt is not None and _adapt.is_ready
-    # Si ATR_MIN==0.0 (mode bootstrapping), ignorer les adaptive thresholds pour l'ATR
-    effective_atr_min  = 0.0 if ATR_MIN == 0.0 else (_adapt.atr_min if _adapt_ready else atr_min)
+    effective_atr_min  = 0.0 if (BOOTSTRAP_MODE or ATR_MIN == 0.0) else (_adapt.atr_min if _adapt_ready else atr_min)
     effective_ema9_mult = _adapt.ema9_mult if _adapt_ready else 0.5
     effective_m15_mult  = _adapt.m15_mult  if _adapt_ready else 0.5
 
-    # 3) M15 EMA9/21 + RSI confirmation
-    if M15_FILTER_ENABLED and not confirm_m15(m15, bias, ema_mult=effective_m15_mult):
-        _rej(_reject_log, "m15"); return None
-
-    # 4) M5 volatility gate — plancher ET plafond
+    # BOOTSTRAP_MODE : sauter tous les filtres, aller directement au calcul des niveaux
     atr_val = float(cur["atr"]) if not pd.isna(cur["atr"]) else 0.0
-    if atr_val < effective_atr_min:
-        _rej(_reject_log, "atr_min"); return None
-    if atr_val > ATR_MAX:
-        _rej(_reject_log, "atr_max"); return None  # trop volatile → whipsaw → SL direct
+    h1_adx  = float(h1.iloc[-1].get("adx", 0)) if len(h1) else 0.0
 
-    # 4c) Régime volatilité — ATR actuel vs moyenne 20 bougies (filtre marché range)
-    if len(m5) >= 20:
-        atr_avg = float(m5["atr"].iloc[-20:].mean())
-        if atr_avg > 0 and atr_val / atr_avg < ATR_REGIME_MIN_RATIO:
-            return None
+    if not BOOTSTRAP_MODE:
+        # 3) M15 EMA9/21 + RSI confirmation
+        if M15_FILTER_ENABLED and not confirm_m15(m15, bias, ema_mult=effective_m15_mult):
+            _rej(_reject_log, "m15"); return None
 
-    # 4b) H1 ADX trend strength — ne trader qu'en vraie tendance
-    h1_adx = float(h1.iloc[-1].get("adx", 0)) if len(h1) else 0.0
-    adx_required = ADX_MIN  # même seuil LONG et SHORT
-    if h1_adx < adx_required:
-        _rej(_reject_log, "adx"); return None
+        # 4) M5 volatility gate — plancher ET plafond
+        if atr_val < effective_atr_min:
+            _rej(_reject_log, "atr_min"); return None
+        if atr_val > ATR_MAX:
+            _rej(_reject_log, "atr_max"); return None
 
-    # 4d) ADX pente — évite les entrées sur momentum épuisé
-    if ADX_SLOPE_ENABLED and len(h1) >= 2:
-        adx_prev1 = float(h1.iloc[-2].get("adx", h1_adx))
-        if h1_adx < adx_prev1:
-            _rej(_reject_log, "adx_slope"); return None
+        # 4c) Régime volatilité
+        if len(m5) >= 20:
+            atr_avg = float(m5["atr"].iloc[-20:].mean())
+            if atr_avg > 0 and atr_val / atr_avg < ATR_REGIME_MIN_RATIO:
+                return None
+
+        # 4b) H1 ADX trend strength
+        if h1_adx < ADX_MIN:
+            _rej(_reject_log, "adx"); return None
+
+        # 4d) ADX pente
+        if ADX_SLOPE_ENABLED and len(h1) >= 2:
+            adx_prev1 = float(h1.iloc[-2].get("adx", h1_adx))
+            if h1_adx < adx_prev1:
+                _rej(_reject_log, "adx_slope"); return None
 
     # 5) M5 EMA9 alignment — tolérance adaptative (défaut 0.5 ATR)
     ema9_tolerance = atr_val * effective_ema9_mult
@@ -851,16 +856,17 @@ def evaluate(
         if bias == "SHORT" and cur["close"] > cur["ema9"] + ema9_tolerance:
             _rej(_reject_log, "ema9"); return None
 
-    # 5b) M5 RSI momentum confirmation — seuils ajustables par LiveAdaptiveAgent
+    # 5b) M5 RSI momentum confirmation
     rsi_m5 = float(cur.get("rsi", 50) or 50)
-    if bias == "LONG"  and rsi_m5 < RSI_M5_LONG_MIN:
-        _rej(_reject_log, "rsi_m5"); return None
-    if bias == "SHORT" and rsi_m5 > RSI_M5_SHORT_MAX:
-        _rej(_reject_log, "rsi_m5"); return None
+    if not BOOTSTRAP_MODE:
+        if bias == "LONG"  and rsi_m5 < RSI_M5_LONG_MIN:
+            _rej(_reject_log, "rsi_m5"); return None
+        if bias == "SHORT" and rsi_m5 > RSI_M5_SHORT_MAX:
+            _rej(_reject_log, "rsi_m5"); return None
 
-    # 5c) VWAP alignment — close du bon côté du VWAP
+    # 5c) VWAP alignment
     vwap_val = float(cur.get("vwap", float("nan")) or float("nan"))
-    if VWAP_FILTER_ENABLED and not pd.isna(vwap_val):
+    if not BOOTSTRAP_MODE and VWAP_FILTER_ENABLED and not pd.isna(vwap_val):
         if bias == "LONG"  and float(cur["close"]) < vwap_val:
             _rej(_reject_log, "vwap"); return None
         if bias == "SHORT" and float(cur["close"]) > vwap_val:
@@ -1419,10 +1425,14 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
 
     # first failing condition for quick diagnosis
     blocking_reason = None
-    if bias == "NEUTRE":
+    if BOOTSTRAP_MODE:
+        # En mode amorçage, aucun filtre ne bloque — seul le biais H1 est requis
+        if bias == "NEUTRE":
+            blocking_reason = "bias_neutre"
+        # else: pas de raison de blocage, le bot fire à chaque bougie
+    elif bias == "NEUTRE":
         blocking_reason = "bias_neutre"
     elif M15_FILTER_ENABLED and not m15_confirmed:
-        # Diagnostic fin : on précise quelle sous-condition M15 bloque.
         if m15_ema_aligned is False and m15_rsi_ok is False:
             blocking_reason = "m15_ema_et_rsi"
         elif m15_ema_aligned is False:
