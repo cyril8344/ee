@@ -31,6 +31,10 @@ WR_TARGET    = 0.52  # WR cible
 WR_LOW       = 0.42  # en dessous → resserrer les filtres
 WR_HIGH      = 0.62  # au-dessus  → assouplir légèrement
 
+# Boucle d'apprentissage autonome
+BOOTSTRAP_EXIT_TRADES     = 50   # trades live avant désactivation de BOOTSTRAP_MODE
+AUTO_PRETRAIN_MONTHS      = 3    # fenêtre du pretrain automatique (mois glissants)
+
 BOUNDS = {
     "RSI_M5_LONG_MIN":      (38.0, 52.0),
     "RSI_M5_SHORT_MAX":     (48.0, 62.0),
@@ -63,6 +67,7 @@ class LiveAdaptiveAgent:
         self._adjustments: List[Dict[str, Any]] = []
         self._total_trades = 0
         self._params: Dict[str, float] = self._default_params()
+        self._bootstrap_exit_pending = False   # True une seule fois, quand BOOTSTRAP→filtres
         self._load()
 
     # ------------------------------------------------------------------ #
@@ -123,10 +128,28 @@ class LiveAdaptiveAgent:
             self._trade_log.append({"won": won, "pnl": pnl})
             self._total_trades += 1
 
+            # Transition automatique BOOTSTRAP_MODE → filtres calibrés
+            import strategy as st
+            if (self._total_trades >= BOOTSTRAP_EXIT_TRADES
+                    and st.BOOTSTRAP_MODE
+                    and not self._bootstrap_exit_pending):
+                st.BOOTSTRAP_MODE = False
+                self._bootstrap_exit_pending = True
+                logger.info("[LiveAgent:%s] %d trades live — BOOTSTRAP_MODE désactivé, pretrain demandé",
+                            self.symbol, self._total_trades)
+
             if self._total_trades % BATCH_SIZE == 0:
                 self._evaluate_and_adjust()
 
             self._save()
+
+    def consume_bootstrap_exit(self) -> bool:
+        """Retourne True une seule fois au moment de la transition BOOTSTRAP → filtres."""
+        with self._lock:
+            if self._bootstrap_exit_pending:
+                self._bootstrap_exit_pending = False
+                return True
+            return False
 
     def _evaluate_and_adjust(self) -> None:
         window = self._trade_log[-WINDOW:]
@@ -176,14 +199,17 @@ class LiveAdaptiveAgent:
     # ------------------------------------------------------------------ #
 
     def status(self) -> Dict[str, Any]:
+        import strategy as st
         with self._lock:
             window = self._trade_log[-WINDOW:]
             wr = sum(1 for t in window if t["won"]) / len(window) if window else None
             return {
-                "symbol":        self.symbol,
-                "total_trades":  self._total_trades,
-                "rolling_wr":    round(wr, 3) if wr is not None else None,
-                "params":        {k: round(v, 3) for k, v in self._params.items()},
-                "last_adj":      self._adjustments[-1] if self._adjustments else None,
-                "n_adjustments": len(self._adjustments),
+                "symbol":           self.symbol,
+                "total_trades":     self._total_trades,
+                "rolling_wr":       round(wr, 3) if wr is not None else None,
+                "params":           {k: round(v, 3) for k, v in self._params.items()},
+                "last_adj":         self._adjustments[-1] if self._adjustments else None,
+                "n_adjustments":    len(self._adjustments),
+                "bootstrap_mode":   st.BOOTSTRAP_MODE,
+                "trades_to_exit":   max(0, BOOTSTRAP_EXIT_TRADES - self._total_trades),
             }
