@@ -977,6 +977,11 @@ def get_chart(tf: str = "M5", symbol: str = "XAUUSD", _user: dict = Depends(get_
             "levels": levels, "markers": markers, "order_blocks": order_blocks}
 
 
+@app.get("/api/trades/report")
+def get_trade_report_endpoint(_user: dict = Depends(get_current_user)):
+    return db.get_trade_report(limit=1000)
+
+
 @app.get("/api/trades")
 def get_trades(scope: str = "today", _user: dict = Depends(get_current_user)):
     mode = state.settings.get("mode")
@@ -986,11 +991,6 @@ def get_trades(scope: str = "today", _user: dict = Depends(get_current_user)):
         trades = db.get_recent_trades(200, mode=mode)
     curve = db.get_equity_curve(source="live", limit=500)
     return {"trades": trades, "equity_curve": curve}
-
-
-@app.get("/api/trades/report")
-def get_trade_report_endpoint(_user: dict = Depends(get_current_user)):
-    return db.get_trade_report(limit=1000)
 
 
 @app.get("/api/settings")
