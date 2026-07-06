@@ -584,6 +584,142 @@ def live_agent_save(symbol: str, params: dict, trade_log: list) -> None:
         )
 
 
+# --------------------------------------------------------------------------- #
+# Trade report (pour dashboard + agent IA)
+# --------------------------------------------------------------------------- #
+def get_trade_report(limit: int = 500) -> Dict[str, Any]:
+    """Rapport complet de l'historique pour le dashboard et l'agent IA."""
+    try:
+        import pytz as _pytz
+        _CET = _pytz.timezone("Europe/Paris")
+    except Exception:
+        _CET = None
+
+    from collections import defaultdict
+
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM trades WHERE status = 'closed' ORDER BY entry_time ASC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    trades_list = [_row_to_dict(r) for r in rows]
+
+    for t in trades_list:
+        try:
+            raw = t.get("entry_time", "")
+            ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            ts_cet = ts.astimezone(_CET) if _CET else ts
+            t["date_cet"] = ts_cet.strftime("%Y-%m-%d")
+            t["hour_cet"] = ts_cet.hour
+            t["datetime_cet"] = ts_cet.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            t["date_cet"] = "?"
+            t["hour_cet"] = None
+            t["datetime_cet"] = "?"
+
+    closed = [t for t in trades_list if t.get("pnl") is not None]
+    total = len(closed)
+    wins_list = [t for t in closed if (t["pnl"] or 0) > 0]
+    loss_list = [t for t in closed if (t["pnl"] or 0) <= 0]
+    gross_profit = sum(t["pnl"] for t in wins_list)
+    gross_loss = abs(sum(t["pnl"] for t in loss_list)) if loss_list else 0.0
+    total_pnl = sum(t["pnl"] for t in closed)
+
+    stats = {
+        "total": total,
+        "wins": len(wins_list),
+        "losses": len(loss_list),
+        "win_rate": round(len(wins_list) / total * 100, 1) if total > 0 else 0.0,
+        "profit_factor": round(gross_profit / gross_loss, 2) if gross_loss > 0 else 0.0,
+        "total_pnl": round(total_pnl, 2),
+        "avg_win": round(gross_profit / len(wins_list), 2) if wins_list else 0.0,
+        "avg_loss": round(-gross_loss / len(loss_list), 2) if loss_list else 0.0,
+    }
+
+    _by_hour: Dict[int, Dict] = defaultdict(lambda: {"n": 0, "wins": 0, "pnl": 0.0})
+    _by_sess: Dict[str, Dict] = defaultdict(lambda: {"n": 0, "wins": 0, "pnl": 0.0})
+    _by_dir:  Dict[str, Dict] = defaultdict(lambda: {"n": 0, "wins": 0, "pnl": 0.0})
+    _by_day:  Dict[str, Dict] = defaultdict(lambda: {"n": 0, "wins": 0, "pnl": 0.0})
+
+    for t in closed:
+        pnl = t.get("pnl") or 0.0
+        won = int(pnl > 0)
+
+        h = t.get("hour_cet")
+        if h is not None:
+            _by_hour[h]["n"] += 1
+            _by_hour[h]["wins"] += won
+            _by_hour[h]["pnl"] += pnl
+
+        sess = t.get("session") or "Autre"
+        _by_sess[sess]["n"] += 1
+        _by_sess[sess]["wins"] += won
+        _by_sess[sess]["pnl"] += pnl
+
+        d = t.get("direction") or "?"
+        _by_dir[d]["n"] += 1
+        _by_dir[d]["wins"] += won
+        _by_dir[d]["pnl"] += pnl
+
+        day = t.get("date_cet", "?")
+        _by_day[day]["n"] += 1
+        _by_day[day]["wins"] += won
+        _by_day[day]["pnl"] += pnl
+
+    def _agg(mapping: dict) -> dict:
+        out = {}
+        for k in sorted(mapping.keys(), key=str):
+            v = mapping[k]
+            out[str(k)] = {
+                "n": v["n"],
+                "wins": v["wins"],
+                "wr": round(v["wins"] / v["n"] * 100, 1) if v["n"] > 0 else 0.0,
+                "pnl": round(v["pnl"], 2),
+            }
+        return out
+
+    by_hour = _agg(_by_hour)
+    by_session = _agg(_by_sess)
+    by_direction = _agg(_by_dir)
+    by_day_full = _agg(_by_day)
+    # Garder seulement les 30 derniers jours
+    by_day = dict(list(by_day_full.items())[-30:])
+
+    lines = [
+        f"RAPPORT HISTORIQUE TRADES – {total} trades clôturés",
+        f"WR global: {stats['win_rate']}% | PF: {stats['profit_factor']} | PnL total: {stats['total_pnl']}$",
+        f"Gain moyen: +{stats['avg_win']}$ | Perte moyenne: {stats['avg_loss']}$",
+        "",
+        "WR PAR HEURE CET:",
+    ]
+    for h, v in by_hour.items():
+        hi = int(h)
+        tag = "London" if 8 <= hi < 12 else ("NY" if 14 <= hi < 18 else "hors-session")
+        lines.append(f"  {h}h ({tag}): WR={v['wr']}% n={v['n']} pnl={v['pnl']}$")
+    lines += ["", "WR PAR SESSION:"]
+    for s, v in by_session.items():
+        lines.append(f"  {s}: WR={v['wr']}% n={v['n']} pnl={v['pnl']}$")
+    lines += ["", "WR PAR DIRECTION:"]
+    for d, v in by_direction.items():
+        lines.append(f"  {d.upper()}: WR={v['wr']}% n={v['n']} pnl={v['pnl']}$")
+    lines += ["", "30 DERNIERS JOURS:"]
+    for day, v in by_day.items():
+        lines.append(f"  {day}: WR={v['wr']}% n={v['n']} pnl={v['pnl']}$")
+
+    return {
+        "stats": stats,
+        "by_hour": by_hour,
+        "by_session": by_session,
+        "by_direction": by_direction,
+        "by_day": by_day,
+        "trades": trades_list,
+        "llm_summary": "\n".join(lines),
+    }
+
+
 if __name__ == "__main__":
     init_db()
     print(f"Database initialised at {DB_PATH}")

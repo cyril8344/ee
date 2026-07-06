@@ -162,11 +162,27 @@ class ResearcherAgent:
             client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
             top5 = sorted(self._results, key=lambda r: r.get("score", 0.0), reverse=True)[:5]
             results_text = json.dumps(top5, indent=2, default=str)
+
+            # Injecter l'historique de trades réels si disponible
+            trade_summary = ""
+            try:
+                import database as _db
+                report = _db.get_trade_report(limit=200)
+                trade_summary = (
+                    "\n\nHISTORIQUE TRADES RÉELS (live/paper) :\n"
+                    + report.get("llm_summary", "")
+                    + "\n"
+                )
+            except Exception:
+                pass
+
             prompt = (
                 "Tu es un optimiseur de stratégie scalping XAU/USD.\n"
-                f"Résultats des {len(self._results)} expériences (top 5) :\n"
-                f"{results_text}\n\n"
-                "Propose 5 nouvelles combinaisons de paramètres à tester. "
+                f"Résultats des {len(self._results)} expériences de pretrain (top 5) :\n"
+                f"{results_text}\n"
+                f"{trade_summary}\n"
+                "En tenant compte des résultats pretrain ET de l'historique réel, "
+                "propose 5 nouvelles combinaisons de paramètres à tester. "
                 "Réponds UNIQUEMENT avec du JSON valide (tableau) :\n"
                 '[{"RSI_M5_LONG_MIN":45.0,"RSI_M5_SHORT_MAX":55.0,"ADX_MIN":20.0}, ...]\n'
                 "Règles : RSI_M5_LONG_MIN ∈ [38,52], RSI_M5_SHORT_MAX ∈ [48,62], "

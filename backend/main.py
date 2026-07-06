@@ -988,6 +988,11 @@ def get_trades(scope: str = "today", _user: dict = Depends(get_current_user)):
     return {"trades": trades, "equity_curve": curve}
 
 
+@app.get("/api/trades/report")
+def get_trade_report_endpoint(_user: dict = Depends(get_current_user)):
+    return db.get_trade_report(limit=1000)
+
+
 @app.get("/api/settings")
 def read_settings(_user: dict = Depends(get_current_user)):
     return state.settings
