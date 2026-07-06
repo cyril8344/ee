@@ -351,6 +351,8 @@ export default function Dashboard({ onLogout }) {
   const [settingsDraft, setSettingsDraft] = useState({});
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [fedData, setFedData] = useState(null);
+  const [tradeReport, setTradeReport] = useState(null);
+  const [reportLlmOpen, setReportLlmOpen] = useState(false);
   const beep = useBeep();
   const lastAlertTs = useRef(null);
 
@@ -439,6 +441,18 @@ export default function Dashboard({ onLogout }) {
       clearInterval(id);
     };
   }, [tradesScope]);
+
+  /* Trade report polling */
+  useEffect(() => {
+    const load = () =>
+      fetch(`${API}/api/trades/report`, { headers: authHeaders() })
+        .then((r) => { if (r.status === 401) { logout401(onLogout); throw new Error("401"); } return r.json(); })
+        .then(setTradeReport)
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 60000);
+    return () => clearInterval(id);
+  }, []);
 
   /* Pattern stats polling */
   useEffect(() => {
@@ -2268,7 +2282,7 @@ export default function Dashboard({ onLogout }) {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead>
                     <tr style={{ color: COLORS.sub, textAlign: "left" }}>
-                      <th style={th}>Heure</th>
+                      <th style={th}>{tradesScope === "all" ? "Date / Heure" : "Heure"}</th>
                       <th style={th}>Actif</th>
                       <th style={th}>Dir</th>
                       <th style={th}>Entrée</th>
@@ -2289,7 +2303,14 @@ export default function Dashboard({ onLogout }) {
                       const dp = t.symbol === "EURUSD" ? 5 : 2;
                       return (
                         <tr key={t.id} style={{ borderTop: `1px solid ${COLORS.border}` }}>
-                          <td style={td}>{fmtLocalTime(t.entry_time)}</td>
+                          <td style={td}>
+                            {tradesScope === "all" ? (
+                              <span>
+                                <span style={{ color: COLORS.sub, fontSize: 10 }}>{t.date_cet || new Date(t.entry_time).toLocaleDateString("fr-FR")} </span>
+                                {fmtLocalTime(t.entry_time)}
+                              </span>
+                            ) : fmtLocalTime(t.entry_time)}
+                          </td>
                           <td style={{ ...td, color: COLORS.sub, fontSize: 11 }}>
                             {t.symbol || "XAUUSD"}
                           </td>
@@ -2348,6 +2369,104 @@ export default function Dashboard({ onLogout }) {
             </div>
           </div>
           </div>
+
+          {/* ===== rapport historique ===== */}
+          {tradeReport && tradeReport.stats && tradeReport.stats.total > 0 && (
+            <div className="dashboard-panel" style={{ ...panel(), marginTop: 14 }}>
+              <h3 style={{ margin: "0 0 10px", fontSize: 14 }}>Rapport historique</h3>
+
+              {/* Stats globales */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
+                {[
+                  { label: "Trades", value: tradeReport.stats.total },
+                  { label: "WR", value: `${tradeReport.stats.win_rate}%`, color: tradeReport.stats.win_rate >= 50 ? COLORS.green : COLORS.amber },
+                  { label: "PF", value: tradeReport.stats.profit_factor, color: tradeReport.stats.profit_factor >= 1 ? COLORS.green : COLORS.red },
+                  { label: "PnL total", value: `${tradeReport.stats.total_pnl > 0 ? "+" : ""}${tradeReport.stats.total_pnl}$`, color: tradeReport.stats.total_pnl >= 0 ? COLORS.green : COLORS.red },
+                  { label: "Gains", value: tradeReport.stats.wins },
+                  { label: "Pertes", value: tradeReport.stats.losses },
+                  { label: "Gain moy.", value: `+${tradeReport.stats.avg_win}$`, color: COLORS.green },
+                  { label: "Perte moy.", value: `${tradeReport.stats.avg_loss}$`, color: COLORS.red },
+                ].map(({ label, value, color }) => (
+                  <div key={label} style={{ background: COLORS.bg, borderRadius: 6, padding: "6px 10px" }}>
+                    <div style={{ fontSize: 10, color: COLORS.sub, marginBottom: 2 }}>{label}</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: color || COLORS.text }}>{value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* WR par heure CET */}
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 6 }}>WR par heure CET</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  {Object.entries(tradeReport.by_hour || {}).map(([h, v]) => {
+                    const hi = parseInt(h);
+                    const isLondon = hi >= 8 && hi < 12;
+                    const isNY = hi >= 14 && hi < 18;
+                    const barColor = v.wr >= 50 ? COLORS.green : v.wr >= 40 ? COLORS.amber : COLORS.red;
+                    const sessionLabel = isLondon ? "Lo" : isNY ? "NY" : "—";
+                    const sessionBg = isLondon ? "rgba(59,130,246,0.07)" : isNY ? "rgba(245,158,11,0.07)" : "transparent";
+                    return (
+                      <div key={h} style={{ display: "flex", alignItems: "center", gap: 6, background: sessionBg, borderRadius: 4, padding: "2px 4px" }}>
+                        <span style={{ fontSize: 11, color: COLORS.sub, width: 32, flexShrink: 0 }}>{h}h</span>
+                        <span style={{ fontSize: 10, color: COLORS.sub, width: 20, flexShrink: 0 }}>{sessionLabel}</span>
+                        <div style={{ flex: 1, background: COLORS.border, borderRadius: 3, height: 8, overflow: "hidden" }}>
+                          <div style={{ width: `${v.wr}%`, background: barColor, height: "100%", borderRadius: 3 }} />
+                        </div>
+                        <span style={{ fontSize: 11, color: barColor, width: 38, textAlign: "right", flexShrink: 0 }}>{v.wr}%</span>
+                        <span style={{ fontSize: 10, color: COLORS.sub, width: 30, flexShrink: 0 }}>n={v.n}</span>
+                        <span style={{ fontSize: 10, color: v.pnl >= 0 ? COLORS.green : COLORS.red, width: 50, textAlign: "right", flexShrink: 0 }}>
+                          {v.pnl > 0 ? "+" : ""}{v.pnl}$
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* WR par session et direction */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 4 }}>Par session</div>
+                  {Object.entries(tradeReport.by_session || {}).map(([s, v]) => (
+                    <div key={s} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 2 }}>
+                      <span style={{ color: COLORS.text }}>{s}</span>
+                      <span>
+                        <span style={{ color: v.wr >= 50 ? COLORS.green : COLORS.amber }}>{v.wr}%</span>
+                        <span style={{ color: COLORS.sub }}> ({v.n})</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 4 }}>Par direction</div>
+                  {Object.entries(tradeReport.by_direction || {}).map(([d, v]) => (
+                    <div key={d} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 2 }}>
+                      <span style={{ color: d === "long" ? COLORS.green : COLORS.red }}>{d.toUpperCase()}</span>
+                      <span>
+                        <span style={{ color: v.wr >= 50 ? COLORS.green : COLORS.amber }}>{v.wr}%</span>
+                        <span style={{ color: COLORS.sub }}> ({v.n})</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Résumé LLM collapsible */}
+              <div>
+                <button
+                  onClick={() => setReportLlmOpen(o => !o)}
+                  style={{ background: "none", border: `1px solid ${COLORS.border}`, color: COLORS.sub, fontSize: 11, padding: "3px 8px", borderRadius: 4, cursor: "pointer" }}
+                >
+                  {reportLlmOpen ? "▲ Masquer" : "▼ Résumé agent IA"}
+                </button>
+                {reportLlmOpen && (
+                  <pre style={{ marginTop: 8, fontSize: 10, color: COLORS.sub, background: COLORS.bg, padding: 10, borderRadius: 6, overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                    {tradeReport.llm_summary}
+                  </pre>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* ===== alerts feed ===== */}
           <div className="dashboard-panel alerts-panel" style={{ ...panel(), marginTop: 14 }}>
