@@ -88,6 +88,7 @@ from ml_gate import OnlineLogisticRegression, AdaptiveThresholds
 import pretrain as _pretrain_module
 from llm_gate import LLMGate
 from researcher_agent import ResearcherAgent
+from adaptive_agent import AdaptiveAgent
 
 
 MARKET_CONFIG = {
@@ -201,6 +202,9 @@ class BotState:
 
         # Chercheur de paramètres — optimise RSI/ADX en arrière-plan hors session
         self.researcher = ResearcherAgent(capital=self.risk.capital)
+
+        # Agent adaptatif autonome — analyse les trades et ajuste strategy.* à chaud
+        self.adaptive = AdaptiveAgent()
 
         # En BOOTSTRAP_MODE : débloquer le risk au démarrage (stop journalier non pertinent)
         if strategy.BOOTSTRAP_MODE and self.risk.blocked:
@@ -557,6 +561,8 @@ def trading_tick() -> Dict[str, Any]:
 
         # Chercheur de paramètres — appel périodique hors session sans position active
         state.researcher.maybe_run(has_active_position=any_active)
+        # Agent adaptatif — analyse et ajuste les paramètres toutes les 6h
+        state.adaptive.maybe_run(has_active_position=any_active)
 
         return _public_state(session, news_status)
 
@@ -811,6 +817,7 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
         "live_agent": state.live_agent.status(),
         "llm_gate": state.llm_gate.status(),
         "researcher": state.researcher.status(),
+        "adaptive": state.adaptive.status(),
         "alerts": state.alerts[-8:],
         "settings": {
             "session_filter": state.settings.get("session_filter", True),
@@ -1060,6 +1067,21 @@ def get_ai_report(_user: dict = Depends(get_current_user)):
         }
     except Exception as exc:
         raise HTTPException(500, detail=str(exc))
+
+
+@app.get("/api/adaptive-agent/status")
+def adaptive_status(_user: dict = Depends(get_current_user)):
+    """Retourne l'historique des runs de l'agent adaptatif."""
+    return state.adaptive.status()
+
+
+@app.post("/api/adaptive-agent/run")
+def adaptive_run_now(_user: dict = Depends(get_current_user)):
+    """Force un run immédiat de l'agent adaptatif."""
+    result = state.adaptive.run_now()
+    if "error" in result:
+        raise HTTPException(400, detail=result["error"])
+    return result
 
 
 @app.get("/api/settings")
