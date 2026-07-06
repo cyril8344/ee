@@ -352,6 +352,7 @@ export default function Dashboard({ onLogout }) {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [fedData, setFedData] = useState(null);
   const [tradeReport, setTradeReport] = useState(null);
+  const [reportError, setReportError] = useState(null);
   const [reportLlmOpen, setReportLlmOpen] = useState(false);
   const beep = useBeep();
   const lastAlertTs = useRef(null);
@@ -446,9 +447,13 @@ export default function Dashboard({ onLogout }) {
   useEffect(() => {
     const load = () =>
       fetch(`${API}/api/trades/report`, { headers: authHeaders() })
-        .then((r) => { if (r.status === 401) { logout401(onLogout); throw new Error("401"); } return r.json(); })
-        .then(setTradeReport)
-        .catch(() => {});
+        .then((r) => {
+          if (r.status === 401) { logout401(onLogout); throw new Error("401"); }
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        })
+        .then((d) => { setTradeReport(d); setReportError(null); })
+        .catch((e) => setReportError(e.message || "erreur"));
     load();
     const id = setInterval(load, 15000);
     return () => clearInterval(id);
@@ -2371,9 +2376,21 @@ export default function Dashboard({ onLogout }) {
           </div>
 
           {/* ===== rapport historique ===== */}
-          {tradeReport && tradeReport.stats && tradeReport.stats.total > 0 && (
-            <div className="dashboard-panel" style={{ ...panel(), marginTop: 14 }}>
+          <div className="dashboard-panel" style={{ ...panel(), marginTop: 14 }}>
               <h3 style={{ margin: "0 0 10px", fontSize: 14 }}>Rapport historique</h3>
+              {reportError && (
+                <div style={{ fontSize: 12, color: COLORS.red, marginBottom: 8 }}>
+                  Erreur : {reportError}
+                </div>
+              )}
+              {!tradeReport && !reportError && (
+                <div style={{ fontSize: 12, color: COLORS.sub }}>Chargement...</div>
+              )}
+              {tradeReport && (!tradeReport.stats || tradeReport.stats.total === 0) && (
+                <div style={{ fontSize: 12, color: COLORS.sub }}>Aucun trade clôturé en base.</div>
+              )}
+          {tradeReport && tradeReport.stats && tradeReport.stats.total > 0 && (
+            <div>
 
               {/* Stats globales */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
@@ -2467,6 +2484,7 @@ export default function Dashboard({ onLogout }) {
               </div>
             </div>
           )}
+          </div>
 
           {/* ===== alerts feed ===== */}
           <div className="dashboard-panel alerts-panel" style={{ ...panel(), marginTop: 14 }}>
