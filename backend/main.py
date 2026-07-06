@@ -993,6 +993,75 @@ def get_trades(scope: str = "today", _user: dict = Depends(get_current_user)):
     return {"trades": trades, "equity_curve": curve}
 
 
+@app.post("/api/ai-report")
+def get_ai_report(_user: dict = Depends(get_current_user)):
+    """Génère un rapport d'analyse IA sur la situation du bot."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        raise HTTPException(400, detail="ANTHROPIC_API_KEY non configuré")
+    try:
+        import anthropic as _anthropic
+        client = _anthropic.Anthropic(api_key=api_key)
+
+        trade_report = db.get_trade_report(limit=500)
+        researcher_status = state.researcher.status()
+        risk_status = state.risk.status()
+        llm_status = state.llm_gate.status()
+
+        researcher_text = ""
+        if researcher_status.get("results_total", 0) > 0:
+            best = researcher_status.get("best_params") or {}
+            top3 = researcher_status.get("top3") or []
+            researcher_text = (
+                f"\nCHERCHEUR DE PARAMÈTRES ({researcher_status['results_total']} expériences) :\n"
+                f"Meilleurs params appliqués : {json.dumps(best)}\n"
+                f"Top 3 :\n" +
+                "\n".join(
+                    f"  score={r.get('score',0):.3f} PF={r.get('profit_factor',0):.2f} "
+                    f"WR={r.get('win_rate',0)*100:.0f}% n={r.get('total_trades',0)} → {r.get('params')}"
+                    for r in top3
+                )
+            )
+
+        llm_text = ""
+        if llm_status.get("enabled"):
+            llm_text = (
+                f"\nLLM GATE : {llm_status.get('total_calls',0)} signaux analysés, "
+                f"{llm_status.get('passed',0)} passés, {llm_status.get('held',0)} bloqués "
+                f"(pass rate {llm_status.get('pass_rate',0)*100:.0f}%)"
+            )
+
+        prompt = (
+            "Tu es un expert en trading algorithmique, spécialisé dans le scalping XAU/USD (Or).\n"
+            "Analyse les données ci-dessous du bot et fournis en français :\n"
+            "1. **Bilan de performance** : comment se porte le bot (WR, PF, PnL) ?\n"
+            "2. **Points forts et points faibles** identifiés dans les données\n"
+            "3. **Conseils concrets** pour améliorer les performances\n"
+            "4. **Tendances** : heures/sessions/directions qui marchent ou non\n\n"
+            f"{trade_report.get('llm_summary', 'Pas encore de trades.')}\n"
+            f"{researcher_text}\n"
+            f"{llm_text}\n\n"
+            f"ÉTAT RISQUE : capital={risk_status.get('capital')}$ "
+            f"| trades aujourd'hui={risk_status.get('trades_today')}/{risk_status.get('max_trades_per_day')} "
+            f"| PnL jour={risk_status.get('realised_pnl_today')}$\n\n"
+            "Sois direct, précis et actionnable. Maximum 400 mots."
+        )
+
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=800,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = resp.content[0].text.strip()
+        return {
+            "report": text,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "trades_total": trade_report["stats"]["total"],
+        }
+    except Exception as exc:
+        raise HTTPException(500, detail=str(exc))
+
+
 @app.get("/api/settings")
 def read_settings(_user: dict = Depends(get_current_user)):
     return state.settings

@@ -354,6 +354,9 @@ export default function Dashboard({ onLogout }) {
   const [tradeReport, setTradeReport] = useState(null);
   const [reportError, setReportError] = useState(null);
   const [reportLlmOpen, setReportLlmOpen] = useState(false);
+  const [aiReport, setAiReport] = useState(null);
+  const [aiReportLoading, setAiReportLoading] = useState(false);
+  const [aiReportError, setAiReportError] = useState(null);
   const beep = useBeep();
   const lastAlertTs = useRef(null);
 
@@ -2484,6 +2487,45 @@ export default function Dashboard({ onLogout }) {
               </div>
             </div>
           )}
+          </div>
+
+          {/* ===== agent IA analyse ===== */}
+          <div className="dashboard-panel" style={{ ...panel(), marginTop: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <h3 style={{ margin: 0, fontSize: 14 }}>Agent IA — Analyse du bot</h3>
+              <button
+                onClick={() => {
+                  setAiReportLoading(true);
+                  setAiReportError(null);
+                  fetch(`${API}/api/ai-report`, { method: "POST", headers: authHeaders() })
+                    .then((r) => { if (!r.ok) return r.json().then(d => { throw new Error(d.detail || `HTTP ${r.status}`); }); return r.json(); })
+                    .then((d) => { setAiReport(d); setAiReportLoading(false); })
+                    .catch((e) => { setAiReportError(e.message); setAiReportLoading(false); });
+                }}
+                disabled={aiReportLoading}
+                style={{ background: COLORS.amber, color: "#000", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: aiReportLoading ? "wait" : "pointer", opacity: aiReportLoading ? 0.7 : 1 }}
+              >
+                {aiReportLoading ? "Analyse en cours..." : "Demander un rapport"}
+              </button>
+            </div>
+            {aiReportError && (
+              <div style={{ fontSize: 12, color: COLORS.red, marginBottom: 8 }}>Erreur : {aiReportError}</div>
+            )}
+            {!aiReport && !aiReportLoading && !aiReportError && (
+              <div style={{ fontSize: 12, color: COLORS.sub }}>
+                Cliquez sur "Demander un rapport" pour obtenir une analyse IA de la situation du bot et des recommandations.
+              </div>
+            )}
+            {aiReport && (
+              <div>
+                <div style={{ fontSize: 10, color: COLORS.sub, marginBottom: 8 }}>
+                  Généré le {new Date(aiReport.generated_at).toLocaleString("fr-FR")} · {aiReport.trades_total} trades analysés
+                </div>
+                <div style={{ fontSize: 13, color: COLORS.text, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                  {aiReport.report}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ===== alerts feed ===== */}
