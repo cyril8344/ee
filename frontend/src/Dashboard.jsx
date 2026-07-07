@@ -109,6 +109,12 @@ function TvChart({ candles, markers, levels, orderBlocks, position, symbol }) {
       crosshair: { mode: 1 },
       rightPriceScale: { borderColor: "#1a2540" },
       timeScale: { borderColor: "#1a2540", timeVisible: true, secondsVisible: false },
+      localization: {
+        timeFormatter: (ts) =>
+          new Date(ts * 1000).toLocaleTimeString("fr-FR", {
+            hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris",
+          }),
+      },
       width: containerRef.current.clientWidth,
       height: 540,
     });
