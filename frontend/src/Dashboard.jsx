@@ -329,6 +329,8 @@ export default function Dashboard({ onLogout }) {
   const [tf, setTf] = useState("M5");
   const [trades, setTrades] = useState({ trades: [], equity_curve: [] });
   const [tradesScope, setTradesScope] = useState("today");
+  const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState(null);
   const [connected, setConnected] = useState(false);
   const [patternStats, setPatternStats] = useState({});
   const [correlations, setCorrelations] = useState({});
@@ -454,6 +456,17 @@ export default function Dashboard({ onLogout }) {
       clearInterval(id);
     };
   }, [tradesScope]);
+
+  /* Nettoyage doublons */
+  const handleCleanupDuplicates = () => {
+    if (!window.confirm("Supprimer tous les trades en double (même entrée, même minute) ? Cette action est irréversible.")) return;
+    setCleanupLoading(true);
+    setCleanupResult(null);
+    fetch(`${API}/api/admin/cleanup-duplicates`, { method: "POST", headers: authHeaders() })
+      .then((r) => r.json())
+      .then((d) => { setCleanupResult(d); setCleanupLoading(false); })
+      .catch(() => setCleanupLoading(false));
+  };
 
   /* Trade report polling */
   useEffect(() => {
@@ -2291,9 +2304,19 @@ export default function Dashboard({ onLogout }) {
                 <h3 style={{ margin: 0, fontSize: 14 }}>
                   {tradesScope === "today" ? "Historique du jour" : "Tout l'historique"}
                 </h3>
-                <div style={{ display: "flex", gap: 4 }}>
+                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                   <button onClick={() => setTradesScope("today")} style={{ ...tabBtn(tradesScope === "today"), fontSize: 11, padding: "3px 8px" }}>Aujourd'hui</button>
                   <button onClick={() => setTradesScope("all")} style={{ ...tabBtn(tradesScope === "all"), fontSize: 11, padding: "3px 8px" }}>Tout</button>
+                  <button onClick={handleCleanupDuplicates} disabled={cleanupLoading}
+                    title="Supprimer les trades en double (même entrée, même minute)"
+                    style={{ fontSize: 10, padding: "3px 7px", background: "transparent", border: `1px solid ${COLORS.red}`, color: COLORS.red, borderRadius: 4, cursor: "pointer", opacity: cleanupLoading ? 0.5 : 1 }}>
+                    {cleanupLoading ? "…" : "🗑 Doublons"}
+                  </button>
+                  {cleanupResult && (
+                    <span style={{ fontSize: 10, color: cleanupResult.deleted > 0 ? COLORS.green : COLORS.sub }}>
+                      {cleanupResult.deleted > 0 ? `${cleanupResult.deleted} supprimé(s)` : "Aucun doublon"}
+                    </span>
+                  )}
                 </div>
               </div>
               <div style={{ maxHeight: 240, overflowY: "auto" }}>

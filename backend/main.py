@@ -1087,6 +1087,14 @@ def adaptive_run_now(_user: dict = Depends(get_current_user)):
     return result
 
 
+@app.post("/api/admin/cleanup-duplicates")
+def cleanup_duplicate_trades(_user: dict = Depends(get_current_user)):
+    """Supprime les trades en double (même symbol+direction+entry_price dans la même minute).
+    Garde le premier, supprime les suivants. Utile après un bug de double-entrée BOOTSTRAP."""
+    result = db.delete_duplicate_trades()
+    return result
+
+
 @app.get("/api/settings")
 def read_settings(_user: dict = Depends(get_current_user)):
     return state.settings

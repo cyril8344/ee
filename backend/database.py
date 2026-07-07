@@ -275,6 +275,39 @@ def update_trade(trade_id: int, patch: Dict[str, Any]) -> None:
         )
 
 
+def delete_trade(trade_id: int) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM trades WHERE id = ?", (trade_id,))
+        return cur.rowcount > 0
+
+
+def delete_duplicate_trades() -> Dict[str, Any]:
+    """Supprime les trades en double : même symbol+direction+entry_price dans la même minute.
+    Garde le premier inséré (id le plus bas), supprime les autres.
+    Retourne le nombre de doublons supprimés et leurs ids."""
+    with get_conn() as conn:
+        # Trouver les groupes avec plus d'un trade identique (même minute arrondie)
+        rows = conn.execute("""
+            SELECT symbol, direction, entry_price,
+                   substr(entry_time, 1, 16) AS minute,
+                   GROUP_CONCAT(id ORDER BY id) AS ids,
+                   COUNT(*) AS cnt
+            FROM trades
+            GROUP BY symbol, direction, entry_price, substr(entry_time, 1, 16)
+            HAVING COUNT(*) > 1
+        """).fetchall()
+
+        deleted_ids = []
+        for row in rows:
+            ids = [int(x) for x in row["ids"].split(",")]
+            to_delete = ids[1:]  # garder le premier (id le plus bas)
+            for tid in to_delete:
+                conn.execute("DELETE FROM trades WHERE id = ?", (tid,))
+                deleted_ids.append(tid)
+
+    return {"deleted": len(deleted_ids), "ids": deleted_ids}
+
+
 def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
     d = dict(row)
     if d.get("meta"):
