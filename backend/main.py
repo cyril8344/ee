@@ -405,14 +405,13 @@ def trading_tick() -> Dict[str, Any]:
                     if isinstance(c, dict) and not c.get("blocking_reason"):
                         c["blocking_reason"] = reason
 
-                # BOOTSTRAP_MODE : lever tous les blocages à chaque tick
-                # (daily stop, max trades, circuit breaker) — collecte de données prioritaire
+                # BOOTSTRAP_MODE : lever les blocages capital/daily-stop uniquement
+                # — max_trades_per_day est respecté pour éviter les doublons
                 if strategy.BOOTSTRAP_MODE:
                     if state.risk.blocked:
                         state.risk.blocked = False
                         state.risk.block_reason = ""
                         db.update_daily(db.today_utc(), {"blocked": 0})
-                    state.risk.trades_today = 0   # ignorer max trades/jour
                     if ms.circuit_breaker_until is not None:
                         ms.circuit_breaker_until = None
                         ms.recent_results.clear()
