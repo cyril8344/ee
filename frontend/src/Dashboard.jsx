@@ -331,6 +331,8 @@ export default function Dashboard({ onLogout }) {
   const [tradesScope, setTradesScope] = useState("today");
   const [cleanupLoading, setCleanupLoading] = useState(false);
   const [cleanupResult, setCleanupResult] = useState(null);
+  const [blockedHours, setBlockedHours] = useState([]);
+  const [deletingTrade, setDeletingTrade] = useState(null);
   const [connected, setConnected] = useState(false);
   const [patternStats, setPatternStats] = useState({});
   const [correlations, setCorrelations] = useState({});
@@ -456,6 +458,33 @@ export default function Dashboard({ onLogout }) {
       clearInterval(id);
     };
   }, [tradesScope]);
+
+  /* Heures bloquées — chargement initial */
+  useEffect(() => {
+    fetch(`${API}/api/strategy/blocked-hours`, { headers: authHeaders() })
+      .then((r) => r.json())
+      .then((d) => setBlockedHours(d.blocked_hours || []))
+      .catch(() => {});
+  }, []);
+
+  const handleToggleHour = (h) => {
+    fetch(`${API}/api/strategy/blocked-hours/${h}`, { method: "POST", headers: authHeaders() })
+      .then((r) => r.json())
+      .then((d) => setBlockedHours(d.blocked_hours || []))
+      .catch(() => {});
+  };
+
+  /* Suppression manuelle d'un trade */
+  const handleDeleteTrade = (id) => {
+    if (!window.confirm(`Supprimer le trade #${id} de l'historique ?`)) return;
+    setDeletingTrade(id);
+    fetch(`${API}/api/trades/${id}`, { method: "DELETE", headers: authHeaders() })
+      .then(() => {
+        setTrades((prev) => ({ ...prev, trades: prev.trades.filter((t) => t.id !== id) }));
+        setDeletingTrade(null);
+      })
+      .catch(() => setDeletingTrade(null));
+  };
 
   /* Nettoyage doublons */
   const handleCleanupDuplicates = () => {
@@ -980,6 +1009,38 @@ export default function Dashboard({ onLogout }) {
                     <Row k="Trades max / jour" v={`${state?.risk?.max_trades_per_day ?? "—"}`} />
                   </>
                 )}
+              </div>
+
+              {/* ---- heures bloquées ---- */}
+              <div style={{ background: "#0a1020", borderRadius: 6, padding: "8px 10px", marginBottom: 10 }}>
+                <div style={{ color: COLORS.sub, fontWeight: 600, fontSize: 11, marginBottom: 8 }}>
+                  Heures bloquées CET
+                  <span style={{ fontWeight: 400, marginLeft: 6 }}>
+                    {blockedHours.length === 0 ? "aucune" : blockedHours.map(h => `${h}h`).join(", ")}
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                  {Array.from({ length: 24 }, (_, h) => {
+                    const isSession = (h >= 8 && h < 12) || (h >= 14 && h < 18);
+                    const isBlocked = blockedHours.includes(h);
+                    return (
+                      <button key={h} onClick={() => handleToggleHour(h)}
+                        title={isBlocked ? `Débloquer ${h}h` : `Bloquer ${h}h`}
+                        style={{
+                          width: 30, height: 24, fontSize: 10, borderRadius: 3, cursor: "pointer",
+                          background: isBlocked ? COLORS.red : isSession ? "#1a2a1a" : "#0d1624",
+                          color: isBlocked ? "#fff" : isSession ? COLORS.green : COLORS.sub,
+                          border: `1px solid ${isBlocked ? COLORS.red : isSession ? COLORS.green : COLORS.border}`,
+                          fontWeight: isBlocked ? 700 : 400,
+                        }}>
+                        {h}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{ fontSize: 9, color: COLORS.sub, marginTop: 5 }}>
+                  Vert = session active · Rouge = bloqué · Cliquer pour bloquer/débloquer
+                </div>
               </div>
 
               {/* ---- trading conditions checklist ---- */}
@@ -2331,6 +2392,7 @@ export default function Dashboard({ onLogout }) {
                       <th style={th}>Mise</th>
                       <th style={th}>Gain pot.</th>
                       <th style={th}>Résultat</th>
+                      <th style={{ ...th, width: 20 }}></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2375,6 +2437,14 @@ export default function Dashboard({ onLogout }) {
                           </td>
                           <td style={{ ...td, fontWeight: 600, color: (t.pnl || 0) >= 0 ? COLORS.green : COLORS.red }}>
                             {money(t.pnl)}
+                          </td>
+                          <td style={td}>
+                            <button onClick={() => handleDeleteTrade(t.id)}
+                              disabled={deletingTrade === t.id}
+                              title="Supprimer ce trade"
+                              style={{ background: "transparent", border: "none", color: COLORS.red, cursor: "pointer", fontSize: 13, padding: "0 2px", opacity: deletingTrade === t.id ? 0.4 : 0.6, lineHeight: 1 }}>
+                              ✕
+                            </button>
                           </td>
                         </tr>
                       );
