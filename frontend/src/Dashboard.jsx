@@ -109,6 +109,12 @@ function TvChart({ candles, markers, levels, orderBlocks, position, symbol }) {
       crosshair: { mode: 1 },
       rightPriceScale: { borderColor: "#1a2540" },
       timeScale: { borderColor: "#1a2540", timeVisible: true, secondsVisible: false },
+      localization: {
+        timeFormatter: (ts) =>
+          new Date(ts * 1000).toLocaleTimeString("fr-FR", {
+            hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris",
+          }),
+      },
       width: containerRef.current.clientWidth,
       height: 540,
     });
@@ -2232,8 +2238,9 @@ export default function Dashboard({ onLogout }) {
           {pos && (() => {
             const cs = activeMarket === "EURUSD" ? 100000 : 100;
             const sign = pos.direction === "long" ? 1 : -1;
-            const gainTp1 = sign * (pos.take_profit1 - pos.entry) * pos.volume * cs;
-            const gainTp2 = sign * (pos.take_profit2 - pos.entry) * pos.volume * cs;
+            // TP1 ferme 50% de la position, TP2 ferme les 50% restants → gains cumulatifs
+            const gainTp1 = sign * (pos.take_profit1 - pos.entry) * (pos.volume * 0.5) * cs;
+            const gainTp2 = gainTp1 + sign * (pos.take_profit2 - pos.entry) * (pos.volume * 0.5) * cs;
             const dp = activeMarket === "EURUSD" ? 5 : 2;
             return (
               <div className="dashboard-panel" style={{ ...panel(), marginTop: 14, borderColor: pos.direction === "long" ? COLORS.green : COLORS.red }}>
@@ -2270,8 +2277,8 @@ export default function Dashboard({ onLogout }) {
                   </button>
                 </div>
                 <div style={{ marginTop: 12 }}>
-                  <ProgressBar label="TP1 (60%)" value={pos.progress_tp1} done={pos.tp1_done} />
-                  <ProgressBar label="TP2 (40%)" value={pos.progress_tp2} />
+                  <ProgressBar label="TP1 (50%)" value={pos.progress_tp1} done={pos.tp1_done} />
+                  <ProgressBar label="TP2 (50%)" value={pos.progress_tp2} />
                 </div>
               </div>
             );

@@ -204,7 +204,11 @@ class PaperBroker(BaseBroker):
         )
 
     def update_position(self, pos: Position) -> Optional[Dict[str, Any]]:
-        price = self.get_price()
+        df = self.data.get_m5(2)
+        bar = df.iloc[-1]
+        price = float(bar["close"])
+        bar_high = float(bar["high"])
+        bar_low = float(bar["low"])
         direction = pos.direction
         sign = 1.0 if direction == "long" else -1.0
 
@@ -219,11 +223,11 @@ class PaperBroker(BaseBroker):
                 return {"closed": True, "reason": "emergency_stop",
                         "exit_price": price, "pnl": pos.realised}
 
-        # Update MFE
+        # Update MFE avec le high/low intrabar (plus précis que le close seul)
         if direction == "long":
-            pos.mfe = max(pos.mfe, price - pos.entry)
+            pos.mfe = max(pos.mfe, bar_high - pos.entry)
         else:
-            pos.mfe = max(pos.mfe, pos.entry - price)
+            pos.mfe = max(pos.mfe, pos.entry - bar_low)
 
         # Early exit: 15 min sans conviction — MFE < 0.2R
         if not pos.tp1_done:
@@ -235,8 +239,9 @@ class PaperBroker(BaseBroker):
                         "exit_price": price, "pnl": pos.realised}
 
         # TP1 — sortie 50% à 0.7R, SL → soft-BE +0.2R
+        # Utilise bar_high/bar_low pour capturer les touches intrabar (évite les faux SL)
         if not pos.tp1_done:
-            hit = price >= pos.take_profit1 if direction == "long" else price <= pos.take_profit1
+            hit = bar_high >= pos.take_profit1 if direction == "long" else bar_low <= pos.take_profit1
             if hit:
                 lots50 = round(min(pos.volume * 0.5, pos.remaining), 2)
                 if lots50 < 0.01:
@@ -246,23 +251,31 @@ class PaperBroker(BaseBroker):
                 _risk_dist = abs(pos.entry - pos.stop_loss)  # distance SL originale
                 pos.tp1_done = True
                 pos.stop_loss = pos.entry + sign * 0.2 * _risk_dist  # soft-BE: +0.2R
+                # Si le soft-BE est aussi touché dans la même bougie → clore le reste
+                if pos.remaining >= 0.01:
+                    sl_same = bar_low <= pos.stop_loss if direction == "long" else bar_high >= pos.stop_loss
+                    if sl_same:
+                        pos.realised += pnl_for(pos.stop_loss - self.slippage * sign, pos.remaining)
+                        pos.remaining = 0.0
+                        return {"closed": True, "reason": "sl_after_tp1",
+                                "exit_price": pos.stop_loss, "pnl": pos.realised}
                 if pos.remaining < 0.01:
                     return {"closed": True, "reason": "tp1",
                             "exit_price": pos.take_profit1, "pnl": pos.realised}
                 return {"closed": False, "reason": "tp1_partial",
                         "exit_price": pos.take_profit1, "pnl": pos.realised}
 
-        # Stop loss (SL initial — pas de déplacement après TP1)
-        hit_sl = price <= pos.stop_loss if direction == "long" else price >= pos.stop_loss
+        # Stop loss — bar_low/bar_high pour capturer les touches intrabar
+        hit_sl = bar_low <= pos.stop_loss if direction == "long" else bar_high >= pos.stop_loss
         if hit_sl:
             pos.realised += pnl_for(pos.stop_loss - self.slippage * sign, pos.remaining)
             return {"closed": True,
                     "reason": "sl" if not pos.tp1_done else "sl_after_tp1",
                     "exit_price": pos.stop_loss, "pnl": pos.realised}
 
-        # TP2 — sortie 50% restants à 1.0R
+        # TP2 — sortie 50% restants
         if pos.tp1_done:
-            hit_tp2 = price >= pos.take_profit2 if direction == "long" else price <= pos.take_profit2
+            hit_tp2 = bar_high >= pos.take_profit2 if direction == "long" else bar_low <= pos.take_profit2
             if hit_tp2:
                 pos.realised += pnl_for(pos.take_profit2 - self.slippage * sign, pos.remaining)
                 return {"closed": True, "reason": "tp2",
