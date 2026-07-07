@@ -840,6 +840,10 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 @app.on_event("startup")
 async def _startup():
+    # Restaurer les heures bloquées depuis les settings persistés
+    saved_hours = state.settings.get("bad_hours_cet")
+    if saved_hours is not None:
+        strategy.BAD_HOURS_CET = set(saved_hours)
     try:
         realtime_feed.start_feed()
     except Exception:
@@ -1093,6 +1097,41 @@ def cleanup_duplicate_trades(_user: dict = Depends(get_current_user)):
     Garde le premier, supprime les suivants. Utile après un bug de double-entrée BOOTSTRAP."""
     result = db.delete_duplicate_trades()
     return result
+
+
+@app.delete("/api/trades/{trade_id}")
+def delete_trade_by_id(trade_id: int, _user: dict = Depends(get_current_user)):
+    """Supprime manuellement un trade de l'historique."""
+    with state.lock:
+        deleted = db.delete_trade(trade_id)
+    if not deleted:
+        raise HTTPException(404, detail="Trade non trouvé")
+    return {"deleted": trade_id}
+
+
+@app.get("/api/strategy/blocked-hours")
+def get_blocked_hours(_user: dict = Depends(get_current_user)):
+    """Retourne la liste des heures CET actuellement bloquées."""
+    return {"blocked_hours": sorted(getattr(strategy, "BAD_HOURS_CET", set()))}
+
+
+@app.post("/api/strategy/blocked-hours/{hour}")
+def toggle_blocked_hour(hour: int, _user: dict = Depends(get_current_user)):
+    """Active/désactive le blocage d'une heure CET (0-23). Persisté en base."""
+    if not (0 <= hour <= 23):
+        raise HTTPException(400, detail="Heure invalide (0-23)")
+    with state.lock:
+        bad = set(getattr(strategy, "BAD_HOURS_CET", set()))
+        if hour in bad:
+            bad.discard(hour)
+            action = "unblocked"
+        else:
+            bad.add(hour)
+            action = "blocked"
+        strategy.BAD_HOURS_CET = bad
+        db.update_settings({"bad_hours_cet": sorted(bad)})
+        state.settings = db.get_settings()
+    return {"blocked_hours": sorted(bad), "action": action, "hour": hour}
 
 
 @app.get("/api/settings")
