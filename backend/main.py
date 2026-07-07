@@ -1094,18 +1094,45 @@ def adaptive_run_now(_user: dict = Depends(get_current_user)):
 def cleanup_duplicate_trades(_user: dict = Depends(get_current_user)):
     """Supprime les trades en double (même symbol+direction+entry_price dans la même minute).
     Garde le premier, supprime les suivants. Utile après un bug de double-entrée BOOTSTRAP."""
-    result = db.delete_duplicate_trades()
+    with state.lock:
+        result = db.delete_duplicate_trades()
+        # Resynchroniser le P&L du jour après nettoyage
+        today = db.today_utc()
+        trades_today = db.get_trades_for_day(today, mode=state.settings.get("mode"))
+        closed_today = [t for t in trades_today if t["status"] == "closed"]
+        pnl_today = round(sum(t.get("pnl") or 0.0 for t in closed_today), 2)
+        db.update_daily(today, {"pnl": pnl_today, "trade_count": len(trades_today)})
+        state.risk.hydrate_day(
+            trades_today=len(trades_today),
+            pnl_today=pnl_today,
+            start_equity=state.risk.start_equity_today or state.risk.capital,
+            blocked=state.risk.blocked,
+        )
+    result["pnl_today"] = pnl_today
+    result["trades_today"] = len(trades_today)
     return result
 
 
 @app.delete("/api/trades/{trade_id}")
 def delete_trade_by_id(trade_id: int, _user: dict = Depends(get_current_user)):
-    """Supprime manuellement un trade de l'historique."""
+    """Supprime manuellement un trade de l'historique et resynchronise le P&L du jour."""
     with state.lock:
         deleted = db.delete_trade(trade_id)
-    if not deleted:
-        raise HTTPException(404, detail="Trade non trouvé")
-    return {"deleted": trade_id}
+        if not deleted:
+            raise HTTPException(404, detail="Trade non trouvé")
+        # Resynchroniser le P&L et trade_count du jour depuis la DB
+        today = db.today_utc()
+        trades_today = db.get_trades_for_day(today, mode=state.settings.get("mode"))
+        closed_today = [t for t in trades_today if t["status"] == "closed"]
+        pnl_today = round(sum(t.get("pnl") or 0.0 for t in closed_today), 2)
+        db.update_daily(today, {"pnl": pnl_today, "trade_count": len(trades_today)})
+        state.risk.hydrate_day(
+            trades_today=len(trades_today),
+            pnl_today=pnl_today,
+            start_equity=state.risk.start_equity_today or state.risk.capital,
+            blocked=state.risk.blocked,
+        )
+    return {"deleted": trade_id, "pnl_today": pnl_today, "trades_today": len(trades_today)}
 
 
 @app.get("/api/strategy/blocked-hours")
