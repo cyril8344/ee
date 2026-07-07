@@ -525,11 +525,14 @@ def trading_tick() -> Dict[str, Any]:
                             sig.entry, sig.stop_loss,
                             contract_size=ms.config["contract_size"],
                         )
-                        # BOOTSTRAP_MODE : si bloqué par capital / lot trop petit,
-                        # forcer lot minimum 0.01 pour collecter les données quand même
+                        # BOOTSTRAP_MODE : si bloqué uniquement par taille de lot / capital,
+                        # forcer lot minimum 0.01 pour collecter les données ML.
+                        # NE PAS contourner max_trades_per_day ni daily_stop (évite les 10× même trade).
                         if not decision.allowed and strategy.BOOTSTRAP_MODE:
                             sl_dist = abs(sig.entry - sig.stop_loss)
-                            if sl_dist > 0:
+                            if (sl_dist > 0
+                                    and state.risk.trades_today < state.risk.max_trades_per_day
+                                    and not state.risk.blocked):
                                 risk_amt = 0.01 * sl_dist * ms.config["contract_size"]
                                 decision = RiskDecision(True, "bootstrap_min_lot",
                                                         volume=0.01, risk_amount=risk_amt,
