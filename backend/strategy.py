@@ -72,8 +72,8 @@ PATTERN_FLOOR         = 0.0     # 0.67→0 pour amorçage — LiveAdaptiveAgent 
 MIN_WEIGHT_SUM_LONG   = 0.0     # 1.0→0 pour amorçage — LiveAdaptiveAgent ajustera
 
 # Mode amorçage — court-circuite TOUS les filtres sauf session + biais direction
-# Mettre à False une fois ~50 trades accumulés et LiveAdaptiveAgent opérationnel
-BOOTSTRAP_MODE        = True
+# False = filtres réels actifs (ATR, patterns, RSI, M15, etc.)
+BOOTSTRAP_MODE        = False
 
 # Filtres booléens — ignorés quand BOOTSTRAP_MODE=True
 M15_FILTER_ENABLED    = False   # confirmation M15 EMA9/21 + RSI
