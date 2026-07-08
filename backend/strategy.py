@@ -48,11 +48,12 @@ VOL_AVG_PERIOD = 20
 RSI_LOW = 0.0    # 35→0 pour amorçage — LiveAdaptiveAgent ajustera
 RSI_HIGH = 100.0 # 65→100 pour amorçage — LiveAdaptiveAgent ajustera
 ATR_MIN = 0.0    # 2.5→0 pour amorçage — LiveAdaptiveAgent ajustera
-ATR_MAX = 7.0    # plafond ATR M5 — au-delà = whipsaw → SL direct (SL dir avg 7.44 vs TP2 avg 5.99)
+ATR_HIGH = 4.5   # seuil vol. élevée : SL passe à SL_ATR_MULT_HIGH au lieu de bloquer
 ADX_MIN = 0.0    # 20→0 pour amorçage — LiveAdaptiveAgent ajustera
 SR_PROXIMITY_ATR = 0.7
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
-SL_ATR_MULT = 1.4
+SL_ATR_MULT      = 1.4      # multiplicateur SL normal
+SL_ATR_MULT_HIGH = 2.0      # multiplicateur SL haute volatilité (ATR > ATR_HIGH)
 SWING_LOOKBACK = 5          # bars each side for swing detection
 
 # SMC parameters (optimised by Agent IA)
@@ -826,11 +827,9 @@ def evaluate(
         if M15_FILTER_ENABLED and not confirm_m15(m15, bias, ema_mult=effective_m15_mult):
             _rej(_reject_log, "m15"); return None
 
-        # 4) M5 volatility gate — plancher ET plafond
+        # 4) M5 volatility gate — plancher uniquement (pas de plafond : SL s'élargit en vol. haute)
         if atr_val < effective_atr_min:
             _rej(_reject_log, "atr_min"); return None
-        if atr_val > ATR_MAX:
-            _rej(_reject_log, "atr_max"); return None
 
         # 4c) Régime volatilité
         if len(m5) >= 20:
@@ -947,7 +946,7 @@ def evaluate(
 
     # 7) Build trade levels
     weight_sum = weight_total
-    sl_mult = SL_ATR_MULT
+    sl_mult = SL_ATR_MULT_HIGH if atr_val > ATR_HIGH else SL_ATR_MULT
 
     if bias == "LONG":
         swing = last_swing_low(m5, lookback=10)
