@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>XAU/USD Scalping Bot</title>
+
+    <!-- PWA: plein écran quand ajouté à l'écran d'accueil -->
+    <meta name="theme-color" content="#0a0e17" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ScalpBot" />
+    <link rel="manifest" href="/manifest.json" />
+
     <style>
       html, body, #root { margin: 0; padding: 0; height: 100%; background: #0a0e17; }
       * { box-sizing: border-box; }
@@ -13,94 +21,98 @@
 
       /* ── Mobile responsiveness ── */
       @media (max-width: 768px) {
-        /* Outer container: less padding on small screens */
+        /* Outer container: padding minimal sur mobile */
         .dashboard-root {
-          padding: 8px !important;
+          padding: 6px !important;
         }
 
-        /* Top stat cards: 2-column grid on mobile */
+        /* Réduction des gaps entre panneaux sur mobile */
         .stat-grid {
           grid-template-columns: repeat(2, 1fr) !important;
+          gap: 6px !important;
         }
-
-        /* Main layout: single column on mobile */
         .main-layout {
           grid-template-columns: 1fr !important;
+          gap: 6px !important;
         }
-
-        /* History + equity: single column on mobile */
         .history-layout {
           grid-template-columns: 1fr !important;
+          gap: 6px !important;
         }
-
-        /* Macro panel: 2x2 grid on mobile */
+        .multi-grid {
+          grid-template-columns: 1fr !important;
+          gap: 6px !important;
+        }
         .macro-grid {
           grid-template-columns: repeat(2, 1fr) !important;
+          gap: 6px !important;
         }
 
-        /* Headings: ~20% smaller */
+        /* Headings */
         h1 { font-size: 16px !important; }
         h2 { font-size: 15px !important; }
         h3 { font-size: 12px !important; }
 
-        /* Market + tab buttons only: larger touch targets */
+        /* Boutons onglets marché : remplissent toute la largeur */
+        .header-tabs {
+          display: flex !important;
+          flex-wrap: nowrap !important;
+          width: 100%;
+          margin-left: 0 !important;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          gap: 6px !important;
+        }
         .header-tabs button {
+          flex: 1 !important;
           min-height: 40px !important;
-          padding-top: 8px !important;
-          padding-bottom: 8px !important;
+          padding: 8px 4px !important;
+          font-size: 12px !important;
         }
 
-        /* Main action buttons: bot toggle, close trade */
+        /* Boutons action principaux (Pause, Fermer trade) */
         .btn-action {
           min-height: 44px !important;
           font-size: 14px !important;
         }
 
-        /* Market + tab buttons: horizontal scroll */
-        .header-tabs {
-          overflow-x: auto;
-          -webkit-overflow-scrolling: touch;
-          flex-wrap: nowrap !important;
-          width: 100%;
-          margin-left: 0 !important;
-        }
-
-        /* Header: wrap to two lines on mobile */
+        /* Header: wrap sur 2 lignes */
         .header-bar {
           flex-wrap: wrap;
-          gap: 8px !important;
+          gap: 6px !important;
         }
 
-        /* Hide non-critical table columns */
+        /* Cacher les colonnes non critiques sur mobile */
         .hide-mobile {
           display: none !important;
         }
 
-        /* Panels: reduced padding on mobile */
+        /* Panneaux: padding réduit */
         .dashboard-panel {
           padding: 10px !important;
+          border-radius: 8px !important;
         }
 
-        /* Active trade row: allow wrapping on small screens */
+        /* Trade actif: wrapping sur petits écrans */
         .active-trade-row {
           flex-wrap: wrap;
-          gap: 8px !important;
+          gap: 6px !important;
         }
 
-        /* Trade history table: horizontal scroll */
+        /* Table historique: scroll horizontal */
         .table-scroll {
           overflow-x: auto;
           -webkit-overflow-scrolling: touch;
         }
 
-        /* Report stats: 2x2 on mobile instead of 4x2 */
+        /* Rapport stats: 2 colonnes sur mobile */
         .report-grid {
           grid-template-columns: repeat(2, 1fr) !important;
         }
 
-        /* Multi-period robustness: single column on mobile */
-        .multi-grid {
-          grid-template-columns: 1fr !important;
+        /* Réduire les marges de section sur mobile */
+        .section-gap {
+          margin-top: 6px !important;
         }
       }
     </style>

@@ -2274,7 +2274,7 @@ export default function Dashboard({ onLogout }) {
 
           {/* ===== Robustesse multi-périodes ===== */}
           {(multiStatus?.running || multiStatus?.results?.length > 0) && (
-            <div style={{ marginTop: 14 }}>
+            <div className="section-gap" style={{ marginTop: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                 <h3 style={{ margin: 0, fontSize: 14 }}>Robustesse multi-périodes</h3>
                 {multiStatus?.running && (
@@ -2372,7 +2372,7 @@ export default function Dashboard({ onLogout }) {
             const gainTp2 = gainTp1 + sign * (pos.take_profit2 - pos.entry) * (pos.volume * 0.5) * cs;
             const dp = activeMarket === "EURUSD" ? 5 : 2;
             return (
-              <div className="dashboard-panel" style={{ ...panel(), marginTop: 14, borderColor: pos.direction === "long" ? COLORS.green : COLORS.red }}>
+              <div className="dashboard-panel section-gap" style={{ ...panel(), marginTop: 14, borderColor: pos.direction === "long" ? COLORS.green : COLORS.red }}>
                 <div className="active-trade-row" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
                   <span style={{ fontWeight: 700, fontSize: 16,
                     color: pos.direction === "long" ? COLORS.green : COLORS.red }}>
@@ -2414,7 +2414,7 @@ export default function Dashboard({ onLogout }) {
           })()}
 
           {/* ===== history + equity ===== */}
-          <div className="history-layout" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14, marginTop: 14 }}>
+          <div className="history-layout section-gap" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14, marginTop: 14 }}>
             <div className="dashboard-panel" style={panel()}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                 <h3 style={{ margin: 0, fontSize: 14 }}>
@@ -2542,7 +2542,7 @@ export default function Dashboard({ onLogout }) {
           </div>
 
           {/* ===== rapport historique ===== */}
-          <div className="dashboard-panel" style={{ ...panel(), marginTop: 14 }}>
+          <div className="dashboard-panel section-gap" style={{ ...panel(), marginTop: 14 }}>
               <h3 style={{ margin: "0 0 10px", fontSize: 14 }}>Rapport historique</h3>
               {reportError && (
                 <div style={{ fontSize: 12, color: COLORS.red, marginBottom: 8 }}>
@@ -2653,7 +2653,7 @@ export default function Dashboard({ onLogout }) {
           </div>
 
           {/* ===== agent adaptatif autonome ===== */}
-          <div className="dashboard-panel" style={{ ...panel(), marginTop: 14 }}>
+          <div className="dashboard-panel section-gap" style={{ ...panel(), marginTop: 14 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
               <h3 style={{ margin: 0, fontSize: 14 }}>Agent Adaptatif — Contrôle autonome</h3>
               <button
@@ -2722,7 +2722,7 @@ export default function Dashboard({ onLogout }) {
           </div>
 
           {/* ===== agent IA analyse ===== */}
-          <div className="dashboard-panel" style={{ ...panel(), marginTop: 14 }}>
+          <div className="dashboard-panel section-gap" style={{ ...panel(), marginTop: 14 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
               <h3 style={{ margin: 0, fontSize: 14 }}>Agent IA — Analyse du bot</h3>
               <button
@@ -2778,7 +2778,7 @@ export default function Dashboard({ onLogout }) {
 
           {/* ===== actualités forex (Finnhub) ===== */}
           {newsFeed?.latest_news?.length > 0 && (
-            <div className="dashboard-panel" style={{ ...panel(), marginTop: 14 }}>
+            <div className="dashboard-panel section-gap" style={{ ...panel(), marginTop: 14 }}>
               <h3 style={{ margin: "0 0 8px", fontSize: 14 }}>Actualités</h3>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {newsFeed.latest_news.slice(0, 5).map((item, i) => {
