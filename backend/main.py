@@ -124,6 +124,7 @@ class MarketState:
     ml_gate: Optional[Any] = None    # OnlineLogisticRegression instance (per symbol)
     circuit_breaker_until: Optional[datetime] = None
     recent_results: List[bool] = field(default_factory=list)
+    last_trade_open_time: Optional[datetime] = None  # cooldown anti-doublon
 
 
 # --------------------------------------------------------------------------- #
@@ -476,8 +477,16 @@ def trading_tick() -> Dict[str, Any]:
                     elif state.risk.trades_today >= state.risk.max_trades_per_day:
                         _set_loop_gate(f"max_trades: {state.risk.trades_today}/{state.risk.max_trades_per_day}")
 
+                # Cooldown anti-doublon : bloquer toute nouvelle entrée pendant 5 min après un trade
+                _cooldown_ok = True
+                if ms.last_trade_open_time is not None:
+                    elapsed = (now - ms.last_trade_open_time).total_seconds()
+                    if elapsed < 300:  # 5 minutes = 1 bougie M5
+                        _cooldown_ok = False
+                        _set_loop_gate(f"cooldown: {int(300 - elapsed)}s restantes")
+
                 _bs = strategy.BOOTSTRAP_MODE
-                if (ms.position is None and can_enter_session
+                if (ms.position is None and can_enter_session and _cooldown_ok
                         and (_bs or (
                             not state.risk.blocked
                             and not news_status["blocked"]
@@ -576,6 +585,7 @@ def _open_trade(ms: MarketState, sig, decision, now):
         session=sig.session, meta=sig.meta, risk_amount=decision.risk_amount,
     )
     ms.position = pos
+    ms.last_trade_open_time = now  # cooldown anti-doublon
     state.risk.register_open()
 
     trade_id = db.insert_trade({
