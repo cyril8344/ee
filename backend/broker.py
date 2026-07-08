@@ -238,7 +238,7 @@ class PaperBroker(BaseBroker):
                 return {"closed": True, "reason": "early_exit",
                         "exit_price": price, "pnl": pos.realised}
 
-        # TP1 — sortie 50% à 0.7R, SL → soft-BE +0.2R
+        # TP1 — sortie 50% à 0.7R, SL reste au niveau initial (pas de déplacement)
         # Utilise bar_high/bar_low pour capturer les touches intrabar (évite les faux SL)
         if not pos.tp1_done:
             hit = bar_high >= pos.take_profit1 if direction == "long" else bar_low <= pos.take_profit1
@@ -248,17 +248,7 @@ class PaperBroker(BaseBroker):
                     lots50 = pos.remaining  # trop petit pour spliter → close total
                 pos.realised += pnl_for(pos.take_profit1 - self.slippage * sign, lots50)
                 pos.remaining = round(pos.remaining - lots50, 2)
-                _risk_dist = abs(pos.entry - pos.stop_loss)  # distance SL originale
                 pos.tp1_done = True
-                pos.stop_loss = pos.entry + sign * 0.2 * _risk_dist  # soft-BE: +0.2R
-                # Si le soft-BE est aussi touché dans la même bougie → clore le reste
-                if pos.remaining >= 0.01:
-                    sl_same = bar_low <= pos.stop_loss if direction == "long" else bar_high >= pos.stop_loss
-                    if sl_same:
-                        pos.realised += pnl_for(pos.stop_loss - self.slippage * sign, pos.remaining)
-                        pos.remaining = 0.0
-                        return {"closed": True, "reason": "sl_after_tp1",
-                                "exit_price": pos.stop_loss, "pnl": pos.realised}
                 if pos.remaining < 0.01:
                     return {"closed": True, "reason": "tp1",
                             "exit_price": pos.take_profit1, "pnl": pos.realised}
@@ -395,7 +385,7 @@ class MT5Broker(BaseBroker):
         price = self.get_price()
         sign = 1.0 if pos.direction == "long" else -1.0
 
-        # TP1 — sortie 50% à 0.7R, SL → soft-BE +0.2R sur MT5
+        # TP1 — sortie 50% à 0.7R, SL reste au niveau initial (pas de déplacement)
         if not pos.tp1_done:
             hit = price >= pos.take_profit1 if pos.direction == "long" else price <= pos.take_profit1
             if hit:
@@ -405,10 +395,7 @@ class MT5Broker(BaseBroker):
                 self._send_partial_close(pos, lots50, fill_price)
                 pos.realised += (fill_price - pos.entry) * sign * CONTRACT_SIZE * lots50
                 pos.remaining = round(pos.remaining - lots50, 2)
-                _risk_dist = abs(pos.entry - pos.stop_loss)  # distance SL originale
                 pos.tp1_done = True
-                pos.stop_loss = pos.entry + sign * 0.2 * _risk_dist  # soft-BE: +0.2R
-                self._update_sl(pos, pos.stop_loss)
                 if pos.remaining < 0.01:
                     return {"closed": True, "reason": "tp1",
                             "exit_price": fill_price, "pnl": pos.realised}
