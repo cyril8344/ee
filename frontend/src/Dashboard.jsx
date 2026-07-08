@@ -88,6 +88,8 @@ function useBeep() {
 }
 
 /* ============================= TradingView chart ========================== */
+const getChartH = () => (typeof window !== "undefined" && window.innerWidth <= 768 ? 240 : 480);
+
 function TvChart({ candles, markers, levels, orderBlocks, position, symbol, livePrice }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
@@ -98,6 +100,7 @@ function TvChart({ candles, markers, levels, orderBlocks, position, symbol, live
   const markersPluginRef = useRef(null);
   const lastCandleRef = useRef(null);
   const isForex = symbol === "EURUSD";
+  const [chartH, setChartH] = useState(getChartH);
 
   const toUnix = (iso) => Math.floor(new Date(iso).getTime() / 1000);
 
@@ -117,7 +120,7 @@ function TvChart({ candles, markers, levels, orderBlocks, position, symbol, live
           }),
       },
       width: containerRef.current.clientWidth,
-      height: 540,
+      height: getChartH(),
     });
     chartRef.current = chart;
 
@@ -144,8 +147,16 @@ function TvChart({ candles, markers, levels, orderBlocks, position, symbol, live
     });
     obs.observe(containerRef.current);
 
+    const onWinResize = () => {
+      const h = getChartH();
+      setChartH(h);
+      chart.applyOptions({ height: h });
+    };
+    window.addEventListener("resize", onWinResize);
+
     return () => {
       obs.disconnect();
+      window.removeEventListener("resize", onWinResize);
       if (markersPluginRef.current) { markersPluginRef.current.detach(); markersPluginRef.current = null; }
       chart.remove();
       chartRef.current = null;
@@ -250,7 +261,7 @@ function TvChart({ candles, markers, levels, orderBlocks, position, symbol, live
   }, [position]);
 
   return (
-    <div style={{ position: "relative", height: 540, borderRadius: 8, overflow: "hidden" }}>
+    <div style={{ position: "relative", height: chartH, borderRadius: 8, overflow: "hidden" }}>
       <div ref={containerRef} style={{ height: "100%", background: "#0d1421" }} />
       {!candles?.length && (
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center",
@@ -831,7 +842,7 @@ export default function Dashboard({ onLogout }) {
       : state?.bot_status === "BLOQUE" ? COLORS.red : COLORS.amber;
 
   return (
-    <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.text,
+    <div className="dashboard-root" style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.text,
       fontFamily: "'Inter', system-ui, sans-serif", padding: 16 }}>
 
       {/* ===== loading screen when no data yet ===== */}
@@ -2142,7 +2153,7 @@ export default function Dashboard({ onLogout }) {
               )}
 
               <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                <button onClick={toggleBot} style={{ ...tabBtn(false), flex: 1 }}>
+                <button onClick={toggleBot} className="btn-action" style={{ ...tabBtn(false), flex: 1 }}>
                   Pause / Reprise
                 </button>
                 <button onClick={switchLive}
@@ -2272,7 +2283,7 @@ export default function Dashboard({ onLogout }) {
                   </span>
                 )}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+              <div className="multi-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
                 {(multiStatus?.results?.length > 0 ? multiStatus.results : [{},{},{}]).map((r, i) => {
                   const isLoading = multiStatus?.running && i >= (multiStatus?.results?.length ?? 0);
                   const isEmpty   = !r.label;
@@ -2389,7 +2400,7 @@ export default function Dashboard({ onLogout }) {
                   <span style={{ marginLeft: "auto", fontSize: 13, color: remaining < 300 ? COLORS.amber : COLORS.sub }}>
                     ⏱ {hms(remaining)} / 45:00
                   </span>
-                  <button onClick={closeNow}
+                  <button onClick={closeNow} className="btn-action"
                     style={{ ...tabBtn(false), borderColor: COLORS.red, color: COLORS.red, fontWeight: 700 }}>
                     FERMER MAINTENANT
                   </button>
@@ -2429,8 +2440,8 @@ export default function Dashboard({ onLogout }) {
                   )}
                 </div>
               </div>
-              <div style={{ maxHeight: 240, overflowY: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <div className="table-scroll" style={{ maxHeight: 240, overflowY: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 520 }}>
                   <thead>
                     <tr style={{ color: COLORS.sub, textAlign: "left" }}>
                       <th style={th}>{tradesScope === "all" ? "Date / Heure" : "Heure"}</th>
@@ -2548,7 +2559,7 @@ export default function Dashboard({ onLogout }) {
             <div>
 
               {/* Stats globales */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
+              <div className="report-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
                 {[
                   { label: "Trades", value: tradeReport.stats.total },
                   { label: "WR", value: `${tradeReport.stats.win_rate}%`, color: tradeReport.stats.win_rate >= 50 ? COLORS.green : COLORS.amber },
