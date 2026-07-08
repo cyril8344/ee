@@ -486,6 +486,13 @@ export default function Dashboard({ onLogout }) {
       .catch(() => setDeletingTrade(null));
   };
 
+  /* Reset compteur trades du jour */
+  const handleResetDaily = () => {
+    fetch(`${API}/api/risk/reset-daily`, { method: "POST", headers: authHeaders() })
+      .then((r) => r.json())
+      .catch(() => {});
+  };
+
   /* Nettoyage doublons */
   const handleCleanupDuplicates = () => {
     if (!window.confirm("Supprimer tous les trades en double (même entrée, même minute) ? Cette action est irréversible.")) return;
@@ -872,9 +879,19 @@ export default function Dashboard({ onLogout }) {
             <Stat label="P&L du jour"
               value={`${money(state?.day_pnl)} (${pct(state?.day_pnl_pct)})`}
               color={(state?.day_pnl || 0) >= 0 ? COLORS.green : COLORS.red} />
-            <Stat label="Trades du jour"
-              value={`${state?.trades_today ?? 0} / ${state?.max_trades_per_day ?? 4}`}
-              color={COLORS.text} />
+            <div style={panel()}>
+              <div style={{ fontSize: 11, color: COLORS.sub, textTransform: "uppercase", letterSpacing: 0.5 }}>Trades du jour</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                <span style={{ fontSize: 18, fontWeight: 700, color: COLORS.text }}>
+                  {state?.trades_today ?? 0} / {state?.max_trades_per_day ?? 4}
+                </span>
+                <button onClick={handleResetDaily} title="Resynchroniser le compteur depuis la DB"
+                  style={{ fontSize: 11, padding: "1px 6px", background: "transparent",
+                    border: `1px solid ${COLORS.border}`, color: COLORS.sub, borderRadius: 3, cursor: "pointer" }}>
+                  ↺
+                </button>
+              </div>
+            </div>
           </div>
 
           <div className="main-layout" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 14 }}>
