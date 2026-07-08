@@ -436,6 +436,7 @@ def trading_tick() -> Dict[str, Any]:
                     ms.last_snapshot["_was_synthetic"] = False
 
                 # ---- Manage open position ----
+                _just_closed = False
                 if ms.position is not None:
                     pos = ms.position
                     close_info = ms.broker.update_position(pos)
@@ -445,6 +446,7 @@ def trading_tick() -> Dict[str, Any]:
                     if close_info and close_info.get("closed"):
                         _finalize_trade(ms, pos, close_info, now)
                         ms.position = None
+                        _just_closed = True  # pas de ré-entrée dans la même itération
                     elif close_info and close_info.get("reason") == "tp1_partial":
                         state.push_alert("info", f"[{ms.symbol}] TP1 atteint — 60% clôturé")
 
@@ -477,7 +479,7 @@ def trading_tick() -> Dict[str, Any]:
                         _set_loop_gate(f"max_trades: {state.risk.trades_today}/{state.risk.max_trades_per_day}")
 
                 _bs = strategy.BOOTSTRAP_MODE
-                if (ms.position is None and can_enter_session
+                if (ms.position is None and not _just_closed and can_enter_session
                         and (_bs or (
                             not state.risk.blocked
                             and not news_status["blocked"]
