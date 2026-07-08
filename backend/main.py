@@ -124,6 +124,7 @@ class MarketState:
     ml_gate: Optional[Any] = None    # OnlineLogisticRegression instance (per symbol)
     circuit_breaker_until: Optional[datetime] = None
     recent_results: List[bool] = field(default_factory=list)
+    last_close_time: Optional[datetime] = None  # horodatage de la dernière fermeture
 
 
 # --------------------------------------------------------------------------- #
@@ -446,6 +447,7 @@ def trading_tick() -> Dict[str, Any]:
                     if close_info and close_info.get("closed"):
                         _finalize_trade(ms, pos, close_info, now)
                         ms.position = None
+                        ms.last_close_time = now
                         _just_closed = True  # pas de ré-entrée dans la même itération
                     elif close_info and close_info.get("reason") == "tp1_partial":
                         state.push_alert("info", f"[{ms.symbol}] TP1 atteint — 60% clôturé")
@@ -478,8 +480,15 @@ def trading_tick() -> Dict[str, Any]:
                     elif state.risk.trades_today >= state.risk.max_trades_per_day:
                         _set_loop_gate(f"max_trades: {state.risk.trades_today}/{state.risk.max_trades_per_day}")
 
+                # Cooldown 60s après fermeture — protège contre la ré-entrée immédiate
+                # quand _price_tick() ferme la position en dehors de trading_tick().
+                _CLOSE_COOLDOWN_SECS = 60
+                _in_cooldown = (
+                    ms.last_close_time is not None
+                    and (now - ms.last_close_time).total_seconds() < _CLOSE_COOLDOWN_SECS
+                )
                 _bs = strategy.BOOTSTRAP_MODE
-                if (ms.position is None and not _just_closed and can_enter_session
+                if (ms.position is None and not _just_closed and not _in_cooldown and can_enter_session
                         and (_bs or (
                             not state.risk.blocked
                             and not news_status["blocked"]
@@ -912,12 +921,14 @@ async def _price_tick():
                                 now = datetime.now(timezone.utc)
                                 _finalize_trade(ms, pos, close_info, now)
                                 ms.position = None
+                                ms.last_close_time = now
                         elif rt_price >= pos.take_profit2:
                             close_info = ms.broker.close_position(pos, "tp2_realtime")
                             if close_info and close_info.get("closed"):
                                 now = datetime.now(timezone.utc)
                                 _finalize_trade(ms, pos, close_info, now)
                                 ms.position = None
+                                ms.last_close_time = now
                     else:
                         if rt_price >= pos.stop_loss:
                             close_info = ms.broker.close_position(pos, "sl_realtime")
@@ -925,12 +936,14 @@ async def _price_tick():
                                 now = datetime.now(timezone.utc)
                                 _finalize_trade(ms, pos, close_info, now)
                                 ms.position = None
+                                ms.last_close_time = now
                         elif rt_price <= pos.take_profit2:
                             close_info = ms.broker.close_position(pos, "tp2_realtime")
                             if close_info and close_info.get("closed"):
                                 now = datetime.now(timezone.utc)
                                 _finalize_trade(ms, pos, close_info, now)
                                 ms.position = None
+                                ms.last_close_time = now
         except Exception:
             traceback.print_exc()
 
