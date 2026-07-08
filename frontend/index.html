@@ -13,6 +13,11 @@
 
       /* ── Mobile responsiveness ── */
       @media (max-width: 768px) {
+        /* Outer container: less padding on small screens */
+        .dashboard-root {
+          padding: 8px !important;
+        }
+
         /* Top stat cards: 2-column grid on mobile */
         .stat-grid {
           grid-template-columns: repeat(2, 1fr) !important;
@@ -33,21 +38,22 @@
           grid-template-columns: repeat(2, 1fr) !important;
         }
 
-        /* Chart height reduced on mobile */
-        .chart-container {
-          height: 200px !important;
-        }
-
         /* Headings: ~20% smaller */
         h1 { font-size: 16px !important; }
         h2 { font-size: 15px !important; }
         h3 { font-size: 12px !important; }
 
-        /* Buttons: larger touch targets */
-        button {
+        /* Market + tab buttons only: larger touch targets */
+        .header-tabs button {
+          min-height: 40px !important;
+          padding-top: 8px !important;
+          padding-bottom: 8px !important;
+        }
+
+        /* Main action buttons: bot toggle, close trade */
+        .btn-action {
           min-height: 44px !important;
-          padding-top: 10px !important;
-          padding-bottom: 10px !important;
+          font-size: 14px !important;
         }
 
         /* Market + tab buttons: horizontal scroll */
@@ -79,6 +85,22 @@
         .active-trade-row {
           flex-wrap: wrap;
           gap: 8px !important;
+        }
+
+        /* Trade history table: horizontal scroll */
+        .table-scroll {
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+        }
+
+        /* Report stats: 2x2 on mobile instead of 4x2 */
+        .report-grid {
+          grid-template-columns: repeat(2, 1fr) !important;
+        }
+
+        /* Multi-period robustness: single column on mobile */
+        .multi-grid {
+          grid-template-columns: 1fr !important;
         }
       }
     </style>
