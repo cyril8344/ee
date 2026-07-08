@@ -238,7 +238,7 @@ class PaperBroker(BaseBroker):
                 return {"closed": True, "reason": "early_exit",
                         "exit_price": price, "pnl": pos.realised}
 
-        # TP1 — sortie 50% à 0.7R, SL reste au niveau initial (pas de déplacement)
+        # TP1 — sortie 50% à 0.7R, SL déplacé à l'entrée (BE 0R) sur la bougie suivante
         # Utilise bar_high/bar_low pour capturer les touches intrabar (évite les faux SL)
         if not pos.tp1_done:
             hit = bar_high >= pos.take_profit1 if direction == "long" else bar_low <= pos.take_profit1
@@ -249,6 +249,7 @@ class PaperBroker(BaseBroker):
                 pos.realised += pnl_for(pos.take_profit1 - self.slippage * sign, lots50)
                 pos.remaining = round(pos.remaining - lots50, 2)
                 pos.tp1_done = True
+                pos.stop_loss = pos.entry  # BE : SL à l'entrée, vérifié sur bougies suivantes
                 if pos.remaining < 0.01:
                     return {"closed": True, "reason": "tp1",
                             "exit_price": pos.take_profit1, "pnl": pos.realised}
@@ -396,6 +397,8 @@ class MT5Broker(BaseBroker):
                 pos.realised += (fill_price - pos.entry) * sign * CONTRACT_SIZE * lots50
                 pos.remaining = round(pos.remaining - lots50, 2)
                 pos.tp1_done = True
+                pos.stop_loss = pos.entry  # BE : SL à l'entrée
+                self._update_sl(pos, pos.stop_loss)
                 if pos.remaining < 0.01:
                     return {"closed": True, "reason": "tp1",
                             "exit_price": fill_price, "pnl": pos.realised}

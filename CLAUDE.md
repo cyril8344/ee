@@ -138,7 +138,7 @@ After merging to `main`:
 - **Mode momentum fort supprimé** : ADX H1 > 35/40 → 1 pattern testé → PF 1.34 vs 1.42, rejeté. Toujours 2 patterns requis.
 - **MAX_TRADE_MINUTES = 45** (was 30) — more time for TP targets to be reached
 - **TP1 = 0.7R**, **TP2 = 1.8R** — gap TP1→TP2 = 1.1R; TP2=1.4R testé mais moins bon, 1.8R optimal confirmé
-- **Pas de déplacement SL après TP1** — l'or pullback régulièrement sous l'entrée après TP1. Le SL reste au niveau initial. Pire cas après TP1=0.7R : +0.7×50% − SL×50% = −0.35R net (si SL=1.4R).
+- **SL → entrée (BE 0R) après TP1** — déplacé à l'entrée sur les bougies suivantes (pas de vérification intrabar). Pire cas : +0.7R×50% + 0×50% = +0.35R net. À comparer via pretrain avec "pas de déplacement" (−0.35R pire cas mais plus de trades TP2).
 - **ML Gate: 8 features** (h1_rsi_norm + hour_in_session ajoutés en June 2026) — ML weights must be reset after any feature count change
 - **Strategy B (EUR/USD) Order Block only** (June 2026) : biais H1 (EMA50 vs EMA200) + OB M5 non mitiguée + retest → TP1=0.7R, TP2=1.8R. Supprimé : AMD, FVG, Asian range, sweep, accumulation.
 - **Strategy A (XAU/USD)** : EMA/patterns, toujours actif sur XAUUSD, non modifiable depuis le dashboard
