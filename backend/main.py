@@ -686,16 +686,41 @@ def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], 
                            exit_reason=close_info.get("reason", ""),
                            duration_min=duration)
     start_eq = state.risk.start_equity_today or state.risk.capital
+    _exit_patch = {
+        "exit_time": now.isoformat(),
+        "exit_price": close_info["exit_price"],
+        "pnl": round(pnl, 2),
+        "pnl_pct": round(pnl / start_eq * 100.0, 3),
+        "duration_min": round(duration, 1),
+        "status": "closed",
+        "exit_reason": close_info["reason"],
+    }
     if trade_id:
-        db.update_trade(trade_id, {
-            "exit_time": now.isoformat(),
-            "exit_price": close_info["exit_price"],
-            "pnl": round(pnl, 2),
-            "pnl_pct": round(pnl / start_eq * 100.0, 3),
-            "duration_min": round(duration, 1),
-            "status": "closed",
-            "exit_reason": close_info["reason"],
-        })
+        _updated = db.update_trade(trade_id, _exit_patch)
+        if not _updated:
+            # La ligne a été supprimée par un Reset pendant que le trade était ouvert.
+            # On ré-insère une ligne complète pour que l'historique reste cohérent.
+            db.insert_trade({
+                "symbol": ms.symbol,
+                "direction": pos.direction,
+                "session": pos.meta.get("session", ""),
+                "entry_time": pos.open_time.isoformat(),
+                "exit_time": now.isoformat(),
+                "entry_price": pos.entry,
+                "exit_price": close_info["exit_price"],
+                "stop_loss": pos.stop_loss,
+                "take_profit1": pos.take_profit1,
+                "take_profit2": pos.take_profit2,
+                "volume": pos.volume,
+                "risk_amount": pos.meta.get("risk_amount"),
+                "pnl": round(pnl, 2),
+                "pnl_pct": round(pnl / start_eq * 100.0, 3),
+                "duration_min": round(duration, 1),
+                "status": "closed",
+                "exit_reason": close_info["reason"],
+                "mode": state.settings.get("mode", "paper"),
+                "meta": pos.meta,
+            })
     today = db.today_utc()
     daily = db.get_daily(today) or {"pnl": 0.0}
     db.update_daily(today, {
