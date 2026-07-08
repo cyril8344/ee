@@ -486,6 +486,16 @@ export default function Dashboard({ onLogout }) {
       .catch(() => setDeletingTrade(null));
   };
 
+  /* Reset complet de l'historique */
+  const handleResetHistory = () => {
+    if (!window.confirm("⚠️ Supprimer TOUT l'historique des trades et remettre les stats à zéro ?\n\nCette action est IRRÉVERSIBLE.")) return;
+    if (!window.confirm("Confirmation finale : supprimer tous les trades ?")) return;
+    fetch(`${API}/api/admin/reset-history`, { method: "POST", headers: authHeaders() })
+      .then((r) => r.json())
+      .then((d) => alert(`✅ ${d.deleted} trade(s) supprimé(s). Historique remis à zéro.`))
+      .catch(() => alert("Erreur lors du reset."));
+  };
+
   /* Reset compteur trades du jour */
   const handleResetDaily = () => {
     fetch(`${API}/api/risk/reset-daily`, { method: "POST", headers: authHeaders() })
@@ -2389,6 +2399,11 @@ export default function Dashboard({ onLogout }) {
                     title="Supprimer les trades en double (même entrée, même minute)"
                     style={{ fontSize: 10, padding: "3px 7px", background: "transparent", border: `1px solid ${COLORS.red}`, color: COLORS.red, borderRadius: 4, cursor: "pointer", opacity: cleanupLoading ? 0.5 : 1 }}>
                     {cleanupLoading ? "…" : "🗑 Doublons"}
+                  </button>
+                  <button onClick={handleResetHistory}
+                    title="Supprimer TOUT l'historique et remettre les stats à zéro"
+                    style={{ fontSize: 10, padding: "3px 7px", background: "transparent", border: `1px solid #ff4444`, color: "#ff4444", borderRadius: 4, cursor: "pointer", fontWeight: 700 }}>
+                    ⚠ Reset
                   </button>
                   {cleanupResult && (
                     <span style={{ fontSize: 10, color: cleanupResult.deleted > 0 ? COLORS.green : COLORS.sub }}>

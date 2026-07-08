@@ -1100,6 +1100,21 @@ def adaptive_run_now(_user: dict = Depends(get_current_user)):
     return result
 
 
+@app.post("/api/admin/reset-history")
+def reset_all_history(_user: dict = Depends(get_current_user)):
+    """Supprime TOUS les trades et remet les stats à zéro. Irréversible."""
+    with state.lock:
+        result = db.reset_all_trades()
+        # Réinitialiser l'état en mémoire
+        state.risk.hydrate_day(
+            trades_today=0, pnl_today=0.0,
+            start_equity=state.risk.capital,
+            blocked=False,
+        )
+        state.risk.start_equity_today = state.risk.capital
+    return result
+
+
 @app.post("/api/admin/cleanup-duplicates")
 def cleanup_duplicate_trades(_user: dict = Depends(get_current_user)):
     """Supprime les trades en double (même symbol+direction+entry_price dans la même minute).

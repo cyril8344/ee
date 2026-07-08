@@ -431,6 +431,15 @@ def get_daily(day: str) -> Optional[Dict[str, Any]]:
         return dict(row) if row else None
 
 
+def reset_all_trades() -> Dict[str, Any]:
+    """Supprime TOUS les trades et remet daily_stats à zéro. Irréversible."""
+    with get_conn() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
+        conn.execute("DELETE FROM trades")
+        conn.execute("DELETE FROM daily_stats")
+    return {"deleted": count}
+
+
 def today_utc() -> str:
     return date.today().isoformat()
 
