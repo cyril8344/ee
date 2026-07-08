@@ -88,7 +88,7 @@ function useBeep() {
 }
 
 /* ============================= TradingView chart ========================== */
-function TvChart({ candles, markers, levels, orderBlocks, position, symbol }) {
+function TvChart({ candles, markers, levels, orderBlocks, position, symbol, livePrice }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const seriesRef = useRef({});
@@ -96,6 +96,7 @@ function TvChart({ candles, markers, levels, orderBlocks, position, symbol }) {
   const obLinesRef = useRef([]);
   const posLinesRef = useRef([]);
   const markersPluginRef = useRef(null);
+  const lastCandleRef = useRef(null);
   const isForex = symbol === "EURUSD";
 
   const toUnix = (iso) => Math.floor(new Date(iso).getTime() / 1000);
@@ -213,7 +214,22 @@ function TvChart({ candles, markers, levels, orderBlocks, position, symbol }) {
     });
 
     chartRef.current?.timeScale().scrollToRealTime();
+    if (candles?.length) lastCandleRef.current = candles[candles.length - 1];
   }, [candles, markers, levels, orderBlocks]);
+
+  // Anime la dernière bougie avec le prix temps réel (WebSocket, ~2s)
+  useEffect(() => {
+    const s = seriesRef.current;
+    const base = lastCandleRef.current;
+    if (!s.candle || !base || !livePrice) return;
+    s.candle.update({
+      time: toUnix(base.time),
+      open: base.open,
+      high: Math.max(base.high, livePrice),
+      low: Math.min(base.low, livePrice),
+      close: livePrice,
+    });
+  }, [livePrice]);
 
   // Position SL / TP lines
   useEffect(() => {
@@ -934,7 +950,8 @@ export default function Dashboard({ onLogout }) {
                 </div>
               </div>
               <TvChart candles={chart?.candles} markers={chart?.markers} levels={chart?.levels}
-                orderBlocks={chart?.order_blocks} position={pos} symbol={activeMarket} />
+                orderBlocks={chart?.order_blocks} position={pos} symbol={activeMarket}
+                livePrice={mkt.price} />
               <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 11, color: COLORS.sub, flexWrap: "wrap" }}>
                 <Legend c={COLORS.amber} t="EMA9" /><Legend c={COLORS.blue} t="EMA21" />
                 <Legend c="#c084fc" t="EMA200" />
