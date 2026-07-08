@@ -258,9 +258,10 @@ def insert_trade(trade: Dict[str, Any]) -> int:
         return cur.lastrowid
 
 
-def update_trade(trade_id: int, patch: Dict[str, Any]) -> None:
+def update_trade(trade_id: int, patch: Dict[str, Any]) -> bool:
+    """Retourne True si la ligne a été trouvée et mise à jour, False sinon (ex: supprimée par reset)."""
     if not patch:
-        return
+        return True
     sets = []
     values = []
     for k, v in patch.items():
@@ -270,9 +271,10 @@ def update_trade(trade_id: int, patch: Dict[str, Any]) -> None:
         values.append(v)
     values.append(trade_id)
     with get_conn() as conn:
-        conn.execute(
+        cur = conn.execute(
             f"UPDATE trades SET {', '.join(sets)} WHERE id = ?", values
         )
+        return cur.rowcount > 0
 
 
 def delete_trade(trade_id: int) -> bool:

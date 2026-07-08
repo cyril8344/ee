@@ -686,16 +686,41 @@ def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], 
                            exit_reason=close_info.get("reason", ""),
                            duration_min=duration)
     start_eq = state.risk.start_equity_today or state.risk.capital
+    _exit_patch = {
+        "exit_time": now.isoformat(),
+        "exit_price": close_info["exit_price"],
+        "pnl": round(pnl, 2),
+        "pnl_pct": round(pnl / start_eq * 100.0, 3),
+        "duration_min": round(duration, 1),
+        "status": "closed",
+        "exit_reason": close_info["reason"],
+    }
     if trade_id:
-        db.update_trade(trade_id, {
-            "exit_time": now.isoformat(),
-            "exit_price": close_info["exit_price"],
-            "pnl": round(pnl, 2),
-            "pnl_pct": round(pnl / start_eq * 100.0, 3),
-            "duration_min": round(duration, 1),
-            "status": "closed",
-            "exit_reason": close_info["reason"],
-        })
+        _updated = db.update_trade(trade_id, _exit_patch)
+        if not _updated:
+            # La ligne a été supprimée par un Reset pendant que le trade était ouvert.
+            # On ré-insère une ligne complète pour que l'historique reste cohérent.
+            db.insert_trade({
+                "symbol": ms.symbol,
+                "direction": pos.direction,
+                "session": pos.meta.get("session", ""),
+                "entry_time": pos.open_time.isoformat(),
+                "exit_time": now.isoformat(),
+                "entry_price": pos.entry,
+                "exit_price": close_info["exit_price"],
+                "stop_loss": pos.stop_loss,
+                "take_profit1": pos.take_profit1,
+                "take_profit2": pos.take_profit2,
+                "volume": pos.volume,
+                "risk_amount": pos.meta.get("risk_amount"),
+                "pnl": round(pnl, 2),
+                "pnl_pct": round(pnl / start_eq * 100.0, 3),
+                "duration_min": round(duration, 1),
+                "status": "closed",
+                "exit_reason": close_info["reason"],
+                "mode": state.settings.get("mode", "paper"),
+                "meta": pos.meta,
+            })
     today = db.today_utc()
     daily = db.get_daily(today) or {"pnl": 0.0}
     db.update_daily(today, {
@@ -789,15 +814,19 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
     day_pnl = daily.get("pnl") or 0.0
     start_eq = daily.get("start_equity") or state.risk.capital
 
+    _sym_to_td = {"XAUUSD": "XAU/USD", "EURUSD": "EUR/USD"}
     markets = {}
     for sym, ms in state.market_states.items():
         snap = ms.last_snapshot
+        # Préférer le prix du feed WebSocket temps réel au close OHLCV (stale jusqu'à 5 min)
+        rt_tick = realtime_feed.get_latest(_sym_to_td.get(sym, sym))
+        live_price = rt_tick["price"] if rt_tick else snap.get("price")
         markets[sym] = {
             "symbol": sym,
             "name": ms.config["name"],
             "bias": snap.get("bias", "NEUTRE"),
             "session": snap.get("session", "Hors session"),
-            "price": snap.get("price"),
+            "price": live_price,
             "indicators": {
                 "rsi_m5": snap.get("rsi_m5"),
                 "rsi_m15": snap.get("rsi_m15"),
@@ -863,24 +892,26 @@ async def _startup():
 
 
 async def _price_tick():
-    """Boucle légère toutes les secondes : met à jour le prix temps réel via Twelve Data
-    et vérifie TP/SL sur les positions ouvertes sans recalculer les indicateurs."""
-    from data_provider import get_realtime_price
+    """Boucle légère toutes les secondes : met à jour le prix temps réel depuis le feed
+    WebSocket Twelve Data (non-bloquant) et vérifie TP/SL sur les positions ouvertes."""
+    _sym_to_td = {"XAUUSD": "XAU/USD", "EURUSD": "EUR/USD"}
     while True:
         await asyncio.sleep(1)
         try:
             with state.lock:
-                for ms in state.market_states.values():
-                    if ms.position is None:
+                for sym, ms in state.market_states.items():
+                    # Lire le prix depuis le feed WebSocket — opération non-bloquante
+                    tick = realtime_feed.get_latest(_sym_to_td.get(sym, sym))
+                    if tick is None:
                         continue
-                    rt_price = await asyncio.to_thread(get_realtime_price, ms.symbol)
-                    if rt_price is None:
-                        continue
-                    # Mettre à jour le prix courant dans le snapshot pour le dashboard
-                    if "price" in ms.last_snapshot:
-                        ms.last_snapshot["price"] = rt_price
-                    # Vérifier TP/SL avec le prix temps réel
+                    rt_price = tick["price"]
+                    # Mettre à jour le prix pour tous les symboles (avec ou sans position)
+                    ms.last_snapshot["price"] = rt_price
+
                     pos = ms.position
+                    if pos is None:
+                        continue
+                    # Vérifier TP/SL avec le prix temps réel
                     direction = pos.direction
                     if direction == "long":
                         if rt_price <= pos.stop_loss:
