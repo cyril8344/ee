@@ -814,15 +814,19 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
     day_pnl = daily.get("pnl") or 0.0
     start_eq = daily.get("start_equity") or state.risk.capital
 
+    _sym_to_td = {"XAUUSD": "XAU/USD", "EURUSD": "EUR/USD"}
     markets = {}
     for sym, ms in state.market_states.items():
         snap = ms.last_snapshot
+        # Préférer le prix du feed WebSocket temps réel au close OHLCV (stale jusqu'à 5 min)
+        rt_tick = realtime_feed.get_latest(_sym_to_td.get(sym, sym))
+        live_price = rt_tick["price"] if rt_tick else snap.get("price")
         markets[sym] = {
             "symbol": sym,
             "name": ms.config["name"],
             "bias": snap.get("bias", "NEUTRE"),
             "session": snap.get("session", "Hors session"),
-            "price": snap.get("price"),
+            "price": live_price,
             "indicators": {
                 "rsi_m5": snap.get("rsi_m5"),
                 "rsi_m15": snap.get("rsi_m15"),
@@ -888,24 +892,26 @@ async def _startup():
 
 
 async def _price_tick():
-    """Boucle légère toutes les secondes : met à jour le prix temps réel via Twelve Data
-    et vérifie TP/SL sur les positions ouvertes sans recalculer les indicateurs."""
-    from data_provider import get_realtime_price
+    """Boucle légère toutes les secondes : met à jour le prix temps réel depuis le feed
+    WebSocket Twelve Data (non-bloquant) et vérifie TP/SL sur les positions ouvertes."""
+    _sym_to_td = {"XAUUSD": "XAU/USD", "EURUSD": "EUR/USD"}
     while True:
         await asyncio.sleep(1)
         try:
             with state.lock:
-                for ms in state.market_states.values():
-                    if ms.position is None:
+                for sym, ms in state.market_states.items():
+                    # Lire le prix depuis le feed WebSocket — opération non-bloquante
+                    tick = realtime_feed.get_latest(_sym_to_td.get(sym, sym))
+                    if tick is None:
                         continue
-                    rt_price = await asyncio.to_thread(get_realtime_price, ms.symbol)
-                    if rt_price is None:
-                        continue
-                    # Mettre à jour le prix courant dans le snapshot pour le dashboard
-                    if "price" in ms.last_snapshot:
-                        ms.last_snapshot["price"] = rt_price
-                    # Vérifier TP/SL avec le prix temps réel
+                    rt_price = tick["price"]
+                    # Mettre à jour le prix pour tous les symboles (avec ou sans position)
+                    ms.last_snapshot["price"] = rt_price
+
                     pos = ms.position
+                    if pos is None:
+                        continue
+                    # Vérifier TP/SL avec le prix temps réel
                     direction = pos.direction
                     if direction == "long":
                         if rt_price <= pos.stop_loss:
