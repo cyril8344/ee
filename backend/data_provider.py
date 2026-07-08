@@ -528,6 +528,28 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
     return _fetch_synthetic(start, end, bars, symbol), "synthetic"
 
 
+def get_realtime_price(symbol: str = "XAUUSD") -> Optional[float]:
+    """Fetch current price via Twelve Data /price endpoint (ultra-fast, no bar data).
+    Returns None if unavailable or no API key."""
+    keys = _get_twelvedata_keys()
+    if not keys:
+        return None
+    td_sym = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"]).get("twelvedata", "XAU/USD")
+    try:
+        r = requests.get(
+            "https://api.twelvedata.com/price",
+            params={"symbol": td_sym, "apikey": keys[0]},
+            timeout=3,
+        )
+        data = r.json()
+        price = data.get("price")
+        if price is not None:
+            return float(price)
+    except Exception:
+        pass
+    return None
+
+
 if __name__ == "__main__":
     print("Available providers:", available_providers())
     df, used = get_m5(bars=50)

@@ -858,7 +858,58 @@ async def _startup():
     except Exception:
         traceback.print_exc()
     asyncio.create_task(_loop())
+    asyncio.create_task(_price_tick())
     asyncio.create_task(_learning_loop())
+
+
+async def _price_tick():
+    """Boucle légère toutes les secondes : met à jour le prix temps réel via Twelve Data
+    et vérifie TP/SL sur les positions ouvertes sans recalculer les indicateurs."""
+    from data_provider import get_realtime_price
+    while True:
+        await asyncio.sleep(1)
+        try:
+            with state.lock:
+                for ms in state.market_states.values():
+                    if ms.position is None:
+                        continue
+                    rt_price = await asyncio.to_thread(get_realtime_price, ms.symbol)
+                    if rt_price is None:
+                        continue
+                    # Mettre à jour le prix courant dans le snapshot pour le dashboard
+                    if "price" in ms.last_snapshot:
+                        ms.last_snapshot["price"] = rt_price
+                    # Vérifier TP/SL avec le prix temps réel
+                    pos = ms.position
+                    direction = pos.direction
+                    if direction == "long":
+                        if rt_price <= pos.stop_loss:
+                            close_info = ms.broker.close_position(pos, "sl_realtime")
+                            if close_info and close_info.get("closed"):
+                                now = datetime.now(timezone.utc)
+                                _finalize_trade(ms, pos, close_info, now)
+                                ms.position = None
+                        elif rt_price >= pos.take_profit2:
+                            close_info = ms.broker.close_position(pos, "tp2_realtime")
+                            if close_info and close_info.get("closed"):
+                                now = datetime.now(timezone.utc)
+                                _finalize_trade(ms, pos, close_info, now)
+                                ms.position = None
+                    else:
+                        if rt_price >= pos.stop_loss:
+                            close_info = ms.broker.close_position(pos, "sl_realtime")
+                            if close_info and close_info.get("closed"):
+                                now = datetime.now(timezone.utc)
+                                _finalize_trade(ms, pos, close_info, now)
+                                ms.position = None
+                        elif rt_price <= pos.take_profit2:
+                            close_info = ms.broker.close_position(pos, "tp2_realtime")
+                            if close_info and close_info.get("closed"):
+                                now = datetime.now(timezone.utc)
+                                _finalize_trade(ms, pos, close_info, now)
+                                ms.position = None
+        except Exception:
+            traceback.print_exc()
 
 
 async def _loop():
@@ -868,7 +919,7 @@ async def _loop():
             await ws_manager.broadcast({"type": "state", "data": payload})
         except Exception:
             traceback.print_exc()
-        await asyncio.sleep(5)
+        await asyncio.sleep(2)
 
 
 async def _learning_loop():
