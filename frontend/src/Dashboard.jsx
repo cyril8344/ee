@@ -2382,6 +2382,15 @@ export default function Dashboard({ onLogout }) {
             const gainTp1 = sign * (pos.take_profit1 - pos.entry) * (pos.volume * 0.5) * cs;
             const gainTp2 = gainTp1 + sign * (pos.take_profit2 - pos.entry) * (pos.volume * 0.5) * cs;
             const dp = activeMarket === "EURUSD" ? 5 : 2;
+
+            // P&L et progress bars en temps réel via le tick live (mkt.price)
+            const liveP = mkt.price || pos.price || pos.entry;
+            const livePnl = pos.unrealised_pnl + (liveP - (pos.price || pos.entry)) * sign * cs * (pos.remaining || pos.volume);
+            const d1 = Math.abs(pos.take_profit1 - pos.entry) || 1e-9;
+            const d2 = Math.abs(pos.take_profit2 - pos.entry) || 1e-9;
+            const liveProg1 = pos.tp1_done ? 1.0 : Math.max(-1, Math.min(1.5, sign * (liveP - pos.entry) / d1));
+            const liveProg2 = Math.max(-1, Math.min(1.5, sign * (liveP - pos.entry) / d2));
+
             return (
               <div className="dashboard-panel section-gap" style={{ ...panel(), marginTop: 14, borderColor: pos.direction === "long" ? COLORS.green : COLORS.red }}>
                 <div className="active-trade-row" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
@@ -2405,8 +2414,8 @@ export default function Dashboard({ onLogout }) {
                     </span>
                   </span>
                   <span style={{ fontWeight: 700,
-                    color: pos.unrealised_pnl >= 0 ? COLORS.green : COLORS.red }}>
-                    {money(pos.unrealised_pnl)}
+                    color: livePnl >= 0 ? COLORS.green : COLORS.red }}>
+                    {money(livePnl)}
                   </span>
                   <span style={{ marginLeft: "auto", fontSize: 13, color: remaining < 300 ? COLORS.amber : COLORS.sub }}>
                     ⏱ {hms(remaining)} / 45:00
@@ -2417,8 +2426,8 @@ export default function Dashboard({ onLogout }) {
                   </button>
                 </div>
                 <div style={{ marginTop: 12 }}>
-                  <ProgressBar label="TP1 (50%)" value={pos.progress_tp1} done={pos.tp1_done} />
-                  <ProgressBar label="TP2 (50%)" value={pos.progress_tp2} />
+                  <ProgressBar label="TP1 (50%)" value={liveProg1} done={pos.tp1_done} />
+                  <ProgressBar label="TP2 (50%)" value={liveProg2} />
                 </div>
               </div>
             );
