@@ -51,6 +51,11 @@ const fmtLocalTime = (isoStr, secs = false) => {
 
 const fmt = (n, d = 2) =>
   n === null || n === undefined || isNaN(n) ? "—" : Number(n).toFixed(d);
+// Formats large monetary values with thousands separators
+const fmtUSD = (n, d = 0) =>
+  n === null || n === undefined || isNaN(n)
+    ? "—"
+    : Number(n).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 const money = (n) =>
   n === null || n === undefined || isNaN(n)
     ? "—"
@@ -228,16 +233,22 @@ function TvChart({ candles, markers, levels, orderBlocks, position, symbol, live
     if (candles?.length) lastCandleRef.current = candles[candles.length - 1];
   }, [candles, markers, levels, orderBlocks]);
 
-  // Anime la dernière bougie avec le prix temps réel (WebSocket, ~2s)
+  // Anime la bougie courante avec le prix temps réel (WebSocket, ~2s).
+  // Utilise toujours le timestamp du bar M5 courant (floor à 5 min) pour
+  // ne pas animer une vieille bougie si les données OHLCV sont périmées.
   useEffect(() => {
     const s = seriesRef.current;
     const base = lastCandleRef.current;
     if (!s.candle || !base || !livePrice) return;
+    const nowFloor5 = Math.floor(Date.now() / (5 * 60 * 1000)) * (5 * 60);
+    const baseTime = toUnix(base.time);
+    const liveTime = Math.max(baseTime, nowFloor5);
+    const isNewBar = liveTime > baseTime;
     s.candle.update({
-      time: toUnix(base.time),
-      open: base.open,
-      high: Math.max(base.high, livePrice),
-      low: Math.min(base.low, livePrice),
+      time: liveTime,
+      open: isNewBar ? livePrice : base.open,
+      high: isNewBar ? livePrice : Math.max(base.high, livePrice),
+      low: isNewBar ? livePrice : Math.min(base.low, livePrice),
       close: livePrice,
     });
   }, [livePrice]);
@@ -1058,9 +1069,9 @@ export default function Dashboard({ onLogout }) {
                   </div>
                 ) : (
                   <>
-                    <Row k="Capital" v={`$${fmt(state?.risk?.capital, 2)}`} />
-                    <Row k="Risque / trade" v={`${fmt(state?.risk?.risk_per_trade_pct, 1)}% · $${fmt(state?.risk?.risk_amount_usd, 0)}`} />
-                    <Row k="Stop journalier" v={`-$${fmt(state?.risk?.daily_loss_limit_usd, 0)}`} />
+                    <Row k="Capital" v={`$${fmtUSD(state?.risk?.capital, 2)}`} />
+                    <Row k="Risque / trade" v={`${fmt(state?.risk?.risk_per_trade_pct, 1)}% · $${fmtUSD(state?.risk?.risk_amount_usd, 2)}`} />
+                    <Row k="Stop journalier" v={`-$${fmtUSD(state?.risk?.daily_loss_limit_usd, 0)}`} />
                     <Row k="Trades max / jour" v={`${state?.risk?.max_trades_per_day ?? "—"}`} />
                   </>
                 )}

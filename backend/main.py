@@ -1053,6 +1053,32 @@ def get_chart(tf: str = "M5", symbol: str = "XAUUSD", _user: dict = Depends(get_
             "volume": float(row["volume"]),
         })
 
+    # Si le dernier bar OHLCV est périmé (>6 min), ajouter une bougie live
+    # pour que le graphique affiche toujours l'heure courante même si le
+    # provider de données a du retard (ex : yfinance GC=F, rate-limit TD).
+    if candles and tf.upper() == "M5":
+        last_ts = pd.Timestamp(candles[-1]["time"])
+        if last_ts.tzinfo is None:
+            last_ts = last_ts.tz_localize("UTC")
+        now_utc = datetime.now(timezone.utc)
+        staleness_secs = (now_utc - last_ts.to_pydatetime()).total_seconds()
+        if staleness_secs > 360:
+            _sym_to_td = {"XAUUSD": "XAU/USD", "EURUSD": "EUR/USD"}
+            rt = realtime_feed.get_latest(_sym_to_td.get(symbol, symbol))
+            if rt and rt.get("price"):
+                live_p = round(float(rt["price"]), 5 if symbol == "EURUSD" else 2)
+                now_floor = now_utc.replace(second=0, microsecond=0)
+                now_floor = now_floor.replace(minute=(now_floor.minute // 5) * 5)
+                candles.append({
+                    "time": now_floor.isoformat(),
+                    "open": live_p, "high": live_p, "low": live_p, "close": live_p,
+                    "ema9": candles[-1]["ema9"],
+                    "ema21": candles[-1]["ema21"],
+                    "ema200": candles[-1]["ema200"],
+                    "rsi": candles[-1]["rsi"],
+                    "volume": 0.0,
+                })
+
     markers = []
     for t in db.get_trades_for_day(db.today_utc(), mode=state.settings.get("mode")):
         if t.get("symbol", "XAUUSD") != symbol:
