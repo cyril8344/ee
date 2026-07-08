@@ -1160,6 +1160,25 @@ def toggle_blocked_hour(hour: int, _user: dict = Depends(get_current_user)):
     return {"blocked_hours": sorted(bad), "action": action, "hour": hour}
 
 
+@app.post("/api/risk/reset-daily")
+def reset_daily_counter(_user: dict = Depends(get_current_user)):
+    """Recalcule le compteur de trades du jour et le P&L depuis la DB.
+    Utile après suppression manuelle de trades ou changement de max_trades_per_day."""
+    with state.lock:
+        today = db.today_utc()
+        trades_today = db.get_trades_for_day(today, mode=state.settings.get("mode"))
+        closed_today = [t for t in trades_today if t["status"] == "closed"]
+        pnl_today = round(sum(t.get("pnl") or 0.0 for t in closed_today), 2)
+        db.update_daily(today, {"pnl": pnl_today, "trade_count": len(trades_today)})
+        state.risk.hydrate_day(
+            trades_today=len(trades_today),
+            pnl_today=pnl_today,
+            start_equity=state.risk.start_equity_today or state.risk.capital,
+            blocked=state.risk.blocked,
+        )
+    return {"trades_today": len(trades_today), "pnl_today": pnl_today}
+
+
 @app.get("/api/settings")
 def read_settings(_user: dict = Depends(get_current_user)):
     return state.settings
