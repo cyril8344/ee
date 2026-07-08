@@ -124,6 +124,7 @@ class MarketState:
     ml_gate: Optional[Any] = None    # OnlineLogisticRegression instance (per symbol)
     circuit_breaker_until: Optional[datetime] = None
     recent_results: List[bool] = field(default_factory=list)
+    last_close_time: Optional[datetime] = None  # horodatage de la dernière fermeture
 
 
 # --------------------------------------------------------------------------- #
@@ -446,6 +447,7 @@ def trading_tick() -> Dict[str, Any]:
                     if close_info and close_info.get("closed"):
                         _finalize_trade(ms, pos, close_info, now)
                         ms.position = None
+                        ms.last_close_time = now
                         _just_closed = True  # pas de ré-entrée dans la même itération
                     elif close_info and close_info.get("reason") == "tp1_partial":
                         state.push_alert("info", f"[{ms.symbol}] TP1 atteint — 60% clôturé")
@@ -478,8 +480,15 @@ def trading_tick() -> Dict[str, Any]:
                     elif state.risk.trades_today >= state.risk.max_trades_per_day:
                         _set_loop_gate(f"max_trades: {state.risk.trades_today}/{state.risk.max_trades_per_day}")
 
+                # Cooldown 60s après fermeture — protège contre la ré-entrée immédiate
+                # quand _price_tick() ferme la position en dehors de trading_tick().
+                _CLOSE_COOLDOWN_SECS = 60
+                _in_cooldown = (
+                    ms.last_close_time is not None
+                    and (now - ms.last_close_time).total_seconds() < _CLOSE_COOLDOWN_SECS
+                )
                 _bs = strategy.BOOTSTRAP_MODE
-                if (ms.position is None and not _just_closed and can_enter_session
+                if (ms.position is None and not _just_closed and not _in_cooldown and can_enter_session
                         and (_bs or (
                             not state.risk.blocked
                             and not news_status["blocked"]
@@ -912,12 +921,14 @@ async def _price_tick():
                                 now = datetime.now(timezone.utc)
                                 _finalize_trade(ms, pos, close_info, now)
                                 ms.position = None
+                                ms.last_close_time = now
                         elif rt_price >= pos.take_profit2:
                             close_info = ms.broker.close_position(pos, "tp2_realtime")
                             if close_info and close_info.get("closed"):
                                 now = datetime.now(timezone.utc)
                                 _finalize_trade(ms, pos, close_info, now)
                                 ms.position = None
+                                ms.last_close_time = now
                     else:
                         if rt_price >= pos.stop_loss:
                             close_info = ms.broker.close_position(pos, "sl_realtime")
@@ -925,12 +936,14 @@ async def _price_tick():
                                 now = datetime.now(timezone.utc)
                                 _finalize_trade(ms, pos, close_info, now)
                                 ms.position = None
+                                ms.last_close_time = now
                         elif rt_price <= pos.take_profit2:
                             close_info = ms.broker.close_position(pos, "tp2_realtime")
                             if close_info and close_info.get("closed"):
                                 now = datetime.now(timezone.utc)
                                 _finalize_trade(ms, pos, close_info, now)
                                 ms.position = None
+                                ms.last_close_time = now
         except Exception:
             traceback.print_exc()
 
@@ -1052,6 +1065,32 @@ def get_chart(tf: str = "M5", symbol: str = "XAUUSD", _user: dict = Depends(get_
             "rsi": round(float(row["rsi"]), 1),
             "volume": float(row["volume"]),
         })
+
+    # Si le dernier bar OHLCV est périmé (>6 min), ajouter une bougie live
+    # pour que le graphique affiche toujours l'heure courante même si le
+    # provider de données a du retard (ex : yfinance GC=F, rate-limit TD).
+    if candles and tf.upper() == "M5":
+        last_ts = pd.Timestamp(candles[-1]["time"])
+        if last_ts.tzinfo is None:
+            last_ts = last_ts.tz_localize("UTC")
+        now_utc = datetime.now(timezone.utc)
+        staleness_secs = (now_utc - last_ts.to_pydatetime()).total_seconds()
+        if staleness_secs > 360:
+            _sym_to_td = {"XAUUSD": "XAU/USD", "EURUSD": "EUR/USD"}
+            rt = realtime_feed.get_latest(_sym_to_td.get(symbol, symbol))
+            if rt and rt.get("price"):
+                live_p = round(float(rt["price"]), 5 if symbol == "EURUSD" else 2)
+                now_floor = now_utc.replace(second=0, microsecond=0)
+                now_floor = now_floor.replace(minute=(now_floor.minute // 5) * 5)
+                candles.append({
+                    "time": now_floor.isoformat(),
+                    "open": live_p, "high": live_p, "low": live_p, "close": live_p,
+                    "ema9": candles[-1]["ema9"],
+                    "ema21": candles[-1]["ema21"],
+                    "ema200": candles[-1]["ema200"],
+                    "rsi": candles[-1]["rsi"],
+                    "volume": 0.0,
+                })
 
     markers = []
     for t in db.get_trades_for_day(db.today_utc(), mode=state.settings.get("mode")):
