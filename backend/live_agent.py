@@ -195,6 +195,19 @@ class LiveAdaptiveAgent:
                 "changes": applied,
             })
             logger.info("[LiveAgent:%s] ajustements: %s", self.symbol, applied)
+            # Notifier ResearcherAgent pour valider ces params via pretrain
+            self._notify_researcher()
+
+    def _notify_researcher(self) -> None:
+        """Demande au ResearcherAgent de valider les nouveaux params via un pretrain court."""
+        try:
+            import main as _main
+            researcher = getattr(_main.state, "researcher", None)
+            if researcher is not None:
+                researcher.request_validation()
+                logger.info("[LiveAgent:%s] ResearcherAgent notifié pour validation", self.symbol)
+        except Exception as exc:
+            logger.debug("[LiveAgent] notify researcher: %s", exc)
 
     # ------------------------------------------------------------------ #
 
