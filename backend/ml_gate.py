@@ -20,8 +20,8 @@ from __future__ import annotations
 import math
 from typing import Dict, List, Optional, Tuple
 
-N_MIN_TRADES  = 10    # actif dès 10 trades de pretrain
-THRESHOLD     = 0.0   # 0.50→0 pour amorçage — ML Gate ne bloque rien pendant bootstrapping
+N_MIN_TRADES  = 200   # actif dès 200 vrais trades (données suffisantes pour la régression)
+THRESHOLD     = 0.50  # seuil de probabilité — ML Gate bloque si prob < 0.50
 STREAK_BOOST  = 0.02  # boost du seuil par perte au-delà de 2 consécutives
 STREAK_CAP    = 0.30  # boost maximum (+30 % → seuil max 0.85)
 LEARNING_RATE = 0.05
@@ -51,7 +51,7 @@ class AdaptiveThresholds:
     M15_MULT_FLOOR   = 0.05
     M15_MULT_CEIL    = 0.70
 
-    N_MIN       = 10    # trades totaux avant d'activer l'adaptation
+    N_MIN       = 200   # trades totaux avant d'activer l'adaptation ATR/EMA
     ALPHA_WIN   = 0.08  # taux apprentissage sur victoires
     ALPHA_LOSS  = 0.04  # taux apprentissage sur défaites (2× plus lent)
 
