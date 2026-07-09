@@ -210,7 +210,7 @@ def run_pretrain(
         last_ob_ts = None  # verrou strat B : un seul trade par OB
         rejection_counts: Dict[str, int] = {}  # compter les rejets par étape pipeline
         # Limite journalière (prétrain : 10 trades/jour max)
-        max_trades_day = int(settings.get("max_trades_per_day", 10))
+        max_trades_day = 10
         _day_trades: Dict[str, int] = {}  # date_str → nb trades ce jour
 
         _set(bars_total=total, status="Analyse des trades historiques…")
