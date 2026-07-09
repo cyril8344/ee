@@ -1,16 +1,15 @@
 """
 strategy_ict.py
 ===============
-Stratégie B — Smart Money Concepts (ICT) — version simplifiée
+Stratégie B — Smart Money Concepts (ICT) — Order Block + H1 trend
 
-Pipeline : H1 biais → M15 accumulation + breakout → M5 Order Block
+Pipeline : H1 biais → M5 Order Block (retour sur zone)
 
 Conditions d'entrée :
   1. Biais H1 EMA50/EMA200
   2. Plancher ATR M5 (volatilité minimale)
-  3. Accumulation sur M15 : range serré (< ACC_RANGE_ATR × ATR) sur ACC_LOOKBACK bougies
-  4. Breakout du range dans la direction du biais sur les BRK_LOOKBACK dernières bougies M15
-  5. Order Block M5 — le prix actuel est dans un OB aligné avec le biais
+  3. Order Block M5 — le prix actuel est dans un OB aligné avec le biais
+     (OB = bougie opposée précédant une impulsion ≥ 1.0×ATR)
 
 Gestion du risque :
   SL  = juste sous/au-dessus du bord de l'OB
@@ -108,7 +107,7 @@ def _find_obs_with_age(df: pd.DataFrame, lookback: int = OB_LOOKBACK_ICT) -> Lis
     for i in range(1, n - 1):
         c, nxt = sub.iloc[i], sub.iloc[i + 1]
         impulse = abs(nxt["close"] - nxt["open"])
-        if impulse < 0.5 * atr_val:
+        if impulse < 1.0 * atr_val:
             continue
         age = n - 1 - i
         if c["close"] < c["open"] and nxt["close"] > nxt["open"]:
@@ -134,15 +133,14 @@ def evaluate_ict(
     atr_min: float = ATR_MIN,
 ) -> Optional[Signal]:
     """
-    Évalue la stratégie ICT simplifiée sur la dernière barre M5 clôturée.
+    Évalue la stratégie ICT sur la dernière barre M5 clôturée.
 
-    H1  → biais directionnel (EMA50/EMA200)
-    M15 → accumulation + breakout
-    M5  → entrée précise sur Order Block
+    H1 → biais directionnel (EMA50/EMA200)
+    M5 → entrée sur Order Block (retour sur zone, impulsion ≥ 1.0×ATR)
 
     Retourne un Signal ou None.
     """
-    if len(m5) < max(EMA_SLOW, 50) or len(h1) < 1 or len(m15) < ACC_LOOKBACK + BRK_LOOKBACK + 2:
+    if len(m5) < max(EMA_SLOW, 50) or len(h1) < 1:
         return None
 
     cur = m5.iloc[-1]
@@ -171,11 +169,7 @@ def evaluate_ict(
     if atr_val < atr_min:
         return None
 
-    # 5) Accumulation + breakout sur M15
-    if not detect_accumulation_breakout(m15, bias):
-        return None
-
-    # 6) Order Block M5 — le prix actuel est dans un OB aligné avec le biais
+    # 5) Order Block M5 — le prix actuel est dans un OB aligné avec le biais
     entry_price = float(cur["close"])
     obs = _find_obs_with_age(m5, lookback=OB_LOOKBACK_ICT)
     ob_match: Optional[Dict[str, Any]] = None
@@ -189,11 +183,11 @@ def evaluate_ict(
     if ob_match is None:
         return None
 
-    # 7) FVG confluence (optionnelle — loggée)
+    # 6) FVG confluence (optionnelle — loggée)
     fvgs    = find_fvgs(m5)
     fvg_hit = near_fvg(entry_price, bias, fvgs)
 
-    # 8) SL juste sous/au-dessus du bord de l'OB
+    # 7) SL juste sous/au-dessus du bord de l'OB
     if bias == "LONG":
         sl = min(ob_match["low"] - OB_SL_BUFFER_ATR * atr_val,
                  entry_price     - OB_SL_MIN_ATR     * atr_val)
@@ -208,7 +202,7 @@ def evaluate_ict(
     tp1 = entry_price + TP1_R * risk if direction == "long" else entry_price - TP1_R * risk
     tp2 = entry_price + TP2_R * risk if direction == "long" else entry_price - TP2_R * risk
 
-    triggers = ["order_block", "accum_breakout"]
+    triggers = ["order_block"]
     if fvg_hit:
         triggers.append("near_fvg")
 
