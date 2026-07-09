@@ -246,39 +246,48 @@ def evaluate_ict(
         if _t:
             _sr_tp2_target = _t
 
-    # 4) ADX H1 — marché tendanciel requis (rejet chop)
+    _sr_zone_active = _near_res or _near_sup
+
+    # 4) ADX H1 — requis en mode tendance, ignoré en mode S/R (range = normal)
     h1_adx = float(h1.iloc[-1].get("adx", 0) or 0) if len(h1) > 0 else 0.0
-    if h1_adx < ADX_MIN_H1:
+    if not _sr_zone_active and h1_adx < ADX_MIN_H1:
         return None
 
-    # 5) Order Blocks M5 valides
+    # 5) Order Blocks M5 — obligatoires hors S/R, optionnels (confluence) en mode S/R
     entry_price = float(cur["close"])
     obs = _find_order_blocks(m5, direction, atr_val)
-    if not obs:
-        return None
+    ob  = obs[-1] if obs else None
 
-    # Dernier OB valide (le plus récent)
-    ob = obs[-1]
-
-    # 6) Prix actuel en retest de l'OB
-    if not _in_ob(float(cur["low"]), float(cur["high"]), ob):
-        return None
+    # 6) Retest OB — obligatoire hors S/R, optionnel en mode S/R
+    if not _sr_zone_active:
+        if ob is None or not _in_ob(float(cur["low"]), float(cur["high"]), ob):
+            return None
+    # En mode S/R : on entre même sans OB (la zone S/R est la confluence principale)
 
     # 7) Niveaux du trade
     entry = entry_price
 
     if direction == "LONG":
-        raw_sl = ob["low"] - SL_BUFFER_ATR * atr_val
-        sl     = max(raw_sl, entry - MAX_RISK_ATR * atr_val)
-        risk   = abs(entry - sl)
+        # SL sous l'OB si disponible, sinon sous la zone S/R (support + buffer)
+        if ob is not None:
+            raw_sl = ob["low"] - SL_BUFFER_ATR * atr_val
+        else:
+            sup = max(_h1_sr["support"]) if _h1_sr["support"] else entry - MAX_RISK_ATR * atr_val
+            raw_sl = sup - SL_BUFFER_ATR * atr_val
+        sl   = max(raw_sl, entry - MAX_RISK_ATR * atr_val)
+        risk = abs(entry - sl)
         if risk <= 0:
             return None
         tp1 = entry + TP1_R * risk
         tp2 = entry + TP2_R * risk
     else:
-        raw_sl = ob["high"] + SL_BUFFER_ATR * atr_val
-        sl     = min(raw_sl, entry + MAX_RISK_ATR * atr_val)
-        risk   = abs(entry - sl)
+        if ob is not None:
+            raw_sl = ob["high"] + SL_BUFFER_ATR * atr_val
+        else:
+            res = min(_h1_sr["resistance"]) if _h1_sr["resistance"] else entry + MAX_RISK_ATR * atr_val
+            raw_sl = res + SL_BUFFER_ATR * atr_val
+        sl   = min(raw_sl, entry + MAX_RISK_ATR * atr_val)
+        risk = abs(entry - sl)
         if risk <= 0:
             return None
         tp1 = entry - TP1_R * risk
@@ -292,8 +301,14 @@ def evaluate_ict(
             tp2 = _sr_tp2_target
             sr_tp2_used = True
 
-    ob_ts = ob["ts"]
-    ob_ts_str = ob_ts.isoformat() if hasattr(ob_ts, "isoformat") else str(ob_ts)
+    ob_ts_str = None
+    if ob is not None:
+        ob_ts = ob["ts"]
+        ob_ts_str = ob_ts.isoformat() if hasattr(ob_ts, "isoformat") else str(ob_ts)
+
+    reason = ("SR_RETEST" if _sr_zone_active and ob is None
+              else "SR_OB_RETEST" if _sr_zone_active
+              else "OB_RETEST")
 
     return Signal(
         direction=direction.lower(),
@@ -304,13 +319,13 @@ def evaluate_ict(
         take_profit1=tp1,
         take_profit2=tp2,
         atr=atr_val,
-        reason="SR_OB_RETEST" if (_near_res or _near_sup) else "OB_RETEST",
+        reason=reason,
         risk_distance=risk,
         timestamp=ts,
         meta={
             "strategy":      "B_OB",
-            "ob_low":        round(ob["low"],  5),
-            "ob_high":       round(ob["high"], 5),
+            "ob_low":        round(ob["low"],  5) if ob else None,
+            "ob_high":       round(ob["high"], 5) if ob else None,
             "ob_ts":         ob_ts_str,
             "adx_h1":        round(h1_adx, 1),
             "sr_zone":       "resistance" if _near_res else ("support" if _near_sup else None),
