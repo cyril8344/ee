@@ -47,24 +47,6 @@ The 10-stage filter runs in strict order — a rejection at any stage short-circ
 8. M5 RSI momentum (LONG > 46, SHORT < 57)
 9. VWAP alignment (close ≥ VWAP for LONG, ≤ VWAP for SHORT)
 10. Candle patterns — soit 1 pattern fort (ancre, weight ≥ 0.85) soit 2+ patterns (sum ≥ 1.0 LONG / 1.5 SHORT) — ancre (ema9_pullback ou micro_breakout) toujours requise
-11. ML Gate — logistic regression, activates after 15 trades
-
-### ML Gate (`ml_gate.py`)
-
-Online logistic regression with 8 features:
-
-| Feature | Encoding |
-|---------|---------|
-| `atr_norm` | ATR / price |
-| `rsi_norm` | (RSI−50) / 50 → [−1, +1] |
-| `ema200_bias` | +1 LONG / −1 SHORT |
-| `pattern_w_norm` | avg pattern weight / 2 |
-| `adx_norm` | ADX H1 / 50 |
-| `session_enc` | London=1.0, NY=0.5 |
-| `h1_rsi_norm` | (RSI H1 − 50) / 50 → [−1, +1] |
-| `hour_in_session` | 0.0 (début session) → 1.0 (fin session) |
-
-Entry threshold: 0.50 (boosted when on a losing streak). **Reset ML weights (pass `reset=True`) whenever filters or features change.**
 
 ### Trade Management
 
@@ -79,7 +61,6 @@ Entry threshold: 0.50 (boosted when on a losing streak). **Reset ML weights (pas
 ```
 data_provider.py  →  broker.py (M5 OHLCV, yfinance GC=F)
                   →  strategy.py (multi-TF indicators)
-                  →  ml_gate.py (online learning)
                   →  risk_manager.py (position size)
                   →  broker.py (PaperBroker or MT5Broker)
                   →  database.py (SQLite)
@@ -139,7 +120,6 @@ After merging to `main`:
 - **MAX_TRADE_MINUTES = 45** (was 30) — more time for TP targets to be reached
 - **TP1 = 0.7R**, **TP2 = 1.8R** — gap TP1→TP2 = 1.1R; TP2=1.4R testé mais moins bon, 1.8R optimal confirmé
 - **SL → entrée (BE 0R) après TP1** — déplacé à l'entrée sur les bougies suivantes (pas de vérification intrabar). Pire cas : +0.7R×50% + 0×50% = +0.35R net. À comparer via pretrain avec "pas de déplacement" (−0.35R pire cas mais plus de trades TP2).
-- **ML Gate: 8 features** (h1_rsi_norm + hour_in_session ajoutés en June 2026) — ML weights must be reset after any feature count change
 - **Strategy B (EUR/USD) Order Block only** (June 2026) : biais H1 (EMA50 vs EMA200) + OB M5 non mitiguée + retest → TP1=0.7R, TP2=1.8R. Supprimé : AMD, FVG, Asian range, sweep, accumulation.
 - **Strategy A (XAU/USD)** : EMA/patterns, toujours actif sur XAUUSD, non modifiable depuis le dashboard
 - **Strategy B (EUR/USD)** : Order Block M5 via `strategy_ict.py`, toujours actif sur EURUSD, non modifiable depuis le dashboard
