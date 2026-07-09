@@ -213,8 +213,13 @@ class OnlineLogisticRegression:
                     return
                 self.weights            = loaded_weights
                 self.bias_w             = data.get("bias_w",             0.0)
-                self.n_samples          = data.get("n_samples",          0)
                 self.consecutive_losses = data.get("consecutive_losses", 0)
+                # Reject pretrain-contaminated counts: only trust n_samples
+                # written by live trading (marked with live_source=True).
+                if data.get("live_source"):
+                    self.n_samples = data.get("n_samples", 0)
+                else:
+                    self.n_samples = 0  # stale pretrain data — restart count
         except Exception:
             pass
 

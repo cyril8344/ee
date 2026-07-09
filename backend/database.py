@@ -525,6 +525,7 @@ def save_ml_weights(weights: list, bias_w: float, n_samples: int,
     data = json.dumps({
         "weights": weights, "bias_w": bias_w, "n_samples": n_samples,
         "consecutive_losses": consecutive_losses,
+        "live_source": True,  # distinguishes live data from pretrain contamination
     })
     now  = _utcnow_iso()
     with get_conn() as conn:
