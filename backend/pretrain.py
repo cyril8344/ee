@@ -40,22 +40,30 @@ from ml_gate import OnlineLogisticRegression, AdaptiveThresholds, N_FEATURES
 # État de progression (partagé avec l'API)
 # --------------------------------------------------------------------------- #
 _progress: Dict[str, Any] = {
-    "running":   False,
-    "pct":       0,
-    "bars_done": 0,
-    "bars_total": 0,
-    "trades":    0,
-    "wins":      0,
-    "status":    "idle",    # idle | running | done | error
-    "last_result": None,
-    "error":     None,
+    "running":      False,
+    "pct":          0,
+    "bars_done":    0,
+    "bars_total":   0,
+    "trades":       0,
+    "wins":         0,
+    "status":       "idle",    # idle | running | done | error
+    "last_result":  None,
+    "strategy_mode": None,
+    "error":        None,
 }
+# Derniers résultats complétés par stratégie (persistent entre les lancements)
+_last_by_strategy: Dict[str, Any] = {"A": None, "B": None}
 _lock = threading.Lock()
 
 
 def get_progress() -> Dict[str, Any]:
     with _lock:
         return dict(_progress)
+
+
+def get_last_results() -> Dict[str, Any]:
+    with _lock:
+        return dict(_last_by_strategy)
 
 
 def _set(**kwargs):
@@ -102,7 +110,7 @@ def run_pretrain(
     reset=False : accumule sur l'historique existant
     """
     _set(running=True, pct=0, bars_done=0, trades=0, wins=0,
-         status="running", error=None, last_result=None)
+         status="running", error=None, last_result=None, strategy_mode=strategy_mode)
 
     # Pendant le pretrain : désactiver BOOTSTRAP_MODE ET restaurer les seuils réels.
     # Sans ça, tous les filtres sont à 0 (valeurs bootstrap) → 5000+ trades bruités
@@ -201,6 +209,9 @@ def run_pretrain(
         trades_log = []   # log détaillé par trade (pour analyse erreur/erreur)
         last_ob_ts = None  # verrou strat B : un seul trade par OB
         rejection_counts: Dict[str, int] = {}  # compter les rejets par étape pipeline
+        # Limite journalière (prétrain : 10 trades/jour max)
+        max_trades_day = int(settings.get("max_trades_per_day", 10))
+        _day_trades: Dict[str, int] = {}  # date_str → nb trades ce jour
 
         _set(bars_total=total, status="Analyse des trades historiques…")
 
@@ -366,6 +377,12 @@ def run_pretrain(
 
             if sig is None:
                 continue
+
+            # Limite journalière (même règle que le live)
+            day_key = ts.strftime("%Y-%m-%d")
+            if _day_trades.get(day_key, 0) >= max_trades_day:
+                continue
+            _day_trades[day_key] = _day_trades.get(day_key, 0) + 1
 
             # Verrou strat B : mémoriser l'OB utilisé pour ce trade
             if strategy_mode == "B":
@@ -666,6 +683,8 @@ def run_pretrain(
             "false_stop_by_pattern":  false_stop_by_pattern,
             "rejection_counts":       dict(sorted(rejection_counts.items(), key=lambda x: -x[1])),
         }
+        with _lock:
+            _last_by_strategy[strategy_mode] = result
         _set(running=False, pct=100, bars_done=total, trades=n_trades,
              wins=n_wins, status="done", last_result=result)
         return result

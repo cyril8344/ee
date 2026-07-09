@@ -852,6 +852,11 @@ export default function Dashboard({ onLogout }) {
   // Strategy is fixed per symbol — EURUSD always uses B (ICT), others use A (EMA)
   const strategyMode = activeMarket === "EURUSD" ? "B" : "A";
 
+  // Résultat prétrain de la stratégie active (séparé par stratégie)
+  const currentPretrainResult = pretrainStatus?.last_by_strategy?.[strategyMode]
+    || (pretrainStatus?.strategy_mode === strategyMode ? pretrainStatus?.last_result : null);
+  const isPretrainRunningForMe = !!(pretrainStatus?.running && pretrainStatus?.strategy_mode === strategyMode);
+
   const switchLive = () => {
     if (state?.mode === "live") {
       fetch(`${API}/api/mode`, {
@@ -1280,10 +1285,13 @@ export default function Dashboard({ onLogout }) {
                   </div>
                     </> /* fin Strategy A */
                   )} {/* fin ternaire ICT vs A */}
-                  {/* Pré-entraînement — commun aux deux stratégies */}
+                  {/* Pré-entraînement — séparé par stratégie */}
                   <div style={{ marginTop: 6, borderTop: `1px solid ${COLORS.border}`, paddingTop: 6 }}>
+                    <div style={{ fontSize: 10, color: strategyMode === "B" ? COLORS.blue : COLORS.amber, fontWeight: 600, marginBottom: 6 }}>
+                      Prétrain {strategyMode === "A" ? "XAU/USD — Strat A" : "EUR/USD — Strat B"}
+                    </div>
                     {/* Sélecteur de période */}
-                    {!pretrainStatus?.running && (
+                    {!isPretrainRunningForMe && (
                       <div style={{ marginBottom: 6 }}>
                         <div style={{ display: "flex", gap: 3, marginBottom: 4 }}>
                           {[1, 3, 6].map(m => {
@@ -1331,7 +1339,7 @@ export default function Dashboard({ onLogout }) {
                         </label>
                       </div>
                     )}
-                    {pretrainStatus?.running ? (
+                    {isPretrainRunningForMe ? (
                       <div>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                           <span style={{ color: COLORS.amber, fontSize: 11 }}>Pré-entraînement en cours…</span>
@@ -1344,7 +1352,7 @@ export default function Dashboard({ onLogout }) {
                           {pretrainStatus.trades ?? 0} trades · {pretrainStatus.bars_done ?? 0}/{pretrainStatus.bars_total ?? 0} barres — {pretrainStatus.status}
                         </div>
                       </div>
-                    ) : pretrainStatus?.status === "error" ? (
+                    ) : pretrainStatus?.status === "error" && pretrainStatus?.strategy_mode === strategyMode ? (
                       <div>
                         <div style={{ color: COLORS.red, fontSize: 11, marginBottom: 4 }}>
                           ✗ Erreur pré-entraînement
@@ -1361,46 +1369,46 @@ export default function Dashboard({ onLogout }) {
                           Réessayer
                         </button>
                       </div>
-                    ) : pretrainStatus?.status === "done" && pretrainStatus.last_result ? (
+                    ) : currentPretrainResult ? (
                       <div>
                         <div style={{ color: COLORS.green, fontSize: 11, marginBottom: 4 }}>
                           ✓ Pré-entraînement terminé
                         </div>
                         {/* Ligne 1 : trades + WR + PF */}
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 2 }}>
-                          <span style={{ color: COLORS.sub }}>{pretrainStatus.last_result.n_trades} trades</span>
-                          <span style={{ color: pretrainStatus.last_result.win_rate >= 0.45 ? COLORS.green : COLORS.red }}>
-                            {(pretrainStatus.last_result.win_rate * 100).toFixed(0)}% WR
+                          <span style={{ color: COLORS.sub }}>{currentPretrainResult.n_trades} trades</span>
+                          <span style={{ color: currentPretrainResult.win_rate >= 0.45 ? COLORS.green : COLORS.red }}>
+                            {(currentPretrainResult.win_rate * 100).toFixed(0)}% WR
                           </span>
-                          <span style={{ color: (pretrainStatus.last_result.profit_factor ?? 0) >= 1.0 ? COLORS.green : COLORS.red }}>
-                            PF {(pretrainStatus.last_result.profit_factor ?? 0).toFixed(2)}
+                          <span style={{ color: (currentPretrainResult.profit_factor ?? 0) >= 1.0 ? COLORS.green : COLORS.red }}>
+                            PF {(currentPretrainResult.profit_factor ?? 0).toFixed(2)}
                           </span>
                         </div>
                         {/* Ligne 2 : avg win / avg loss */}
-                        {pretrainStatus.last_result.avg_win != null && (
+                        {currentPretrainResult.avg_win != null && (
                           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 2 }}>
                             <span style={{ color: COLORS.sub }}>Moy. gain</span>
-                            <span style={{ color: COLORS.green }}>+{pretrainStatus.last_result.avg_win.toFixed(2)}$</span>
+                            <span style={{ color: COLORS.green }}>+{currentPretrainResult.avg_win.toFixed(2)}$</span>
                             <span style={{ color: COLORS.sub }}>Moy. perte</span>
-                            <span style={{ color: COLORS.red }}>-{pretrainStatus.last_result.avg_loss.toFixed(2)}$</span>
+                            <span style={{ color: COLORS.red }}>-{currentPretrainResult.avg_loss.toFixed(2)}$</span>
                           </div>
                         )}
                         {/* Ligne 3 : net PnL */}
-                        {pretrainStatus.last_result.net_pnl != null && (
+                        {currentPretrainResult.net_pnl != null && (
                           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 4 }}>
                             <span style={{ color: COLORS.sub }}>Net PnL</span>
-                            <span style={{ color: pretrainStatus.last_result.net_pnl >= 0 ? COLORS.green : COLORS.red, fontWeight: 600 }}>
-                              {pretrainStatus.last_result.net_pnl >= 0 ? "+" : ""}{pretrainStatus.last_result.net_pnl.toFixed(2)}$
+                            <span style={{ color: currentPretrainResult.net_pnl >= 0 ? COLORS.green : COLORS.red, fontWeight: 600 }}>
+                              {currentPretrainResult.net_pnl >= 0 ? "+" : ""}{currentPretrainResult.net_pnl.toFixed(2)}$
                             </span>
-                            <span style={{ color: COLORS.sub }}>{pretrainStatus.last_result.period}</span>
+                            <span style={{ color: COLORS.sub }}>{currentPretrainResult.period}</span>
                           </div>
                         )}
                         <div style={{ color: COLORS.sub, fontSize: 10, marginBottom: 4 }}>
-                          ML: {pretrainStatus.last_result.ml_samples} échantillons
+                          ML: {currentPretrainResult.ml_samples} échantillons
                         </div>
                         {/* Equity curve */}
-                        {pretrainStatus.last_result.equity_curve?.length > 1 && (() => {
-                          const curve = pretrainStatus.last_result.equity_curve;
+                        {currentPretrainResult.equity_curve?.length > 1 && (() => {
+                          const curve = currentPretrainResult.equity_curve;
                           const vals = curve.map(p => p.equity);
                           const minV = Math.min(...vals);
                           const maxV = Math.max(...vals);
