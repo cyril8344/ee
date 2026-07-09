@@ -209,6 +209,9 @@ def run_pretrain(
         trades_log = []   # log détaillé par trade (pour analyse erreur/erreur)
         last_ob_ts = None  # verrou strat B : un seul trade par OB
         rejection_counts: Dict[str, int] = {}  # compter les rejets par étape pipeline
+        # Limite journalière (prétrain : 10 trades/jour max)
+        max_trades_day = int(settings.get("max_trades_per_day", 10))
+        _day_trades: Dict[str, int] = {}  # date_str → nb trades ce jour
 
         _set(bars_total=total, status="Analyse des trades historiques…")
 
@@ -374,6 +377,12 @@ def run_pretrain(
 
             if sig is None:
                 continue
+
+            # Limite journalière (même règle que le live)
+            day_key = ts.strftime("%Y-%m-%d")
+            if _day_trades.get(day_key, 0) >= max_trades_day:
+                continue
+            _day_trades[day_key] = _day_trades.get(day_key, 0) + 1
 
             # Verrou strat B : mémoriser l'OB utilisé pour ce trade
             if strategy_mode == "B":
