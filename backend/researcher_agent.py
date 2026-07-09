@@ -108,6 +108,26 @@ class ResearcherAgent:
 
         self._start_next()
 
+    def request_validation(self) -> None:
+        """
+        Déclenché par LiveAdaptiveAgent après un ajustement de params.
+        Insère les params live actuels en tête de queue pour validation rapide.
+        """
+        if self._running or strategy.BOOTSTRAP_MODE:
+            return
+        current = {
+            "RSI_M5_LONG_MIN":  float(getattr(strategy, "RSI_M5_LONG_MIN",  45.0)),
+            "RSI_M5_SHORT_MAX": float(getattr(strategy, "RSI_M5_SHORT_MAX", 55.0)),
+            "ADX_MIN":          float(getattr(strategy, "ADX_MIN",           20.0)),
+        }
+        with self._lock:
+            # Éviter les doublons : ne pas re-tester les mêmes params
+            if current not in self._queue:
+                self._queue.insert(0, current)
+                logger.info("[Researcher] validation demandée par LiveAgent: %s", current)
+        if self._is_off_session():
+            self._start_next()
+
     def status(self) -> Dict[str, Any]:
         with self._lock:
             results_copy = list(self._results)
@@ -133,15 +153,19 @@ class ResearcherAgent:
         return self._heuristic_grid()
 
     def _heuristic_grid(self) -> List[Dict[str, float]]:
-        """Raffine autour du meilleur résultat connu."""
-        if not self._results:
-            return list(_DEFAULT_GRID)
-        best_r = max(self._results, key=lambda r: r.get("score", 0.0))
-        bp = best_r.get("params", {})
-        rsi_lo = float(bp.get("RSI_M5_LONG_MIN",  45.0))
-        rsi_hi = float(bp.get("RSI_M5_SHORT_MAX", 55.0))
-        adx    = float(bp.get("ADX_MIN",           20.0))
-        grid   = []
+        """Raffine autour des params live actuels (posés par LiveAdaptiveAgent ou AdaptiveAgent)."""
+        # Point de départ = ce que le live utilise MAINTENANT (pas juste notre meilleur résultat)
+        rsi_lo = float(getattr(strategy, "RSI_M5_LONG_MIN",  45.0))
+        rsi_hi = float(getattr(strategy, "RSI_M5_SHORT_MAX", 55.0))
+        adx    = float(getattr(strategy, "ADX_MIN",           20.0))
+        # Si on a des résultats et que le meilleur est bien meilleur que l'actuel, on centre sur lui
+        if self._results:
+            best_r = max(self._results, key=lambda r: r.get("score", 0.0))
+            bp = best_r.get("params", {})
+            rsi_lo = float(bp.get("RSI_M5_LONG_MIN",  rsi_lo))
+            rsi_hi = float(bp.get("RSI_M5_SHORT_MAX", rsi_hi))
+            adx    = float(bp.get("ADX_MIN",           adx))
+        grid = []
         for drsi in (-1.0, 0.0, 1.0):
             for dadx in (-2.5, 0.0, 2.5):
                 combo = {
@@ -327,3 +351,14 @@ class ResearcherAgent:
             "[Researcher] meilleurs params appliqués: score=%.3f PF=%.2f WR=%.0f%%",
             best["score"], best["profit_factor"], best["win_rate"] * 100,
         )
+
+        # Synchroniser la DB de LiveAdaptiveAgent pour éviter qu'il écrase nos params
+        try:
+            import database as _db
+            live_data = _db.live_agent_load("XAUUSD") or {}
+            live_params = dict(live_data.get("params", {}))
+            live_params.update({k: v for k, v in best["params"].items()})
+            _db.live_agent_save("XAUUSD", live_params, live_data.get("trade_log", []))
+            logger.info("[Researcher] DB LiveAgent synchronisée avec les meilleurs params")
+        except Exception as exc:
+            logger.warning("[Researcher] erreur sync DB LiveAgent: %s", exc)

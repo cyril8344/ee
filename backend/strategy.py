@@ -45,11 +45,11 @@ ATR_PERIOD = 14
 ADX_PERIOD = 14
 VOL_AVG_PERIOD = 20
 
-RSI_LOW = 0.0    # 35→0 pour amorçage — LiveAdaptiveAgent ajustera
-RSI_HIGH = 100.0 # 65→100 pour amorçage — LiveAdaptiveAgent ajustera
-ATR_MIN = 0.0    # 2.5→0 pour amorçage — LiveAdaptiveAgent ajustera
+RSI_LOW = 35.0   # seuil M15 RSI LONG (LiveAdaptiveAgent peut ajuster)
+RSI_HIGH = 65.0  # seuil M15 RSI SHORT (LiveAdaptiveAgent peut ajuster)
+ATR_MIN = 2.5    # plancher volatilité M5 (LiveAdaptiveAgent peut ajuster)
 ATR_HIGH = 4.5   # seuil vol. élevée : SL passe à SL_ATR_MULT_HIGH au lieu de bloquer
-ADX_MIN = 0.0    # 20→0 pour amorçage — LiveAdaptiveAgent ajustera
+ADX_MIN = 20.0   # force tendance minimale H1 (LiveAdaptiveAgent peut ajuster)
 SR_PROXIMITY_ATR = 0.7
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
 SL_ATR_MULT      = 1.4      # multiplicateur SL normal
@@ -62,25 +62,25 @@ OB_PROXIMITY_ATR  = 0.4     # tolérance de proximité OB en multiples d'ATR
 FVG_MIN_SIZE_ATR  = 0.3     # taille minimale d'un FVG pour être valide
 MICRO_RANGE_BARS = 3        # micro-consolidation length
 MAX_TRADE_MINUTES = 45
-TREND_BIAS_DISTANCE   = 999.0  # désactivé pour amorçage (était 0.5)
+TREND_BIAS_DISTANCE   = 0.5      # bloque SHORT si price > EMA200+0.5×ATR (et LONG inverse)
 EMA200_MIN_DIST_LONG  = 0.3  # LONG doit être à ≥ 0.3×ATR au-dessus de EMA200
 EMA200_MIN_DIST_SHORT = 0.6  # SHORT doit être à ≥ 0.6×ATR en-dessous de EMA200 (XAUUSD uptrend)
 BAD_HOURS_CET         = set()    # configuré via le panel dashboard (persiste en DB)
-ATR_REGIME_MIN_RATIO  = 0.0      # 0.65→0 pour amorçage — LiveAdaptiveAgent ajustera
-RSI_M5_LONG_MIN       = 0.0     # 42→0 pour amorçage — LiveAdaptiveAgent ajustera
-RSI_M5_SHORT_MAX      = 100.0   # 58→100 pour amorçage — LiveAdaptiveAgent ajustera
-PATTERN_FLOOR         = 0.0     # 0.67→0 pour amorçage — LiveAdaptiveAgent ajustera
-MIN_WEIGHT_SUM_LONG   = 0.0     # 1.0→0 pour amorçage — LiveAdaptiveAgent ajustera
+ATR_REGIME_MIN_RATIO  = 0.65     # ratio ATR_now/ATR_mean minimal pour entrer (LiveAdaptiveAgent peut ajuster)
+RSI_M5_LONG_MIN       = 45.0    # momentum M5 LONG minimal (LiveAdaptiveAgent peut ajuster)
+RSI_M5_SHORT_MAX      = 55.0    # momentum M5 SHORT maximal (LiveAdaptiveAgent peut ajuster)
+PATTERN_FLOOR         = 0.67    # WR minimal d'un pattern pour être utilisé
+MIN_WEIGHT_SUM_LONG   = 1.0     # somme poids patterns minimale LONG
 
 # Mode amorçage — court-circuite TOUS les filtres sauf session + biais direction
 # False = filtres réels actifs (ATR, patterns, RSI, M15, etc.)
 BOOTSTRAP_MODE        = False
 
-# Filtres booléens — ignorés quand BOOTSTRAP_MODE=True
-M15_FILTER_ENABLED    = False   # confirmation M15 EMA9/21 + RSI
+# Filtres booléens
+M15_FILTER_ENABLED    = True    # confirmation M15 EMA9/21 + RSI
 ADX_SLOPE_ENABLED     = False   # ADX doit être en hausse (momentum non épuisé)
-EMA9_FILTER_ENABLED   = False   # close M5 aligné avec EMA9
-VWAP_FILTER_ENABLED   = False   # close du bon côté du VWAP
+EMA9_FILTER_ENABLED   = True    # close M5 aligné avec EMA9
+VWAP_FILTER_ENABLED   = True    # close du bon côté du VWAP
 BODY_FILTER_ENABLED   = False   # corps bougie ≥ 40% de la range
 
 CET = pytz.timezone("Europe/Paris")  # CET/CEST
