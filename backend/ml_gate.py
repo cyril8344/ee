@@ -45,7 +45,7 @@ class AdaptiveThresholds:
     """
 
     ATR_RATIO_FLOOR  = 0.40
-    ATR_RATIO_CEIL   = 2.50
+    ATR_RATIO_CEIL   = 1.80
     EMA9_MULT_FLOOR  = 0.15
     EMA9_MULT_CEIL   = 1.20
     M15_MULT_FLOOR   = 0.05
@@ -71,7 +71,12 @@ class AdaptiveThresholds:
             import database as db
             data = db.load_adaptive_thresholds(self.symbol)
             if data:
-                self.atr_min   = data.get("atr_min",   self.atr_min_default)
+                raw_atr = data.get("atr_min", self.atr_min_default)
+                # Re-apply caps so a pretrain run (different default) can't pollute live
+                self.atr_min = max(
+                    self.atr_min_default * self.ATR_RATIO_FLOOR,
+                    min(self.atr_min_default * self.ATR_RATIO_CEIL, raw_atr),
+                )
                 self.ema9_mult = data.get("ema9_mult",  0.5)
                 self.m15_mult  = data.get("m15_mult",   0.3)
                 self.n_wins    = data.get("n_wins",     0)
