@@ -1015,6 +1015,7 @@ def evaluate(
         if ml_gate is not None:
             allowed, ml_prob = ml_gate.gate(ml_features)
             if not allowed:
+                _rej(_reject_log, "ml_gate")
                 return None
     except Exception:
         pass

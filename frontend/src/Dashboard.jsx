@@ -540,6 +540,13 @@ export default function Dashboard({ onLogout }) {
       .catch(() => alert("Erreur lors du reset."));
   };
 
+  /* Reset ML Gate (dormant jusqu'à 200 trades live) */
+  const handleResetML = () => {
+    fetch(`${API}/api/bot/reset_ml`, { method: "POST", headers: authHeaders() })
+      .then((r) => r.json())
+      .catch(() => {});
+  };
+
   /* Reset compteur trades du jour */
   const handleResetDaily = () => {
     fetch(`${API}/api/risk/reset-daily`, { method: "POST", headers: authHeaders() })
@@ -1265,6 +1272,18 @@ export default function Dashboard({ onLogout }) {
                         </span>
                       )}
                     </div>
+                    {/* Reset ML Gate */}
+                    {mkt?.ml_gate?.n_samples > 0 && (
+                      <div style={{ marginTop: 4 }}>
+                        <button onClick={handleResetML}
+                          title="Remet n_samples=0 en mémoire + DB — gate dormant jusqu'à 200 trades live"
+                          style={{ fontSize: 10, padding: "1px 6px", background: "transparent",
+                            border: `1px solid ${COLORS.red}`, color: COLORS.red,
+                            borderRadius: 3, cursor: "pointer", width: "100%" }}>
+                          ↺ Reset ML Gate ({mkt.ml_gate.n_samples} samples)
+                        </button>
+                      </div>
+                    )}
                     {/* Série noire */}
                     {mkt?.ml_gate?.consecutive_losses >= 3 && (
                       <div style={{ display: "flex", justifyContent: "space-between", paddingLeft: 8, marginTop: 2 }}>

@@ -1483,6 +1483,22 @@ def toggle_bot(_user: dict = Depends(get_current_user)):
     return {"bot_enabled": new_val}
 
 
+@app.post("/api/bot/reset_ml")
+def reset_ml_gate(_user: dict = Depends(get_current_user)):
+    """Reset ML gate in memory + DB: gate stays dormant until 200 real live trades."""
+    from ml_gate import N_FEATURES
+    with state.lock:
+        for ms in state.markets.values():
+            if ms.ml_gate:
+                ms.ml_gate.n_samples = 0
+                ms.ml_gate.weights = [0.0] * N_FEATURES
+                ms.ml_gate.bias_w = 0.0
+                ms.ml_gate.consecutive_losses = 0
+                ms.ml_gate._save()
+    state.push_alert("info", "🔄 ML Gate réinitialisé — dormant jusqu'à 200 trades live")
+    return {"ok": True, "n_samples": 0}
+
+
 @app.post("/api/risk/unblock")
 def unblock_risk(_user: dict = Depends(get_current_user)):
     """Force-clear the daily risk block (admin override)."""
