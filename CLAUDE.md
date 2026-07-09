@@ -41,10 +41,10 @@ The 10-stage filter runs in strict order — a rejection at any stage short-circ
 2. Session gate (London 8–12h, NY 14–18h CET)
 3. H1 EMA200 bias — NEUTRAL if EMA50 and EMA200 disagree
 4. M15 EMA9/21 trend + RSI 35–65
-5. M5 ATR ≥ 2.5 (volatility gate)
-6. H1 ADX ≥ 20 (trend strength — LONG et SHORT identique)
+5. M5 ATR ≥ 3.0 (volatility gate)
+6. H1 ADX ≥ 25 (trend strength — LONG et SHORT identique)
 7. M5 EMA9 alignment (adaptive tolerance)
-8. M5 RSI momentum (LONG > 45, SHORT < 55)
+8. M5 RSI momentum (LONG > 46, SHORT < 57)
 9. VWAP alignment (close ≥ VWAP for LONG, ≤ VWAP for SHORT)
 10. Candle patterns — soit 1 pattern fort (ancre, weight ≥ 0.85) soit 2+ patterns (sum ≥ 1.0 LONG / 1.5 SHORT) — ancre (ema9_pullback ou micro_breakout) toujours requise
 11. ML Gate — logistic regression, activates after 15 trades
@@ -129,12 +129,12 @@ After merging to `main`:
 - **Synthetic data** uses `vol=0.0004` (realistic for XAU/USD) — avoid drawing conclusions from synthetic backtest results
 - **Volume filter removed** — unreliable across data sources
 - **RSI M15** : symétrique 40/60 (directional 40/60 LONG>40,SHORT<60 testé → WR 49%→40.4%, PF 1.20→0.96, rejeté)
-- **RSI M5** : 45/55 (momentum minimal requis)
+- **RSI M5** : 46/57 (momentum minimal requis — Optuna walk-forward validé)
 - **Pattern floor 0.67** blocks patterns that lose 67%+ of the time (was 0.65 → 0.67)
-- **TREND_BIAS_DISTANCE = 0.5 ATR H1** blocks SHORT when price > EMA200 + 0.5×ATR and LONG when price < EMA200 − 0.5×ATR
+- **TREND_BIAS_DISTANCE = 0.3 ATR H1** blocks SHORT when price > EMA200 + 0.3×ATR and LONG when price < EMA200 − 0.3×ATR
 - **EMA200_MIN_DIST supprimé** : entrée AT EMA200 valide en scalp M5 avec pattern + VWAP
 - **BAD_HOURS_CET = {8, 10}** : 8h London open (manipulation pre-session) + 10h CET (WR 38% / 37 trades)
-- **ADX_MIN = 20** LONG et SHORT identique (était 25 LONG / 35 SHORT — trop restrictif, ne discrimine pas SL vs TP2)
+- **ADX_MIN = 25** LONG et SHORT identique (Optuna walk-forward validé — filtre les tendances faibles)
 - **Mode momentum fort supprimé** : ADX H1 > 35/40 → 1 pattern testé → PF 1.34 vs 1.42, rejeté. Toujours 2 patterns requis.
 - **MAX_TRADE_MINUTES = 45** (was 30) — more time for TP targets to be reached
 - **TP1 = 0.7R**, **TP2 = 1.8R** — gap TP1→TP2 = 1.1R; TP2=1.4R testé mais moins bon, 1.8R optimal confirmé
