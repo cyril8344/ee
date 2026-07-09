@@ -34,7 +34,7 @@ from strategy_ict import evaluate_ict
 from backtest import load_m5_data, resample, _try_exit
 import database as db
 import data_provider as _dp
-from ml_gate import OnlineLogisticRegression, AdaptiveThresholds, N_FEATURES
+from ml_gate import AdaptiveThresholds
 
 # --------------------------------------------------------------------------- #
 # État de progression (partagé avec l'API)
@@ -158,11 +158,6 @@ def run_pretrain(
         _noop_save = lambda: None
 
         if reset:
-            gate     = OnlineLogisticRegression.__new__(OnlineLogisticRegression)
-            gate.weights            = [0.0] * N_FEATURES
-            gate.bias_w             = 0.0
-            gate.n_samples          = 0
-            gate.consecutive_losses = 0
             adaptive = AdaptiveThresholds.__new__(AdaptiveThresholds)
             adaptive.symbol          = symbol
             adaptive.atr_min_default = effective_atr
@@ -173,11 +168,9 @@ def run_pretrain(
             adaptive.n_losses  = 0
             adaptive.n_total   = 0
         else:
-            gate     = OnlineLogisticRegression()
             adaptive = AdaptiveThresholds(atr_min_default=effective_atr, symbol=symbol)
 
         # Isolation : les updates restent en mémoire, jamais persistés en DB
-        gate._save     = _noop_save
         adaptive._save = _noop_save
 
         # ---- Boucle bar par bar ----
@@ -243,7 +236,6 @@ def run_pretrain(
 
                     features = open_trade.get("ml_features")
                     if features:
-                        gate.update(features, won)
                         adaptive.update(features, open_trade["entry"], won)
 
                     triggers = open_trade.get("triggers", [])
@@ -576,10 +568,8 @@ def run_pretrain(
               f"SL_TP1={indicator_diagnostic.get('SL_TP1',{}).get('n','?')}")
         print("==========================================\n")
 
-        # ---- Persister les modèles appris (sauf en mode walk-forward) ----
+        # ---- Persister les seuils adaptatifs (sauf en mode walk-forward) ----
         if write_to_db:
-            db.save_ml_weights(gate.weights, gate.bias_w, gate.n_samples,
-                               consecutive_losses=gate.consecutive_losses)
             db.save_adaptive_thresholds(symbol, {
                 "atr_min":   adaptive.atr_min,
                 "ema9_mult": adaptive.ema9_mult,
@@ -625,7 +615,7 @@ def run_pretrain(
             "atr_min_final": round(adaptive.atr_min, 4),
             "ema9_mult_final": round(adaptive.ema9_mult, 3),
             "m15_mult_final":  round(adaptive.m15_mult, 3),
-            "ml_samples":    gate.n_samples,
+            "ml_samples":    0,
             "equity_curve":  equity_curve,
             "trades_log":    trades_log,
             "excursion": {

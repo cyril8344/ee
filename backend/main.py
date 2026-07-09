@@ -84,7 +84,7 @@ import finnhub_feed as _fh_module
 from agent_manager import AgentManager
 from live_agent import LiveAdaptiveAgent
 import agent_memory
-from ml_gate import OnlineLogisticRegression, AdaptiveThresholds
+from ml_gate import AdaptiveThresholds
 import pretrain as _pretrain_module
 from llm_gate import LLMGate
 from researcher_agent import ResearcherAgent
@@ -121,7 +121,6 @@ class MarketState:
     last_signal: Optional[Dict[str, Any]] = None
     last_snapshot: Dict[str, Any] = field(default_factory=dict)
     adaptive: Optional[Any] = None   # AdaptiveThresholds instance
-    ml_gate: Optional[Any] = None    # OnlineLogisticRegression instance (per symbol)
     circuit_breaker_until: Optional[datetime] = None
     recent_results: List[bool] = field(default_factory=list)
     last_close_time: Optional[datetime] = None  # horodatage de la dernière fermeture
@@ -188,7 +187,6 @@ class BotState:
             ms.adaptive = AdaptiveThresholds(
                 atr_min_default=cfg["atr_min"], symbol=sym
             )
-            ms.ml_gate = OnlineLogisticRegression(symbol=sym)
             self.market_states[sym] = ms
 
         self.pattern_weights: Dict = db.get_pattern_stats()
@@ -344,7 +342,7 @@ def _launch_auto_pretrain(label: str = "auto", window_months: int = 3, reset: bo
     capital = state.risk.capital
 
     def _done():
-        state.push_alert("info", f"[AutoApprenant] Pretrain '{label}' terminé — ML Gate rafraîchie")
+        state.push_alert("info", f"[AutoApprenant] Pretrain '{label}' terminé")
 
     _pretrain_module.launch_pretrain(
         start_d, end_d, symbol="XAUUSD", reset=reset,
@@ -373,7 +371,7 @@ def _build_llm_snap(ms, sig, m5, m15, h1) -> Dict[str, Any]:
         "vwap_side":     1 if close >= vwap else 0,
         "patterns":      list(sig.meta.get("triggers", [])),
         "pattern_weight": float(sig.meta.get("weight_sum", 0.0)),
-        "ml_score":      float(sig.meta.get("ml_prob") or 0.5),
+        "ml_score":      0.5,
         "ema200_dist":   round(ema200_dist, 3),
     }
 
@@ -401,7 +399,6 @@ def trading_tick() -> Dict[str, Any]:
                 m5, m15, h1, h4 = build_context(ms.broker)
                 snap = snapshot(m5, m15, h1, atr_min_override=ms.config["atr_min"],
                                pattern_weights=state.pattern_weights,
-                               ml_gate=ms.ml_gate,
                                adaptive_thresholds=ms.adaptive)
                 ms.last_snapshot = snap
 
@@ -566,14 +563,12 @@ def trading_tick() -> Dict[str, Any]:
                         sig = _eval_eurusd(m5, m15, h1, now=now,
                                            check_session=session_filter,
                                            atr_min=ms.config["atr_min"],
-                                           pattern_weights=state.pattern_weights,
-                                           ml_gate=ms.ml_gate)
+                                           pattern_weights=state.pattern_weights)
                     else:
                         _rlog: Dict[str, Any] = {}
                         sig = evaluate(m5, m15, h1, h4=h4, now=now, check_session=session_filter,
                                        atr_min=ms.config["atr_min"],
                                        pattern_weights=state.pattern_weights,
-                                       ml_gate=ms.ml_gate,
                                        adaptive_thresholds=ms.adaptive,
                                        _reject_log=_rlog)
                         if sig is None and _rlog:
@@ -723,13 +718,9 @@ def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], 
         db.update_pattern_stats(triggers, won)
         state.pattern_weights = db.get_pattern_stats()
 
-    # Update ML gate and adaptive thresholds with entry context features
+    # Update adaptive thresholds with entry context features
     ml_features = pos.meta.get("ml_features")
     if ml_features:
-        try:
-            ms.ml_gate.update(ml_features, won)
-        except Exception:
-            pass
         try:
             ms.adaptive.update(ml_features, pos.entry, won)
         except Exception:
@@ -898,7 +889,7 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
             "conditions": snap.get("conditions"),
             "ict_conditions": snap.get("ict_conditions"),
             "reject_log": snap.get("reject_log"),
-            "ml_gate": ms.ml_gate.status() if ms.ml_gate else {},
+            "ml_gate": {},
             "data_provider": getattr(getattr(ms.broker, "data", None), "provider", None),
             "data_errors": {k: v for k, v in __import__("data_provider").get_last_errors().items()
                             if k.startswith(sym + ":")},
@@ -1018,7 +1009,7 @@ async def _loop():
 
 
 async def _learning_loop():
-    """Pretrain hebdomadaire automatique chaque dimanche 22h CET — garde la ML Gate fraîche."""
+    """Pretrain hebdomadaire automatique chaque dimanche 22h CET."""
     import pytz
     _CET = pytz.timezone("Europe/Paris")
     while True:
@@ -1041,7 +1032,7 @@ async def _learning_loop():
             continue
 
         with state.lock:
-            state.push_alert("info", "[AutoApprenant] Pretrain hebdomadaire — 3 mois glissants, ML Gate rafraîchie")
+            state.push_alert("info", "[AutoApprenant] Pretrain hebdomadaire — 3 mois glissants")
             _launch_auto_pretrain(label="hebdomadaire", window_months=3, reset=False)
 
 
@@ -1483,22 +1474,6 @@ def toggle_bot(_user: dict = Depends(get_current_user)):
     return {"bot_enabled": new_val}
 
 
-@app.post("/api/bot/reset_ml")
-def reset_ml_gate(_user: dict = Depends(get_current_user)):
-    """Reset ML gate in memory + DB: gate stays dormant until 200 real live trades."""
-    from ml_gate import N_FEATURES
-    with state.lock:
-        for ms in state.markets.values():
-            if ms.ml_gate:
-                ms.ml_gate.n_samples = 0
-                ms.ml_gate.weights = [0.0] * N_FEATURES
-                ms.ml_gate.bias_w = 0.0
-                ms.ml_gate.consecutive_losses = 0
-                ms.ml_gate._save()
-    state.push_alert("info", "🔄 ML Gate réinitialisé — dormant jusqu'à 200 trades live")
-    return {"ok": True, "n_samples": 0}
-
-
 @app.post("/api/risk/unblock")
 def unblock_risk(_user: dict = Depends(get_current_user)):
     """Force-clear the daily risk block (admin override)."""
@@ -1733,14 +1708,11 @@ def start_pretrain(req: PretrainRequest, _user: dict = Depends(get_current_user)
     prog = _pretrain_module.get_progress()
     if prog["running"]:
         return {"ok": False, "message": "Pré-entraînement déjà en cours", "progress": prog}
-    _ms = state.market_states.get(req.symbol)
-    _on_complete = _ms.ml_gate._load if _ms and _ms.ml_gate else None
     _pretrain_module.launch_pretrain(
         start=req.start, end=req.end,
         symbol=req.symbol, atr_min=req.atr_min, reset=req.reset,
         capital=req.capital, risk_pct=req.risk_pct,
         strategy_mode=req.strategy_mode,
-        on_complete=_on_complete,
     )
     return {"ok": True, "message": "Pré-entraînement lancé", "progress": _pretrain_module.get_progress()}
 

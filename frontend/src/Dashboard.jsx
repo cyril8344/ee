@@ -540,13 +540,6 @@ export default function Dashboard({ onLogout }) {
       .catch(() => alert("Erreur lors du reset."));
   };
 
-  /* Reset ML Gate (dormant jusqu'à 200 trades live) */
-  const handleResetML = () => {
-    fetch(`${API}/api/bot/reset_ml`, { method: "POST", headers: authHeaders() })
-      .then((r) => r.json())
-      .catch(() => {});
-  };
-
   /* Reset compteur trades du jour */
   const handleResetDaily = () => {
     fetch(`${API}/api/risk/reset-daily`, { method: "POST", headers: authHeaders() })
@@ -1249,54 +1242,6 @@ export default function Dashboard({ onLogout }) {
                       ))}
                     </div>
                   )}
-                  {/* ML Gate probability */}
-                  <div style={{ marginTop: 4, borderTop: `1px solid ${COLORS.border}`, paddingTop: 4 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ color: COLORS.sub }}>ML Gate</span>
-                      {!mkt.conditions.ml_ready ? (
-                        <span style={{ color: COLORS.grey, fontSize: 11 }}>
-                          {mkt?.ml_gate?.n_samples != null
-                            ? `apprentissage… ${mkt.ml_gate.n_samples}/${mkt.ml_gate.n_min}`
-                            : "inactif"}
-                        </span>
-                      ) : (
-                        <span style={{
-                          color: mkt.conditions.ml_prob >= 0.55 ? COLORS.green
-                               : mkt.conditions.ml_prob >= 0.45 ? COLORS.amber
-                               : COLORS.red,
-                          fontWeight: 600,
-                        }}>
-                          {mkt.conditions.ml_prob != null
-                            ? `${(mkt.conditions.ml_prob * 100).toFixed(0)}% ${mkt.conditions.ml_prob >= (mkt?.ml_gate?.threshold ?? 0.45) ? "✓" : "✗"}`
-                            : "—"}
-                        </span>
-                      )}
-                    </div>
-                    {/* Reset ML Gate */}
-                    {mkt?.ml_gate?.n_samples > 0 && (
-                      <div style={{ marginTop: 4 }}>
-                        <button onClick={handleResetML}
-                          title="Remet n_samples=0 en mémoire + DB — gate dormant jusqu'à 200 trades live"
-                          style={{ fontSize: 10, padding: "1px 6px", background: "transparent",
-                            border: `1px solid ${COLORS.red}`, color: COLORS.red,
-                            borderRadius: 3, cursor: "pointer", width: "100%" }}>
-                          ↺ Reset ML Gate ({mkt.ml_gate.n_samples} samples)
-                        </button>
-                      </div>
-                    )}
-                    {/* Série noire */}
-                    {mkt?.ml_gate?.consecutive_losses >= 3 && (
-                      <div style={{ display: "flex", justifyContent: "space-between", paddingLeft: 8, marginTop: 2 }}>
-                        <span style={{ color: COLORS.red, fontSize: 10 }}>
-                          ⚠ Série noire ({mkt.ml_gate.consecutive_losses} pertes)
-                        </span>
-                        <span style={{ color: COLORS.amber, fontSize: 10 }}>
-                          seuil {(mkt.ml_gate.threshold * 100).toFixed(0)}%
-                          {mkt.ml_gate.streak_boost > 0 && ` (+${(mkt.ml_gate.streak_boost * 100).toFixed(0)}%)`}
-                        </span>
-                      </div>
-                    )}
-                  </div>
                     </> /* fin Strategy A */
                   )} {/* fin ternaire ICT vs A */}
                   {/* Pré-entraînement — commun aux deux stratégies */}

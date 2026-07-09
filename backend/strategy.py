@@ -777,7 +777,6 @@ def evaluate(
     check_session: bool = True,
     atr_min: float = ATR_MIN,
     pattern_weights: Optional[Dict[str, float]] = None,
-    ml_gate=None,
     adaptive_thresholds=None,
     _reject_log: Optional[Dict] = None,
 ) -> Optional[Signal]:
@@ -987,47 +986,11 @@ def evaluate(
         tp2 = entry - 1.8 * risk
 
 
-    # Extraction des features ML — toujours calculées (gate live + pré-entraînement)
-    ml_prob: float = -1.0
-    ml_features = None
-    try:
-        from ml_gate import extract_features
-
-        # Fraction horaire dans la session (0=début, 1=fin)
-        _cet_ts = ts.astimezone(CET)
-        _cet_h = _cet_ts.hour + _cet_ts.minute / 60.0
-        if session == "London":
-            _sess_frac = (_cet_h - LONDON[0].hour) / 4.0
-        elif session == "NewYork":
-            _sess_frac = (_cet_h - NEWYORK[0].hour) / 4.0
-        else:
-            _sess_frac = 0.5
-        _sess_frac = max(0.0, min(1.0, _sess_frac))
-
-        h1_rsi_val = float(h1.iloc[-1].get("rsi", 50) or 50) if len(h1) > 0 else 50.0
-
-        weight_sum = sum([_w(t) for t in triggers])
-        ml_features = extract_features(
-            m5, m15, bias, session, weight_sum, ts,
-            h1_adx=h1_adx, h1_rsi=h1_rsi_val,
-            n_patterns=len(triggers), session_hour_frac=_sess_frac,
-        )
-        if ml_gate is not None:
-            allowed, ml_prob = ml_gate.gate(ml_features)
-            if not allowed:
-                _rej(_reject_log, "ml_gate")
-                return None
-    except Exception:
-        pass
-
     meta: Dict[str, Any] = {
         "rsi_m5":    round(float(cur["rsi"]), 1),
         "rsi_m15":   round(float(m15.iloc[-1]["rsi"]), 1),
         "triggers":  triggers,
-        "ml_prob":   round(ml_prob, 3) if ml_prob >= 0 else None,
     }
-    if ml_features is not None:
-        meta["ml_features"] = ml_features
 
     return Signal(
         direction=direction,
@@ -1053,7 +1016,6 @@ def evaluate_eurusd(
     check_session: bool = True,
     atr_min: float = 0.00030,
     pattern_weights: Optional[Dict[str, float]] = None,
-    ml_gate=None,
     _reject_log: Optional[Dict] = None,
 ) -> Optional[Signal]:
     """
@@ -1314,7 +1276,6 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
              now: Optional[datetime] = None,
              atr_min_override: float = ATR_MIN,
              pattern_weights: Optional[Dict[str, Any]] = None,
-             ml_gate=None,
              adaptive_thresholds=None) -> Dict[str, Any]:
     """Lightweight market snapshot for the dashboard."""
     ts = now or datetime.now(timezone.utc)
@@ -1426,20 +1387,6 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
     pattern_weight_sum = round(sum(pattern_weight_detail.values()), 3)
     weight_gate_ok = pattern_weight_sum >= MIN_WEIGHT_SUM_LONG if patterns_detected else False
 
-    # ML gate probability (display only — no blocking in snapshot)
-    ml_prob: Optional[float] = None
-    ml_ready: bool = False
-    if ml_gate is not None and cur5 is not None and len(m15) > 0:
-        try:
-            from ml_gate import extract_features
-            ml_features = extract_features(m5, m15, bias, session or "London",
-                                           pattern_weight_sum, ts)
-            ml_ready = ml_gate.is_ready
-            if ml_ready:
-                ml_prob = round(ml_gate.predict(ml_features), 3)
-        except Exception:
-            pass
-
     # first failing condition for quick diagnosis
     blocking_reason = None
     if BOOTSTRAP_MODE:
@@ -1497,8 +1444,6 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
             "pattern_weight_detail": pattern_weight_detail,
             "weight_gate_ok": weight_gate_ok,
             "blocking_reason": blocking_reason,
-            "ml_prob": ml_prob,
-            "ml_ready": ml_ready,
             "adaptive": _adapt.status() if _adapt is not None else None,
         },
     }
