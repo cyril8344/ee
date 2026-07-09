@@ -51,6 +51,8 @@ ATR_MIN = 2.5    # plancher volatilité M5 (LiveAdaptiveAgent peut ajuster)
 ATR_HIGH = 4.5   # seuil vol. élevée : SL passe à SL_ATR_MULT_HIGH au lieu de bloquer
 ADX_MIN = 20.0   # force tendance minimale H1 (LiveAdaptiveAgent peut ajuster)
 SR_PROXIMITY_ATR = 0.7
+SR_ZONE_ATR      = 1.5   # zone S/R pour flip de biais (× ATR M5)
+SR_TP_MIN_R      = 1.0   # distance minimale S/R cible pour remplacer TP2 fixe
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
 SL_ATR_MULT      = 1.4      # multiplicateur SL normal
 SL_ATR_MULT_HIGH = 2.0      # multiplicateur SL haute volatilité (ATR > ATR_HIGH)
@@ -201,6 +203,18 @@ def near_opposing_sr(entry: float, bias: str,
         return any(0 < (r - entry) < tol for r in sr.get("resistance", []))
     else:
         return any(0 < (entry - s) < tol for s in sr.get("support", []))
+
+
+def nearest_support_below(price: float, sr: Dict[str, List[float]], min_gap: float = 0.0) -> Optional[float]:
+    """Support le plus proche en dessous de price (avec gap minimum)."""
+    candidates = [s for s in sr.get("support", []) if s < price - min_gap]
+    return max(candidates) if candidates else None
+
+
+def nearest_resistance_above(price: float, sr: Dict[str, List[float]], min_gap: float = 0.0) -> Optional[float]:
+    """Résistance la plus proche au-dessus de price (avec gap minimum)."""
+    candidates = [r for r in sr.get("resistance", []) if r > price + min_gap]
+    return min(candidates) if candidates else None
 
 
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -822,6 +836,23 @@ def evaluate(
     atr_val = float(cur["atr"]) if not pd.isna(cur["atr"]) else 0.0
     h1_adx  = float(h1.iloc[-1].get("adx", 0)) if len(h1) else 0.0
 
+    # 2c) S/R zone override — flip du biais si prix arrive sur une zone clé
+    # Prix à la résistance → forcer SHORT jusqu'au support (même si EMA200 dit LONG)
+    # Prix au support → forcer LONG jusqu'à la résistance (même si EMA200 dit SHORT)
+    _sr_tp2_target: Optional[float] = None
+    if not BOOTSTRAP_MODE and atr_val > 0:
+        _m5_sr = swing_levels(m5, lookback=100)
+        _close_now = float(cur["close"])
+        _sr_tol = SR_ZONE_ATR * atr_val
+        _near_res = any(0 < (r - _close_now) < _sr_tol for r in _m5_sr.get("resistance", []))
+        _near_sup = any(0 < (_close_now - s) < _sr_tol for s in _m5_sr.get("support", []))
+        if _near_res:
+            bias = "SHORT"
+            _sr_tp2_target = nearest_support_below(_close_now, _m5_sr, min_gap=_sr_tol)
+        elif _near_sup:
+            bias = "LONG"
+            _sr_tp2_target = nearest_resistance_above(_close_now, _m5_sr, min_gap=_sr_tol)
+
     if not BOOTSTRAP_MODE:
         # 3) M15 EMA9/21 + RSI confirmation
         if M15_FILTER_ENABLED and not confirm_m15(m15, bias, ema_mult=effective_m15_mult):
@@ -969,6 +1000,12 @@ def evaluate(
     else:
         tp1 = entry - 0.7 * risk
         tp2 = entry - 1.8 * risk
+
+    # TP2 ciblé sur S/R si trade initié depuis une zone S/R et cible ≥ SR_TP_MIN_R × risk
+    if _sr_tp2_target is not None:
+        sr_dist = abs(_sr_tp2_target - entry)
+        if sr_dist >= SR_TP_MIN_R * risk:
+            tp2 = _sr_tp2_target
 
     # Extraction des features ML — toujours calculées (gate live + pré-entraînement)
     ml_prob: float = -1.0
