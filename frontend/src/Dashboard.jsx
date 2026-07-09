@@ -379,6 +379,12 @@ export default function Dashboard({ onLogout }) {
   const [pretrainLoading, setPretrainLoading] = useState(false);
   const [multiStatus, setMultiStatus]         = useState(null);
   const [multiLoading, setMultiLoading]       = useState(false);
+  const [wfStatus, setWfStatus]               = useState(null);
+  const [wfLoading, setWfLoading]             = useState(false);
+  const [optunaStatus, setOptunaStatus]       = useState(null);
+  const [optunaLoading, setOptunaLoading]     = useState(false);
+  const [wfSplits, setWfSplits]               = useState(4);
+  const [optunaTrials, setOptunaTrials]       = useState(30);
   const [pretrainTrades, setPretrainTrades]   = useState(null);
   const [pretrainFilter, setPretrainFilter]   = useState("losses");
   const [pretrainPage, setPretrainPage]       = useState(0);
@@ -605,6 +611,18 @@ export default function Dashboard({ onLogout }) {
     return () => clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    const poll = () => Promise.all([
+      fetch(`${API}/api/pretrain/walkforward`, { headers: authHeaders() })
+        .then(r => r.ok ? r.json() : null).then(d => { if (d) setWfStatus(d); }).catch(() => {}),
+      fetch(`${API}/api/optimize/bayesian`, { headers: authHeaders() })
+        .then(r => r.ok ? r.json() : null).then(d => { if (d) setOptunaStatus(d); }).catch(() => {}),
+    ]);
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => clearInterval(id);
+  }, []);
+
   const setPretrainPeriod = (months) => {
     const end = new Date();
     const start = new Date(end);
@@ -632,6 +650,24 @@ export default function Dashboard({ onLogout }) {
         setPretrainStatus({ running: false, status: "error", error: "Impossible de contacter le serveur" });
         setPretrainLoading(false);
       });
+  };
+
+  const launchWalkForward = () => {
+    setWfLoading(true);
+    setWfStatus({ running: true, window: 0, n_splits: wfSplits, result: null, error: null });
+    fetch(`${API}/api/pretrain/walkforward`, {
+      method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ start: pretrainStart, end: pretrainEnd, n_splits: wfSplits, symbol: activeMarket, capital: pretrainCapital, risk_pct: pretrainRiskPct }),
+    }).then(() => setWfLoading(false)).catch(() => setWfLoading(false));
+  };
+
+  const launchOptunaOptimize = () => {
+    setOptunaLoading(true);
+    setOptunaStatus({ running: true, progress: 0, n_trials: optunaTrials, best_score: 0, result: null, error: null });
+    fetch(`${API}/api/optimize/bayesian`, {
+      method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ start: pretrainStart, end: pretrainEnd, n_trials: optunaTrials, n_splits: 3, symbol: activeMarket, capital: pretrainCapital, risk_pct: pretrainRiskPct }),
+    }).then(() => setOptunaLoading(false)).catch(() => setOptunaLoading(false));
   };
 
   const launchMultiPretrain = () => {
@@ -1897,6 +1933,44 @@ export default function Dashboard({ onLogout }) {
                         ? `⏳ P${multiStatus.current}/${multiStatus.total} en cours…`
                         : "Test 3 périodes (0-6M / 6-12M / 12-18M)"}
                     </button>
+
+                    {/* Walk-forward anti-overfitting */}
+                    <div style={{ marginTop: 8, borderTop: `1px solid ${COLORS.border}`, paddingTop: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ color: COLORS.sub, fontSize: 11, flex: 1 }}>Walk-forward (fenêtres)</span>
+                        <select value={wfSplits} onChange={e => setWfSplits(parseInt(e.target.value))}
+                          style={{ background: COLORS.panel, color: COLORS.text, border: `1px solid ${COLORS.border}`, borderRadius: 3, padding: "1px 4px", fontSize: 11 }}>
+                          {[3,4,5,6].map(n => <option key={n} value={n}>{n}</option>)}
+                        </select>
+                      </div>
+                      <button onClick={launchWalkForward}
+                        disabled={wfStatus?.running || pretrainLoading || pretrainStatus?.running}
+                        style={{ width: "100%", background: "#22c55e22",
+                          border: `1px solid #22c55e`, borderRadius: 4,
+                          color: "#22c55e", padding: "5px 0", cursor: "pointer", fontSize: 11 }}>
+                        {wfStatus?.running ? `⏳ Walk-forward en cours…` : "Lancer Walk-Forward"}
+                      </button>
+                    </div>
+
+                    {/* Optimisation Bayésienne (Optuna) */}
+                    <div style={{ marginTop: 8, borderTop: `1px solid ${COLORS.border}`, paddingTop: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ color: COLORS.sub, fontSize: 11, flex: 1 }}>Optuna (essais)</span>
+                        <select value={optunaTrials} onChange={e => setOptunaTrials(parseInt(e.target.value))}
+                          style={{ background: COLORS.panel, color: COLORS.text, border: `1px solid ${COLORS.border}`, borderRadius: 3, padding: "1px 4px", fontSize: 11 }}>
+                          {[10,20,30,50].map(n => <option key={n} value={n}>{n}</option>)}
+                        </select>
+                      </div>
+                      <button onClick={launchOptunaOptimize}
+                        disabled={optunaStatus?.running || pretrainLoading || pretrainStatus?.running}
+                        style={{ width: "100%", background: "#a855f722",
+                          border: `1px solid #a855f7`, borderRadius: 4,
+                          color: "#a855f7", padding: "5px 0", cursor: "pointer", fontSize: 11 }}>
+                        {optunaStatus?.running
+                          ? `⏳ ${optunaStatus.progress}/${optunaStatus.n_trials} essais…`
+                          : "Optimiser paramètres (Optuna)"}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Adaptive thresholds */}
@@ -2371,6 +2445,111 @@ export default function Dashboard({ onLogout }) {
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {/* ===== Walk-forward résultats ===== */}
+          {(wfStatus?.running || wfStatus?.result) && (
+            <div className="section-gap" style={{ marginTop: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                <h3 style={{ margin: 0, fontSize: 14 }}>Walk-Forward ({wfStatus?.n_splits ?? wfSplits} fenêtres)</h3>
+                {wfStatus?.running && <span style={{ fontSize: 11, color: COLORS.amber }}>⏳ En cours…</span>}
+                {wfStatus?.result && (() => {
+                  const r = wfStatus.result;
+                  const robustColor = r.is_robust ? COLORS.green : r.avg_pf > 1.0 ? COLORS.amber : COLORS.red;
+                  return (
+                    <span style={{ fontSize: 11, color: robustColor, fontWeight: 600 }}>
+                      {r.is_robust ? "✓ Robuste" : "⚠ Fragile"} · PF moy {r.avg_pf?.toFixed(2)} ± {r.std_pf?.toFixed(2)}
+                      · {r.pct_profitable?.toFixed(0)}% fenêtres rentables
+                    </span>
+                  );
+                })()}
+              </div>
+              {wfStatus?.result && (
+                <div style={{ display: "grid", gridTemplateColumns: `repeat(${wfStatus.result.windows?.length ?? wfSplits}, 1fr)`, gap: 10 }}>
+                  {(wfStatus.result.windows ?? []).map((w, i) => {
+                    const pf = w.profit_factor ?? 0;
+                    const wr = w.win_rate ?? 0;
+                    const pfColor = pf >= 1.25 ? COLORS.green : pf >= 1.0 ? COLORS.amber : COLORS.red;
+                    return (
+                      <div key={i} style={{ ...panel(), padding: 10 }}>
+                        {w.error ? (
+                          <div style={{ fontSize: 10, color: COLORS.red }}>{w.error}</div>
+                        ) : (
+                          <>
+                            <div style={{ fontSize: 10, color: COLORS.sub, marginBottom: 6 }}>F{w.window} · {w.period?.slice(0, 10)} →</div>
+                            <div style={{ fontSize: 20, fontWeight: 700, color: pfColor, textAlign: "center" }}>{pf.toFixed(2)}</div>
+                            <div style={{ fontSize: 10, color: COLORS.sub, textAlign: "center", marginBottom: 4 }}>PF</div>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
+                              <span style={{ color: COLORS.sub }}>WR</span>
+                              <span style={{ color: wr >= 0.5 ? COLORS.green : COLORS.amber }}>{(wr * 100).toFixed(0)}%</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
+                              <span style={{ color: COLORS.sub }}>Trades</span>
+                              <span>{w.n_trades}</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
+                              <span style={{ color: COLORS.sub }}>SL dir.</span>
+                              <span style={{ color: (w.sl_direct_pct ?? 0) <= 30 ? COLORS.green : COLORS.amber }}>{w.sl_direct_pct}%</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
+                              <span style={{ color: COLORS.sub }}>Net</span>
+                              <span style={{ color: w.net_pnl >= 0 ? COLORS.green : COLORS.red }}>{w.net_pnl >= 0 ? "+" : ""}{w.net_pnl?.toFixed(0)}$</span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ===== Optuna résultats ===== */}
+          {(optunaStatus?.running || optunaStatus?.result) && (
+            <div className="section-gap" style={{ marginTop: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                <h3 style={{ margin: 0, fontSize: 14 }}>Optimisation Bayésienne (Optuna)</h3>
+                {optunaStatus?.running && (
+                  <span style={{ fontSize: 11, color: "#a855f7" }}>
+                    ⏳ {optunaStatus.progress}/{optunaStatus.n_trials} essais · meilleur score {optunaStatus.best_score?.toFixed(3)}
+                  </span>
+                )}
+              </div>
+              {optunaStatus?.result && (() => {
+                const r = optunaStatus.result;
+                if (r.error) return <div style={{ color: COLORS.red, fontSize: 12 }}>{r.error}</div>;
+                return (
+                  <div style={{ ...panel(), padding: 12 }}>
+                    <div style={{ marginBottom: 10 }}>
+                      <span style={{ fontSize: 12, color: COLORS.sub }}>Meilleurs paramètres ({r.n_completed}/{r.n_trials} essais · score {r.best_score?.toFixed(3)})</span>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                      {Object.entries(r.best_params ?? {}).map(([k, v]) => (
+                        <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, borderBottom: `1px solid ${COLORS.border}`, paddingBottom: 3 }}>
+                          <span style={{ color: COLORS.sub }}>{k}</span>
+                          <span style={{ fontWeight: 600, color: "#a855f7" }}>{typeof v === "number" ? v.toFixed(1) : v}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {r.top_trials?.length > 0 && (
+                      <div style={{ marginTop: 10 }}>
+                        <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 4 }}>Top essais</div>
+                        {r.top_trials.slice(0, 5).map((t, i) => (
+                          <div key={i} style={{ fontSize: 10, color: COLORS.sub, display: "flex", gap: 6, marginBottom: 2 }}>
+                            <span style={{ color: "#a855f7", fontWeight: 600 }}>#{t.trial}</span>
+                            <span style={{ color: COLORS.text }}>score {t.score?.toFixed(3)}</span>
+                            {Object.entries(t.params ?? {}).map(([k, v]) => (
+                              <span key={k}>{k.replace("RSI_M5_", "").replace("_", "").toLowerCase()}={typeof v === "number" ? v.toFixed(1) : v}</span>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
 

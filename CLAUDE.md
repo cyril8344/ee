@@ -145,6 +145,36 @@ After merging to `main`:
 - **Strategy B (EUR/USD)** : Order Block M5 via `strategy_ict.py`, toujours actif sur EURUSD, non modifiable depuis le dashboard
 - `MT5Broker` in `broker.py` requires MetaTrader5 (Windows only, manual install); `PaperBroker` is the default everywhere else
 
+## Règles anti-overfitting (OBLIGATOIRES)
+
+Toute modification de paramètre stratégie (RSI, ATR, ADX, TREND_BIAS_DISTANCE, patterns, TP/SL…) **doit être validée en walk-forward avant merge**. Le pretrain in-sample seul ne prouve rien.
+
+### Workflow obligatoire pour chaque changement
+
+1. **Proposer** le changement avec une hypothèse claire ("RSI 48 → filtre les LONG à momentum faible")
+2. **Tester en pretrain 6M** → noter PF et WR in-sample
+3. **Lancer le walk-forward** (4 fenêtres × 1.5M) depuis le dashboard
+4. **Critère de robustesse** : PF > 1.0 dans ≥ 75% des fenêtres ET `std_pf < 0.30`
+5. **Merger uniquement si** OOS cohérent — un PF élevé in-sample avec variance inter-fenêtres élevée = curve-fitting, rejeter
+
+### Règles absolues
+
+- **Jamais de merge sur un résultat in-sample seul**, même si le PF est très bon (ex. PF 1.5 sur 6M peut être PF 0.8 en OOS)
+- **Max 3 paramètres optimisés à la fois** — optimiser plus simultanément garantit le surapprentissage
+- **Win rate in-sample > 58% sur 6M** = signal fort d'overfitting (la stratégie scalpe un régime particulier)
+- **Optuna bayésien** (POST /api/optimize/bayesian) : utilise le walk-forward comme objectif → les paramètres trouvés sont validés OOS par construction
+- **Après chaque changement de filtres ou features ML** : reset les poids ML (`reset=True`) et relancer pretrain
+
+### Métriques cibles validées
+
+| Métrique | Seuil acceptable | Seuil optimal |
+|---------|-----------------|---------------|
+| PF walk-forward (moy) | > 1.0 | > 1.15 |
+| std_pf inter-fenêtres | < 0.30 | < 0.20 |
+| % fenêtres rentables | ≥ 75% | 100% |
+| SL direct | < 38% | < 32% |
+| WR | 48–56% | 52–55% |
+
 ## Secrets — Never Commit
 
 Store only in Railway Variables (not in `.env` files committed to git):
