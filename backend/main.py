@@ -1916,8 +1916,10 @@ def get_multi_pretrain(_user: dict = Depends(get_current_user)):
 
 @app.get("/api/pretrain/status")
 def pretrain_status(_user: dict = Depends(get_current_user)):
-    """Progression du pré-entraînement en cours."""
-    return _pretrain_module.get_progress()
+    """Progression du pré-entraînement en cours + derniers résultats par stratégie."""
+    prog = _pretrain_module.get_progress()
+    prog["last_by_strategy"] = _pretrain_module.get_last_results()
+    return prog
 
 
 @app.get("/api/pretrain/trades")
