@@ -382,7 +382,7 @@ def run_pretrain(
 
             fill = sig.entry + (spread + slippage) * (1 if sig.direction == "long" else -1)
             sl_dist = abs(fill - sig.stop_loss)
-            volume = _size_lots(equity, risk_pct, sl_dist, contract_size)
+            volume = _size_lots(capital, risk_pct, sl_dist, contract_size)
             h1_cur  = h1_s.iloc[-1]  if len(h1_s)  > 0 else pd.Series(dtype=float)
             m15_cur = m15_s.iloc[-1] if len(m15_s) > 0 else pd.Series(dtype=float)
             open_trade = {
