@@ -150,15 +150,20 @@ class BotState:
     def __init__(self):
         db.init_db()
         self.settings = db.get_settings()
-        # En mode amorçage : forcer bot_enabled=True et daily_stop_pct=100% (pas de blocage risk)
+        # Sanitiser les valeurs corrompues (ex: daily_stop_pct à des millions % après amorçage)
+        _sanitize = {}
+        if float(self.settings.get("daily_stop_pct", 2.0)) > 10.0:
+            _sanitize["daily_stop_pct"] = 2.0
+        if int(self.settings.get("max_trades_per_day", 4)) > 10:
+            _sanitize["max_trades_per_day"] = 4
+        if _sanitize:
+            self.settings = db.update_settings(_sanitize)
+            logger.warning("[BotState] settings corrompus sanitisés: %s", _sanitize)
+
+        # En mode amorçage : forcer bot_enabled=True (sans corrompre daily_stop_pct)
         if strategy.BOOTSTRAP_MODE:
-            _bootstrap_updates = {}
             if not self.settings.get("bot_enabled", True):
-                _bootstrap_updates["bot_enabled"] = True
-            if float(self.settings.get("daily_stop_pct", 2.0)) < 100.0:
-                _bootstrap_updates["daily_stop_pct"] = 100.0
-            if _bootstrap_updates:
-                self.settings = db.update_settings(_bootstrap_updates)
+                self.settings = db.update_settings({"bot_enabled": True})
         self.risk = RiskManager()
         self.risk.sync_from_settings(self.settings)
         self.news = NewsFilter(window_minutes=30, currencies=("USD", "EUR"))

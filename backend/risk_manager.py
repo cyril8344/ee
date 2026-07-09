@@ -43,7 +43,7 @@ class RiskManager:
     capital: float = 10_000.0
     risk_per_trade_pct: float = 5.0
     max_trades_per_day: int = 4
-    daily_stop_pct: float = 100.0
+    daily_stop_pct: float = 2.0
 
     # mutable daily state
     trades_today: int = 0
@@ -71,12 +71,11 @@ class RiskManager:
         self.risk_per_trade_pct = float(
             settings.get("risk_per_trade_pct", self.risk_per_trade_pct)
         )
-        self.max_trades_per_day = int(
-            settings.get("max_trades_per_day", self.max_trades_per_day)
-        )
-        self.daily_stop_pct = float(
-            settings.get("daily_stop_pct", self.daily_stop_pct)
-        )
+        raw_max = int(settings.get("max_trades_per_day", self.max_trades_per_day))
+        self.max_trades_per_day = max(1, min(raw_max, 10))  # cap 1–10
+
+        raw_stop = float(settings.get("daily_stop_pct", self.daily_stop_pct))
+        self.daily_stop_pct = max(0.5, min(raw_stop, 10.0))  # cap 0.5%–10%
 
     # ------------------------------------------------------------------ #
     # Daily lifecycle
@@ -168,6 +167,12 @@ class RiskManager:
         self._reevaluate_block()
 
     def _daily_loss_exceeded(self) -> bool:
+        try:
+            import strategy as _st
+            if _st.BOOTSTRAP_MODE:
+                return False  # pas de stop journalier pendant l'amorçage
+        except Exception:
+            pass
         limit = -abs(self.start_equity_today * (self.daily_stop_pct / 100.0))
         return self.realised_pnl_today <= limit
 
