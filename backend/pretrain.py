@@ -151,6 +151,11 @@ def run_pretrain(
         h1_full  = add_indicators(resample(m5_raw, "60min"))
         h4_full  = add_indicators(resample(m5_raw, "240min"))
         # ---- Initialiser les systèmes d'apprentissage ----
+        # Les instances pretrain ne sauvegardent JAMAIS en DB (isolation totale)
+        # pour éviter que l'entraînement sur données historiques écrase ce que
+        # le live a appris des vrais trades paper.
+        _noop_save = lambda: None
+
         if reset:
             gate     = OnlineLogisticRegression.__new__(OnlineLogisticRegression)
             gate.weights            = [0.0] * N_FEATURES
@@ -166,10 +171,13 @@ def run_pretrain(
             adaptive.n_wins    = 0
             adaptive.n_losses  = 0
             adaptive.n_total   = 0
-            db.reset_pattern_stats()
         else:
             gate     = OnlineLogisticRegression()
             adaptive = AdaptiveThresholds(atr_min_default=effective_atr, symbol=symbol)
+
+        # Isolation : les updates restent en mémoire, jamais persistés en DB
+        gate._save     = _noop_save
+        adaptive._save = _noop_save
 
         # ---- Boucle bar par bar ----
         warmup     = 210
