@@ -520,12 +520,13 @@ def update_pattern_stats(patterns: List[str], won: bool) -> None:
 
 
 def save_ml_weights(weights: list, bias_w: float, n_samples: int,
-                    consecutive_losses: int = 0, symbol: str = "XAUUSD") -> None:
+                    consecutive_losses: int = 0, symbol: str = "XAUUSD",
+                    live_source: bool = False) -> None:
     """Persist ML gate weights to DB (per symbol)."""
     data = json.dumps({
         "weights": weights, "bias_w": bias_w, "n_samples": n_samples,
         "consecutive_losses": consecutive_losses,
-        "live_source": True,  # distinguishes live data from pretrain contamination
+        "live_source": live_source,
     })
     now  = _utcnow_iso()
     with get_conn() as conn:

@@ -230,6 +230,7 @@ class OnlineLogisticRegression:
                 self.weights, self.bias_w, self.n_samples,
                 consecutive_losses=self.consecutive_losses,
                 symbol=self.symbol,
+                live_source=True,
             )
         except Exception:
             pass
