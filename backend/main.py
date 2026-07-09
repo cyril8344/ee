@@ -1729,6 +1729,114 @@ def start_pretrain(req: PretrainRequest, _user: dict = Depends(get_current_user)
     return {"ok": True, "message": "Pré-entraînement lancé", "progress": _pretrain_module.get_progress()}
 
 
+# ── Walk-forward ──────────────────────────────────────────────────────────────
+_wf_state: Dict[str, Any] = {"running": False, "window": 0, "n_splits": 4, "result": None, "error": None}
+_wf_lock  = threading.Lock()
+
+
+class WalkForwardRequest(BaseModel):
+    start: str
+    end: str
+    n_splits: int = 4
+    symbol: str = "XAUUSD"
+    capital: float = 10_000.0
+    risk_pct: float = 5.0
+    strategy_mode: str = "A"
+
+
+@app.post("/api/pretrain/walkforward")
+def start_walkforward(req: WalkForwardRequest, _user: dict = Depends(get_current_user)):
+    """Lance un walk-forward sur n_splits fenêtres indépendantes."""
+    with _wf_lock:
+        if _wf_state["running"] or _pretrain_module.get_progress()["running"]:
+            return {"ok": False, "message": "Un pré-entraînement est déjà en cours"}
+        _wf_state.update(running=True, window=0, n_splits=req.n_splits, result=None, error=None)
+
+    def _run():
+        try:
+            r = _pretrain_module.run_walk_forward(
+                start=req.start, end=req.end,
+                n_splits=req.n_splits, symbol=req.symbol,
+                capital=req.capital, risk_pct=req.risk_pct,
+                strategy_mode=req.strategy_mode,
+            )
+            with _wf_lock:
+                _wf_state.update(running=False, window=req.n_splits, result=r)
+        except Exception as exc:
+            with _wf_lock:
+                _wf_state.update(running=False, error=str(exc))
+
+    threading.Thread(target=_run, daemon=True, name="walkforward").start()
+    return {"ok": True, "message": f"Walk-forward lancé ({req.n_splits} fenêtres)"}
+
+
+@app.get("/api/pretrain/walkforward")
+def get_walkforward(_user: dict = Depends(get_current_user)):
+    with _wf_lock:
+        return dict(_wf_state)
+
+
+# ── Optimisation Bayésienne (Optuna) ──────────────────────────────────────────
+_optuna_state: Dict[str, Any] = {
+    "running": False, "progress": 0, "n_trials": 0, "best_score": 0.0,
+    "result": None, "error": None,
+}
+_optuna_lock = threading.Lock()
+
+
+class OptunaBayesRequest(BaseModel):
+    start: str
+    end: str
+    n_trials: int = 30
+    n_splits: int = 3
+    symbol: str = "XAUUSD"
+    capital: float = 10_000.0
+    risk_pct: float = 5.0
+
+
+@app.post("/api/optimize/bayesian")
+def start_bayesian_optimize(req: OptunaBayesRequest, _user: dict = Depends(get_current_user)):
+    """Optimisation Bayésienne des seuils stratégie via walk-forward."""
+    with _optuna_lock:
+        if _optuna_state["running"]:
+            return {"ok": False, "message": "Optimisation déjà en cours"}
+        _optuna_state.update(
+            running=True, progress=0, n_trials=req.n_trials,
+            best_score=0.0, result=None, error=None,
+        )
+
+    def _cb(done: int, total: int, score: float) -> None:
+        with _optuna_lock:
+            _optuna_state.update(
+                progress=done,
+                best_score=max(_optuna_state["best_score"], score),
+            )
+
+    def _run():
+        try:
+            from optimizer import run_optuna_optimize
+            r = run_optuna_optimize(
+                start=req.start, end=req.end,
+                n_trials=req.n_trials, n_splits=req.n_splits,
+                symbol=req.symbol, capital=req.capital, risk_pct=req.risk_pct,
+                progress_cb=_cb,
+            )
+            with _optuna_lock:
+                _optuna_state.update(running=False, result=r)
+        except Exception as exc:
+            with _optuna_lock:
+                _optuna_state.update(running=False, error=str(exc))
+
+    threading.Thread(target=_run, daemon=True, name="optuna").start()
+    return {"ok": True, "message": f"Optimisation Bayésienne lancée ({req.n_trials} essais)"}
+
+
+@app.get("/api/optimize/bayesian")
+def get_bayesian_optimize(_user: dict = Depends(get_current_user)):
+    with _optuna_lock:
+        return dict(_optuna_state)
+
+
 # ── Multi-period pretrain ─────────────────────────────────────────────────────
 _multi_state: dict = {"running": False, "current": 0, "total": 3, "results": [], "error": None}
 _multi_lock = threading.Lock()

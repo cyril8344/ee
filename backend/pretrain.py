@@ -91,6 +91,7 @@ def run_pretrain(
     risk_pct: float = 5.0,
     strategy_mode: str = "A",
     extra_overrides: Optional[Dict[str, Any]] = None,
+    write_to_db: bool = True,
 ) -> Dict[str, Any]:
     """
     Lance le pré-entraînement en mode bloquant.
@@ -575,17 +576,18 @@ def run_pretrain(
               f"SL_TP1={indicator_diagnostic.get('SL_TP1',{}).get('n','?')}")
         print("==========================================\n")
 
-        # ---- Persister les modèles appris ----
-        db.save_ml_weights(gate.weights, gate.bias_w, gate.n_samples,
-                           consecutive_losses=gate.consecutive_losses)
-        db.save_adaptive_thresholds(symbol, {
-            "atr_min":   adaptive.atr_min,
-            "ema9_mult": adaptive.ema9_mult,
-            "m15_mult":  adaptive.m15_mult,
-            "n_wins":    adaptive.n_wins,
-            "n_losses":  adaptive.n_losses,
-            "n_total":   adaptive.n_total,
-        })
+        # ---- Persister les modèles appris (sauf en mode walk-forward) ----
+        if write_to_db:
+            db.save_ml_weights(gate.weights, gate.bias_w, gate.n_samples,
+                               consecutive_losses=gate.consecutive_losses)
+            db.save_adaptive_thresholds(symbol, {
+                "atr_min":   adaptive.atr_min,
+                "ema9_mult": adaptive.ema9_mult,
+                "m15_mult":  adaptive.m15_mult,
+                "n_wins":    adaptive.n_wins,
+                "n_losses":  adaptive.n_losses,
+                "n_total":   adaptive.n_total,
+            })
 
         win_rate = round(n_wins / n_trades, 3) if n_trades else 0.0
 
@@ -712,3 +714,85 @@ def launch_pretrain(
             _set(running=False, status="error", error=str(exc))
 
     threading.Thread(target=_run, daemon=True, name="pretrain").start()
+
+
+# --------------------------------------------------------------------------- #
+# Walk-forward : robustesse sur N fenêtres indépendantes
+# --------------------------------------------------------------------------- #
+def run_walk_forward(
+    start: str,
+    end: str,
+    n_splits: int = 4,
+    symbol: str = "XAUUSD",
+    capital: float = 10_000.0,
+    risk_pct: float = 5.0,
+    strategy_mode: str = "A",
+    extra_overrides: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Divise start→end en n_splits fenêtres indépendantes de même durée.
+    Chaque fenêtre tourne en isolation totale (gate fraîche, write_to_db=False).
+
+    Retourne par fenêtre : n_trades, win_rate, profit_factor, net_pnl,
+    plus des métriques de cohérence globales (avg_pf, std_pf, is_robust).
+
+    Règle d'or : si PF est cohérent (>1 dans ≥75% des fenêtres et std_pf<0.3),
+    la stratégie est robuste et non overfittée.
+    """
+    import statistics as _st
+    from datetime import date as _date, timedelta as _td
+    import dateutil.parser as _dparse
+
+    start_dt   = _dparse.parse(start).date()
+    end_dt     = _dparse.parse(end).date()
+    total_days = (end_dt - start_dt).days
+    seg_days   = total_days // n_splits
+
+    windows = []
+    for k in range(n_splits):
+        seg_start = (start_dt + _td(days=k * seg_days)).isoformat()
+        seg_end   = end if k == n_splits - 1 else (start_dt + _td(days=(k + 1) * seg_days)).isoformat()
+        try:
+            r = run_pretrain(
+                start=seg_start, end=seg_end,
+                symbol=symbol, capital=capital, risk_pct=risk_pct,
+                strategy_mode=strategy_mode, reset=True,
+                extra_overrides=extra_overrides,
+                write_to_db=False,
+            )
+            n_sl = r.get("false_stops", {}).get("n_sl_direct", 0)
+            windows.append({
+                "window":        k + 1,
+                "period":        f"{seg_start} → {seg_end}",
+                "n_trades":      r["n_trades"],
+                "win_rate":      r["win_rate"],
+                "profit_factor": r["profit_factor"],
+                "net_pnl":       r["net_pnl"],
+                "sl_direct_pct": round(n_sl / max(r["n_trades"], 1) * 100, 1),
+            })
+        except Exception as exc:
+            windows.append({
+                "window": k + 1,
+                "period": f"{seg_start} → {seg_end}",
+                "error":  str(exc),
+            })
+
+    valid_pfs = [
+        w["profit_factor"] for w in windows
+        if "profit_factor" in w and w.get("n_trades", 0) >= 5
+    ]
+
+    avg_pf = round(sum(valid_pfs) / len(valid_pfs), 3) if valid_pfs else 0.0
+    std_pf = round(_st.stdev(valid_pfs), 3) if len(valid_pfs) >= 2 else 0.0
+    pct_ok = round(sum(1 for pf in valid_pfs if pf > 1.0) / len(valid_pfs) * 100, 1) if valid_pfs else 0.0
+
+    return {
+        "windows":         windows,
+        "n_splits":        n_splits,
+        "is_robust":       bool(valid_pfs) and pct_ok >= 75 and std_pf < 0.30,
+        "avg_pf":          avg_pf,
+        "min_pf":          round(min(valid_pfs), 3) if valid_pfs else 0.0,
+        "max_pf":          round(max(valid_pfs), 3) if valid_pfs else 0.0,
+        "std_pf":          std_pf,
+        "pct_profitable":  pct_ok,
+    }

@@ -117,3 +117,92 @@ def run_optimize(cfg: OptimizeConfig) -> Dict[str, Any]:
         "best": top5[0] if top5 else None,
         "param_grid": PARAM_GRID,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Optimisation Bayésienne via Optuna + walk-forward (anti-overfitting)
+# --------------------------------------------------------------------------- #
+
+# Espace de recherche : paramètres à optimiser et leurs bornes
+OPTUNA_SEARCH_SPACE = {
+    "RSI_M5_LONG_MIN":      (43.0, 51.0),  # seuil RSI M5 pour LONG
+    "RSI_M5_SHORT_MAX":     (49.0, 57.0),  # seuil RSI M5 pour SHORT
+    "ATR_MIN":              (1.5,  4.0),   # volatilité minimale
+    "ADX_MIN":              (15.0, 30.0),  # force de tendance minimale
+    "TREND_BIAS_DISTANCE":  (0.3,  0.8),   # distance minimale EMA200
+}
+
+
+def run_optuna_optimize(
+    start: str,
+    end: str,
+    n_trials: int = 30,
+    n_splits: int = 3,
+    symbol: str = "XAUUSD",
+    capital: float = 10_000.0,
+    risk_pct: float = 5.0,
+    progress_cb=None,
+) -> Dict[str, Any]:
+    """
+    Optimisation Bayésienne des paramètres stratégie via Optuna.
+
+    Chaque essai évalue un jeu de paramètres sur un walk-forward en n_splits
+    fenêtres indépendantes. Score = avg_pf × pct_rentables − std_pf × 0.5
+    (récompense la cohérence, pénalise la variance inter-fenêtres).
+
+    progress_cb(done, total, best_score) — appelé après chaque essai.
+    """
+    try:
+        import optuna
+    except ImportError:
+        return {"error": "optuna non installé — lancez : pip install optuna>=3.6"}
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    from pretrain import run_walk_forward
+
+    def objective(trial: "optuna.Trial") -> float:
+        rsi_long  = trial.suggest_int("RSI_M5_LONG_MIN",  43, 51)
+        rsi_short = trial.suggest_int("RSI_M5_SHORT_MAX", 49, 57)
+        if rsi_long >= rsi_short:
+            raise optuna.TrialPruned()
+
+        overrides = {
+            "RSI_M5_LONG_MIN":     float(rsi_long),
+            "RSI_M5_SHORT_MAX":    float(rsi_short),
+            "ATR_MIN":             trial.suggest_float("ATR_MIN", 1.5, 4.0, step=0.5),
+            "ADX_MIN":             trial.suggest_float("ADX_MIN", 15.0, 30.0, step=2.5),
+            "TREND_BIAS_DISTANCE": trial.suggest_float("TREND_BIAS_DISTANCE", 0.3, 0.8, step=0.1),
+        }
+
+        wf = run_walk_forward(
+            start=start, end=end, n_splits=n_splits,
+            symbol=symbol, capital=capital, risk_pct=risk_pct,
+            extra_overrides=overrides,
+        )
+
+        score = wf["avg_pf"] * (wf["pct_profitable"] / 100.0) - wf["std_pf"] * 0.5
+        if progress_cb:
+            progress_cb(trial.number + 1, n_trials, round(score, 4))
+        return score
+
+    study = optuna.create_study(
+        direction="maximize",
+        sampler=optuna.samplers.TPESampler(seed=42),
+    )
+    study.optimize(objective, n_trials=n_trials, n_jobs=1)
+
+    completed = [t for t in study.trials if t.state.name == "COMPLETE"]
+    top10 = sorted(completed, key=lambda t: -(t.value or -9999))[:10]
+
+    best = study.best_trial
+    return {
+        "best_params":  best.params,
+        "best_score":   round(best.value, 4),
+        "n_trials":     n_trials,
+        "n_completed":  len(completed),
+        "top_trials": [
+            {"trial": t.number, "params": t.params, "score": round(t.value, 4)}
+            for t in top10
+        ],
+        "search_space": OPTUNA_SEARCH_SPACE,
+    }
