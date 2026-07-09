@@ -23,7 +23,8 @@ from typing import Optional, Dict, Any, List
 
 import pandas as pd
 
-from strategy import Signal, active_session, is_bad_timing, ATR_MIN
+from strategy import (Signal, active_session, is_bad_timing, ATR_MIN,
+                      nearest_support_below, nearest_resistance_above)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Paramètres
@@ -37,6 +38,11 @@ SL_BUFFER_ATR     = 0.3  # buffer SL derrière l'extrême de l'OB
 MAX_RISK_ATR      = 1.5  # plafond risque (SL ≤ 1.5×ATR de l'entrée)
 TP1_R             = 0.7
 TP2_R             = 1.8
+
+# S/R zone-to-zone (H1)
+SR_ZONE_ATR_H1  = 1.0   # prix dans 1.0×ATR H1 d'un niveau → zone active
+SR_MIN_TOUCHES  = 2     # touches minimales pour valider un niveau H1
+SR_TP_MIN_R     = 1.0   # cible S/R doit être ≥ 1R pour remplacer TP2 fixe
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -128,7 +134,57 @@ def _in_ob(bar_low: float, bar_high: float, ob: Dict) -> bool:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 3. Évaluation principale
+# 3. Niveaux S/R H1 avec critère de force
+# ──────────────────────────────────────────────────────────────────────────────
+def _h1_sr_levels(h1: pd.DataFrame, lookback: int = 30,
+                   min_touches: int = SR_MIN_TOUCHES,
+                   tol_atr: float = 0.5) -> dict:
+    """
+    Détecte les niveaux S/R H1 significatifs (touchés ≥ min_touches fois).
+    Un niveau = swing high/low H1 avec k=2 bougies de chaque côté.
+    La force = nombre de fois que le prix est revenu dans tol_atr×ATR du niveau.
+    """
+    if len(h1) < 8:
+        return {"resistance": [], "support": []}
+
+    sub  = h1.tail(lookback)
+    h1_atr = float(sub["atr"].iloc[-1] or 1)
+    tol  = tol_atr * h1_atr
+    n    = len(sub)
+    k    = 2  # bougies de chaque côté pour swing H1
+
+    highs_arr = sub["high"].values
+    lows_arr  = sub["low"].values
+
+    raw_highs: list = []
+    raw_lows:  list = []
+    for i in range(k, n - k):
+        if highs_arr[i] == max(highs_arr[i - k: i + k + 1]):
+            raw_highs.append(float(highs_arr[i]))
+        if lows_arr[i] == min(lows_arr[i - k: i + k + 1]):
+            raw_lows.append(float(lows_arr[i]))
+
+    def _count_touches(level: float) -> int:
+        return sum(
+            1 for i in range(n)
+            if abs(highs_arr[i] - level) < tol or abs(lows_arr[i] - level) < tol
+        )
+
+    def _dedupe(levels: list) -> list:
+        result: list = []
+        for lv in sorted(levels):
+            if not result or abs(lv - result[-1]) > tol:
+                result.append(lv)
+        return result
+
+    strong_res = [lv for lv in _dedupe(raw_highs) if _count_touches(lv) >= min_touches]
+    strong_sup = [lv for lv in _dedupe(raw_lows)  if _count_touches(lv) >= min_touches]
+
+    return {"resistance": strong_res, "support": strong_sup}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 4. Évaluation principale
 # ──────────────────────────────────────────────────────────────────────────────
 def evaluate_ict(
     m5: pd.DataFrame,
@@ -166,6 +222,29 @@ def evaluate_ict(
     direction = _h1_bias(h1)
     if direction is None:
         return None
+
+    # 3b) S/R zone H1 — flip directionnel si prix sur un niveau fort (≥2 touches)
+    _price    = float(cur["close"])
+    h1_atr    = float(h1.iloc[-1].get("atr", atr_val) or atr_val)
+    _h1_sr    = _h1_sr_levels(h1, lookback=30)
+    _zone_tol = SR_ZONE_ATR_H1 * h1_atr
+    _sr_tp2_target = None
+
+    _near_res = any(0 < (r - _price) < _zone_tol for r in _h1_sr["resistance"])
+    _near_sup = any(0 < (_price - s) < _zone_tol for s in _h1_sr["support"])
+
+    if _near_res:
+        # Prix arrivé sous une résistance forte → SHORT vers le support
+        direction = "SHORT"
+        _t = nearest_support_below(_price, _h1_sr, min_gap=_zone_tol)
+        if _t:
+            _sr_tp2_target = _t
+    elif _near_sup:
+        # Prix revenu au-dessus d'un support fort → LONG vers la résistance
+        direction = "LONG"
+        _t = nearest_resistance_above(_price, _h1_sr, min_gap=_zone_tol)
+        if _t:
+            _sr_tp2_target = _t
 
     # 4) ADX H1 — marché tendanciel requis (rejet chop)
     h1_adx = float(h1.iloc[-1].get("adx", 0) or 0) if len(h1) > 0 else 0.0
@@ -205,6 +284,14 @@ def evaluate_ict(
         tp1 = entry - TP1_R * risk
         tp2 = entry - TP2_R * risk
 
+    # TP2 ciblé sur S/R H1 si disponible et distance ≥ SR_TP_MIN_R × risk
+    sr_tp2_used = False
+    if _sr_tp2_target is not None:
+        sr_dist = abs(_sr_tp2_target - entry)
+        if sr_dist >= SR_TP_MIN_R * risk:
+            tp2 = _sr_tp2_target
+            sr_tp2_used = True
+
     ob_ts = ob["ts"]
     ob_ts_str = ob_ts.isoformat() if hasattr(ob_ts, "isoformat") else str(ob_ts)
 
@@ -217,14 +304,16 @@ def evaluate_ict(
         take_profit1=tp1,
         take_profit2=tp2,
         atr=atr_val,
-        reason="OB_RETEST",
+        reason="SR_OB_RETEST" if (_near_res or _near_sup) else "OB_RETEST",
         risk_distance=risk,
         timestamp=ts,
         meta={
-            "strategy": "B_OB",
-            "ob_low":   round(ob["low"],  5),
-            "ob_high":  round(ob["high"], 5),
-            "ob_ts":    ob_ts_str,
-            "adx_h1":   round(h1_adx, 1),
+            "strategy":      "B_OB",
+            "ob_low":        round(ob["low"],  5),
+            "ob_high":       round(ob["high"], 5),
+            "ob_ts":         ob_ts_str,
+            "adx_h1":        round(h1_adx, 1),
+            "sr_zone":       "resistance" if _near_res else ("support" if _near_sup else None),
+            "sr_tp2_target": round(_sr_tp2_target, 5) if sr_tp2_used else None,
         },
     )
