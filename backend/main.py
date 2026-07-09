@@ -400,6 +400,58 @@ def trading_tick() -> Dict[str, Any]:
                                adaptive_thresholds=ms.adaptive)
                 ms.last_snapshot = snap
 
+                # Pour les marchés Strategy B, calculer les conditions ICT en temps réel
+                if ms.config.get("default_strategy", "A") == "B":
+                    try:
+                        from strategy_ict import (_h1_bias, _find_order_blocks,
+                                                   _in_ob, ADX_MIN_H1, _h1_sr_levels,
+                                                   SR_ZONE_ATR_H1)
+                        _bias_ict  = _h1_bias(h1)
+                        _atr_ict   = float(m5.iloc[-1].get("atr", 0) or 0)
+                        _dir_ict   = _bias_ict or "LONG"
+                        _obs_long  = _find_order_blocks(m5, "LONG",  _atr_ict)
+                        _obs_short = _find_order_blocks(m5, "SHORT", _atr_ict)
+                        _obs_dir   = _obs_long if _bias_ict == "LONG" else _obs_short
+                        _cur_ict   = m5.iloc[-1]
+                        _in_ob_now = any(_in_ob(float(_cur_ict["low"]), float(_cur_ict["high"]), ob) for ob in _obs_dir)
+                        _adx_h1    = float(h1.iloc[-1].get("adx", 0) or 0) if len(h1) > 0 else 0.0
+                        _adx_ok    = _adx_h1 >= ADX_MIN_H1
+                        _h1_sr     = _h1_sr_levels(h1)
+                        _price_ict = float(_cur_ict["close"])
+                        _h1_atr    = float(h1.iloc[-1].get("atr", _atr_ict) or _atr_ict) if len(h1) > 0 else _atr_ict
+                        _zone_tol  = SR_ZONE_ATR_H1 * _h1_atr
+                        _near_res  = any(0 < (r - _price_ict) < _zone_tol for r in _h1_sr["resistance"])
+                        _near_sup  = any(0 < (_price_ict - s) < _zone_tol for s in _h1_sr["support"])
+                        _sr_active = _near_res or _near_sup
+
+                        _blocking = None
+                        if _bias_ict is None:
+                            _blocking = "bias_neutre"
+                        elif not _adx_ok and not _sr_active:
+                            _blocking = "adx_h1_trop_bas"
+                        elif not _obs_dir and not _sr_active:
+                            _blocking = "aucun_ob_detecte"
+                        elif not _in_ob_now and not _sr_active:
+                            _blocking = "prix_hors_ob"
+
+                        snap["ict_conditions"] = {
+                            "h1_bias":        _bias_ict or "NEUTRE",
+                            "adx_h1":         round(_adx_h1, 1),
+                            "adx_ok":         _adx_ok,
+                            "ob_count_long":  len(_obs_long),
+                            "ob_count_short": len(_obs_short),
+                            "in_ob_zone":     _in_ob_now,
+                            "sr_active":      _sr_active,
+                            "sr_zone":        "resistance" if _near_res else ("support" if _near_sup else None),
+                            "blocking_reason": _blocking,
+                            "obs": [{"type": "bullish" if _dir_ict == "LONG" else "bearish",
+                                     "low": round(ob["low"], 5), "high": round(ob["high"], 5)}
+                                    for ob in _obs_dir[:5]],
+                        }
+                    except Exception:
+                        pass
+
+
                 def _set_loop_gate(reason: str):
                     """Surcharge blocking_reason dans conditions pour debug dashboard."""
                     c = ms.last_snapshot.get("conditions")
@@ -839,6 +891,7 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
             "position": _position_payload(ms),
             "last_signal": ms.last_signal,
             "conditions": snap.get("conditions"),
+            "ict_conditions": snap.get("ict_conditions"),
             "reject_log": snap.get("reject_log"),
             "ml_gate": ms.ml_gate.status() if ms.ml_gate else {},
             "data_provider": getattr(getattr(ms.broker, "data", None), "provider", None),

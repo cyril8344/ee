@@ -1110,8 +1110,43 @@ export default function Dashboard({ onLogout }) {
               </div>
 
               {/* ---- trading conditions checklist ---- */}
-              {mkt.conditions && (
+              {(mkt.ict_conditions || mkt.conditions) && (
                 <div style={{ background: "#0a1020", borderRadius: 6, padding: "8px 10px", marginBottom: 10, fontSize: 11 }}>
+                  {mkt.ict_conditions ? (
+                    /* ---- Strategy B (ICT / Order Blocks) ---- */
+                    <>
+                      <div style={{ color: COLORS.sub, fontWeight: 600, marginBottom: 6, fontSize: 11 }}>
+                        Conditions d'entrée
+                        {mkt.ict_conditions.blocking_reason ? (
+                          <span style={{ marginLeft: 6, color: COLORS.amber, fontWeight: 400 }}>
+                            — bloqué: {mkt.ict_conditions.blocking_reason.replace(/_/g, " ")}
+                          </span>
+                        ) : (
+                          <span style={{ marginLeft: 6, color: COLORS.green, fontWeight: 400 }}>✓ prêt</span>
+                        )}
+                      </div>
+                      {[
+                        { label: "Biais H1", ok: mkt.ict_conditions.h1_bias !== "NEUTRE", val: mkt.ict_conditions.h1_bias || "NEUTRE" },
+                        { label: `ADX H1 (≥20)`, ok: mkt.ict_conditions.adx_ok,
+                          val: mkt.ict_conditions.adx_h1 != null ? `${mkt.ict_conditions.adx_h1.toFixed(1)} ${mkt.ict_conditions.adx_ok ? "✓" : "✗"}` : "—" },
+                        { label: "OBs haussiers", ok: mkt.ict_conditions.ob_count_long > 0,
+                          val: `${mkt.ict_conditions.ob_count_long ?? 0} détecté(s)` },
+                        { label: "OBs baissiers", ok: mkt.ict_conditions.ob_count_short > 0,
+                          val: `${mkt.ict_conditions.ob_count_short ?? 0} détecté(s)` },
+                        { label: "Prix dans OB", ok: mkt.ict_conditions.in_ob_zone,
+                          val: mkt.ict_conditions.in_ob_zone ? "✓ dans zone" : "✗ hors zone" },
+                        { label: "Zone S/R H1", ok: mkt.ict_conditions.sr_active,
+                          val: mkt.ict_conditions.sr_active ? `✓ ${mkt.ict_conditions.sr_zone || ""}` : "—" },
+                      ].map(({ label, ok, val }) => (
+                        <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                          <span style={{ color: COLORS.sub }}>{label}</span>
+                          <span style={{ color: ok ? COLORS.green : ok === false ? COLORS.red : COLORS.grey, fontWeight: 500 }}>{val}</span>
+                        </div>
+                      ))}
+                    </>
+                  ) : (
+                    /* ---- Strategy A (EMA / Patterns) ---- */
+                    <>
                   <div style={{ color: COLORS.sub, fontWeight: 600, marginBottom: 6, fontSize: 11 }}>
                     Conditions d'entrée
                     {mkt.conditions.blocking_reason ? (
@@ -1132,8 +1167,6 @@ export default function Dashboard({ onLogout }) {
                             const tol = mkt.conditions.m15_ema_tol ?? 0;
                             const bias = mkt.conditions.h1_bias;
                             if (gap == null) return "✗";
-                            // Pour SHORT : il faut gap <= tol → manque = gap - tol (combien EMA9 doit descendre)
-                            // Pour LONG  : il faut gap >= -tol → manque = -tol - gap (combien EMA9 doit monter)
                             const manque = bias === "SHORT" ? (gap - tol) : (-tol - gap);
                             return `✗ (gap ${gap > 0 ? "+" : ""}${gap.toFixed(3)}, manque ${manque.toFixed(3)})`;
                           })() },
@@ -1209,7 +1242,9 @@ export default function Dashboard({ onLogout }) {
                       </div>
                     )}
                   </div>
-                  {/* Pré-entraînement */}
+                    </> /* fin Strategy A */
+                  )} {/* fin ternaire ICT vs A */}
+                  {/* Pré-entraînement — commun aux deux stratégies */}
                   <div style={{ marginTop: 6, borderTop: `1px solid ${COLORS.border}`, paddingTop: 6 }}>
                     {/* Sélecteur de période */}
                     {!pretrainStatus?.running && (
