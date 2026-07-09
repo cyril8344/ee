@@ -836,22 +836,7 @@ def evaluate(
     atr_val = float(cur["atr"]) if not pd.isna(cur["atr"]) else 0.0
     h1_adx  = float(h1.iloc[-1].get("adx", 0)) if len(h1) else 0.0
 
-    # 2c) S/R zone override — flip du biais si prix arrive sur une zone clé
-    # Prix à la résistance → forcer SHORT jusqu'au support (même si EMA200 dit LONG)
-    # Prix au support → forcer LONG jusqu'à la résistance (même si EMA200 dit SHORT)
-    _sr_tp2_target: Optional[float] = None
-    if not BOOTSTRAP_MODE and atr_val > 0:
-        _m5_sr = swing_levels(m5, lookback=100)
-        _close_now = float(cur["close"])
-        _sr_tol = SR_ZONE_ATR * atr_val
-        _near_res = any(0 < (r - _close_now) < _sr_tol for r in _m5_sr.get("resistance", []))
-        _near_sup = any(0 < (_close_now - s) < _sr_tol for s in _m5_sr.get("support", []))
-        if _near_res:
-            bias = "SHORT"
-            _sr_tp2_target = nearest_support_below(_close_now, _m5_sr, min_gap=_sr_tol)
-        elif _near_sup:
-            bias = "LONG"
-            _sr_tp2_target = nearest_resistance_above(_close_now, _m5_sr, min_gap=_sr_tol)
+    _sr_tp2_target: Optional[float] = None  # utilisé par stratégie B uniquement
 
     if not BOOTSTRAP_MODE:
         # 3) M15 EMA9/21 + RSI confirmation
@@ -1001,11 +986,6 @@ def evaluate(
         tp1 = entry - 0.7 * risk
         tp2 = entry - 1.8 * risk
 
-    # TP2 ciblé sur S/R si trade initié depuis une zone S/R et cible ≥ SR_TP_MIN_R × risk
-    if _sr_tp2_target is not None:
-        sr_dist = abs(_sr_tp2_target - entry)
-        if sr_dist >= SR_TP_MIN_R * risk:
-            tp2 = _sr_tp2_target
 
     # Extraction des features ML — toujours calculées (gate live + pré-entraînement)
     ml_prob: float = -1.0
