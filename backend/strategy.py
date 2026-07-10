@@ -928,30 +928,29 @@ def evaluate(
     if triggers and near_fvg(entry, bias, fvgs):
         triggers.append("near_fvg")
 
-    # Entry gating — poids assouplis à 0 pour amorcer l'apprentissage
+    # Entry gating
     def _w(t: str) -> float:
         if pattern_weights is None:
             return 1.0
         info = pattern_weights.get(t)
         return info["weight"] if isinstance(info, dict) else float(info) if info else 1.0
 
-    # Exclure les patterns sous le seuil de qualité (PATTERN_FLOOR = 0.0 → aucun exclu)
+    # Exclure les patterns sous le seuil de qualité
     triggers = [t for t in triggers if _w(t) >= PATTERN_FLOOR]
+
+    # Ancre obligatoire : ema9_pullback ou micro_breakout requis
+    if not set(triggers) & {"ema9_pullback", "micro_breakout"}:
+        _rej(_reject_log, "no_anchor"); return None
 
     weights = [_w(t) for t in triggers]
     weight_total = sum(weights)
 
-    # Passage : au moins 1 pattern détecté — fallback "any_bar" si aucun (amorçage)
-    if not triggers:
-        triggers = ["any_bar"]
-        weights  = [1.0]
-        weight_total = 1.0
-
     # Filtre corps de bougie : rejette les bougies indécises (corps < 40% de la range)
-    # Exempt pour les patterns conçus avec petite bougie (hammer, pin_bar, doji, tweezer)
+    # Exempt pour les patterns conçus avec petite bougie + ancres EMA9
     SMALL_BODY_EXEMPT = {
         "hammer", "pin_bar", "doji_reversal", "shooting_star",
         "tweezer_bottom", "tweezer_top", "piercing_line", "dark_cloud_cover",
+        "ema9_pullback", "micro_breakout",
     }
     if BODY_FILTER_ENABLED and not set(triggers) & SMALL_BODY_EXEMPT:
         bar_range = float(cur["high"]) - float(cur["low"])
