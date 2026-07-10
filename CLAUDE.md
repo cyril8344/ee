@@ -46,7 +46,7 @@ The 10-stage filter runs in strict order — a rejection at any stage short-circ
 7. M5 EMA9 alignment (adaptive tolerance)
 8. M5 RSI momentum (LONG > 46, SHORT < 57)
 9. VWAP alignment (close ≥ VWAP for LONG, ≤ VWAP for SHORT)
-10. Candle patterns — soit 1 pattern fort (ancre, weight ≥ 0.85) soit 2+ patterns (sum ≥ 1.0 LONG / 1.5 SHORT) — ancre (ema9_pullback ou micro_breakout) toujours requise
+10. Candle patterns — ancre obligatoire (ema9_pullback OU micro_breakout) ; autres patterns sont confluences optionnelles. Pas de seuil de poids total.
 
 ### Trade Management
 
