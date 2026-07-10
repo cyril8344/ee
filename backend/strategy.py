@@ -45,8 +45,8 @@ ATR_PERIOD = 14
 ADX_PERIOD = 14
 VOL_AVG_PERIOD = 20
 
-RSI_LOW = 35.0   # seuil M15 RSI LONG (LiveAdaptiveAgent peut ajuster)
-RSI_HIGH = 65.0  # seuil M15 RSI SHORT (LiveAdaptiveAgent peut ajuster)
+RSI_LOW = 30.0   # seuil M15 RSI LONG (LiveAdaptiveAgent peut ajuster)
+RSI_HIGH = 70.0  # seuil M15 RSI SHORT (LiveAdaptiveAgent peut ajuster)
 ATR_MIN = 3.0    # plancher volatilité M5 (LiveAdaptiveAgent peut ajuster)
 ATR_HIGH = 4.5   # seuil vol. élevée : SL passe à SL_ATR_MULT_HIGH au lieu de bloquer
 ADX_MIN = 22.0   # force tendance minimale H1 (LiveAdaptiveAgent peut ajuster)
@@ -829,7 +829,7 @@ def evaluate(
     _adapt_ready = _adapt is not None and _adapt.is_ready
     effective_atr_min  = 0.0 if (BOOTSTRAP_MODE or ATR_MIN == 0.0) else (_adapt.atr_min if _adapt_ready else atr_min)
     effective_ema9_mult = _adapt.ema9_mult if _adapt_ready else 0.5
-    effective_m15_mult  = _adapt.m15_mult  if _adapt_ready else 0.5
+    effective_m15_mult  = _adapt.m15_mult  if _adapt_ready else 0.8
 
     # BOOTSTRAP_MODE : sauter tous les filtres, aller directement au calcul des niveaux
     atr_val = float(cur["atr"]) if not pd.isna(cur["atr"]) else 0.0

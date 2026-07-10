@@ -109,7 +109,7 @@ After merging to `main`:
 - **BacktestPanel removed from nav** — only the pretrain panel is exposed in the dashboard
 - **Synthetic data** uses `vol=0.0004` (realistic for XAU/USD) — avoid drawing conclusions from synthetic backtest results
 - **Volume filter removed** — unreliable across data sources
-- **RSI M15** : symétrique 40/60 (directional 40/60 LONG>40,SHORT<60 testé → WR 49%→40.4%, PF 1.20→0.96, rejeté)
+- **RSI M15** : zone 30/70 (était 35/65 — assoupli pour éviter blocage en oversold/overbought modéré)
 - **RSI M5** : 46/57 (momentum minimal requis — Optuna walk-forward validé)
 - **Pattern floor 0.67** blocks patterns that lose 67%+ of the time (was 0.65 → 0.67)
 - **TREND_BIAS_DISTANCE = 0.3 ATR H1** blocks SHORT when price > EMA200 + 0.3×ATR and LONG when price < EMA200 − 0.3×ATR
