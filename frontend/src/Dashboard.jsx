@@ -359,7 +359,7 @@ function logout401(onLogout) {
 }
 
 /* ============================ Dashboard ================================== */
-export default function Dashboard({ onLogout }) {
+export default function Dashboard({ onLogout, onNavigateES }) {
   const [activeMarket, setActiveMarket] = useState("XAUUSD");
   const [weightsOpen, setWeightsOpen] = useState(false);
   const [state, setState] = useState(null);
@@ -947,6 +947,24 @@ export default function Dashboard({ onLogout }) {
             </button>
           ))}
           <div style={{ width: 1, background: COLORS.border, margin: "0 4px" }} />
+          {onNavigateES && (
+            <button
+              onClick={onNavigateES}
+              style={{
+                background: "transparent",
+                color: COLORS.blue,
+                border: `1px solid ${COLORS.blue}`,
+                borderRadius: 6,
+                padding: "6px 14px",
+                fontSize: 13,
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+              title="Dashboard ES (S&P 500)"
+            >
+              ES →
+            </button>
+          )}
           <button
             onClick={() => { localStorage.removeItem("token"); if (onLogout) onLogout(); }}
             style={{

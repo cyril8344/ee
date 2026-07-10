@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import LoginPage from "./LoginPage";
 import Dashboard from "./Dashboard";
+import DashboardES from "./DashboardES";
 
 /* Error boundary — prevents a single render error from blacking out the
  * entire app. Shows a readable message + reload button instead. */
@@ -45,7 +46,8 @@ class ErrorBoundary extends React.Component {
  * ==========================================================================*/
 
 export default function App() {
-  const [token, setToken] = useState(() => localStorage.getItem("token") || null);
+  const [token,   setToken]   = useState(() => localStorage.getItem("token") || null);
+  const [page,    setPage]    = useState("xau"); // "xau" | "es"
 
   // Sync state if localStorage changes in another tab
   useEffect(() => {
@@ -71,9 +73,17 @@ export default function App() {
     return <LoginPage onLogin={handleLogin} />;
   }
 
+  if (page === "es") {
+    return (
+      <ErrorBoundary>
+        <DashboardES token={token} onBack={() => setPage("xau")} />
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <ErrorBoundary>
-      <Dashboard onLogout={handleLogout} />
+      <Dashboard onLogout={handleLogout} onNavigateES={() => setPage("es")} />
     </ErrorBoundary>
   );
 }
