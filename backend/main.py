@@ -2324,25 +2324,30 @@ class ESPretrainRequest(BaseModel):
     params:   Optional[Dict[str, Any]] = None
 
 
-# Stockage persistant des paramètres ES (en mémoire, optionnellement SQLite)
+# Paramètres ES alignés avec les nouveaux DEFAULTS strategy_es.py
 _es_settings: Dict[str, Any] = {
-    "ema_fast":        9,
-    "ema_slow":        21,
-    "ema_trend":       200,
-    "rsi_long":        45,
-    "rsi_short":       55,
-    "atr_min_pts":     2.0,
-    "vol_multiplier":  2.0,
-    "vol_lookback":    20,
-    "close_pct_long":  0.60,
-    "close_pct_short": 0.40,
-    "sl_ticks":        8,
-    "tp1_ticks":       12,
-    "tp2_ticks":       24,
-    "session_open_h":  9,
-    "session_open_m":  30,
-    "session_close_h": 16,
-    "session_close_m": 0,
+    "ema_fast":         9,
+    "ema_slow":         21,
+    "ema_trend":        200,
+    "rsi_long":         48,
+    "rsi_short":        52,
+    "atr_min_pts":      2.0,
+    "adx_min":          20,
+    "vwap_filter":      1,
+    "h1_filter":        1,
+    "bad_hours_et":     [10],
+    "vol_multiplier":   2.8,
+    "vol_lookback":     20,
+    "close_pct_long":   0.70,
+    "close_pct_short":  0.30,
+    "body_ratio_min":   0.20,
+    "sl_ticks":         14,
+    "tp1_ticks":        20,
+    "tp2_ticks":        40,
+    "session_open_h":   9,
+    "session_open_m":   30,
+    "session_close_h":  16,
+    "session_close_m":  0,
 }
 _es_settings_lock = threading.Lock()
 
@@ -2356,7 +2361,9 @@ def get_es_settings(_user: dict = Depends(get_current_user)):
 @app.post("/api/es/settings")
 def update_es_settings(body: Dict[str, Any], _user: dict = Depends(get_current_user)):
     with _es_settings_lock:
-        _es_settings.update({k: v for k, v in body.items() if k in _es_settings})
+        # Accepter toutes les clés connues + nouvelles
+        for k, v in body.items():
+            _es_settings[k] = v
         return dict(_es_settings)
 
 
@@ -2391,16 +2398,44 @@ def get_es_pretrain_result(_user: dict = Depends(get_current_user)):
     return result
 
 
+class ESWalkForwardRequest(BaseModel):
+    start:    str
+    end:      str
+    n_splits: int   = 4
+    capital:  float = 50_000.0
+    risk_pct: float = 1.0
+    params:   Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/es/pretrain/walkforward")
+def start_es_walkforward(req: ESWalkForwardRequest, _user: dict = Depends(get_current_user)):
+    wf = _pretrain_es_module.get_wf_progress_es()
+    if wf["running"] or _pretrain_es_module.get_progress_es()["running"]:
+        return {"ok": False, "message": "Un prétrain ES est déjà en cours"}
+    with _es_settings_lock:
+        base_params = dict(_es_settings)
+    if req.params:
+        base_params.update(req.params)
+    _pretrain_es_module.launch_walkforward_es(
+        start=req.start, end=req.end,
+        n_splits=req.n_splits, params=base_params,
+        capital=req.capital, risk_pct=req.risk_pct,
+    )
+    return {"ok": True, "message": f"Walk-forward ES lancé ({req.n_splits} fenêtres)"}
+
+
+@app.get("/api/es/pretrain/walkforward")
+def get_es_walkforward(_user: dict = Depends(get_current_user)):
+    return _pretrain_es_module.get_wf_progress_es()
+
+
 @app.get("/api/es/dom")
 async def get_es_dom_signal(_user: dict = Depends(get_current_user)):
-    """Placeholder — le signal DOM live vient du DOMScanner NinjaTrader."""
     return {"signal": None, "message": "Connecter NinjaTrader DOMScanner sur /api/es/dom (POST)"}
 
 
 @app.post("/api/es/dom")
 async def post_es_dom_signal(body: Dict[str, Any]):
-    """Reçoit un signal DOM du DOMScanner NinjaTrader (pas d'auth requis depuis NT)."""
-    # Format attendu : {"side": "BUY"|"SELL", "size": 93, "price": 5839.5, "type": "ABSORPTION"}
     logger.info("[ES DOM] signal reçu: %s", body)
     return {"ok": True, "received": body}
 
