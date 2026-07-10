@@ -86,6 +86,7 @@ from live_agent import LiveAdaptiveAgent
 import agent_memory
 from ml_gate import AdaptiveThresholds
 import pretrain as _pretrain_module
+import pretrain_es as _pretrain_es_module
 from llm_gate import LLMGate
 from researcher_agent import ResearcherAgent
 from adaptive_agent import AdaptiveAgent
@@ -1166,6 +1167,12 @@ def get_chart(tf: str = "M5", symbol: str = "XAUUSD", _user: dict = Depends(get_
 @app.get("/api/trades/report")
 def get_trade_report_endpoint(_user: dict = Depends(get_current_user)):
     return db.get_trade_report(limit=1000)
+
+
+@app.get("/api/report/weekly")
+def get_weekly_report_endpoint(week: int = 0, _user: dict = Depends(get_current_user)):
+    """Rapport hebdo. week=0 = semaine courante, week=-1 = semaine passée."""
+    return db.get_weekly_report(week_offset=week)
 
 
 @app.get("/api/trades")
@@ -2303,6 +2310,99 @@ async def websocket_endpoint(ws: WebSocket):
         ws_manager.disconnect(ws)
     except Exception:
         ws_manager.disconnect(ws)
+
+
+# --------------------------------------------------------------------------- #
+# ES (S&P 500 E-mini) — endpoints indépendants
+# --------------------------------------------------------------------------- #
+
+class ESPretrainRequest(BaseModel):
+    start:    str
+    end:      str
+    capital:  float = 50_000.0
+    risk_pct: float = 1.0
+    params:   Optional[Dict[str, Any]] = None
+
+
+# Stockage persistant des paramètres ES (en mémoire, optionnellement SQLite)
+_es_settings: Dict[str, Any] = {
+    "ema_fast":        9,
+    "ema_slow":        21,
+    "ema_trend":       200,
+    "rsi_long":        45,
+    "rsi_short":       55,
+    "atr_min_pts":     2.0,
+    "vol_multiplier":  2.0,
+    "vol_lookback":    20,
+    "close_pct_long":  0.60,
+    "close_pct_short": 0.40,
+    "sl_ticks":        8,
+    "tp1_ticks":       12,
+    "tp2_ticks":       24,
+    "session_open_h":  9,
+    "session_open_m":  30,
+    "session_close_h": 16,
+    "session_close_m": 0,
+}
+_es_settings_lock = threading.Lock()
+
+
+@app.get("/api/es/settings")
+def get_es_settings(_user: dict = Depends(get_current_user)):
+    with _es_settings_lock:
+        return dict(_es_settings)
+
+
+@app.post("/api/es/settings")
+def update_es_settings(body: Dict[str, Any], _user: dict = Depends(get_current_user)):
+    with _es_settings_lock:
+        _es_settings.update({k: v for k, v in body.items() if k in _es_settings})
+        return dict(_es_settings)
+
+
+@app.post("/api/es/pretrain")
+def start_es_pretrain(req: ESPretrainRequest, _user: dict = Depends(get_current_user)):
+    prog = _pretrain_es_module.get_progress_es()
+    if prog["running"]:
+        return {"ok": False, "message": "Pré-entraînement ES déjà en cours", "progress": prog}
+    with _es_settings_lock:
+        base_params = dict(_es_settings)
+    if req.params:
+        base_params.update(req.params)
+    _pretrain_es_module.launch_pretrain_es(
+        start=req.start, end=req.end,
+        params=base_params,
+        capital=req.capital, risk_pct=req.risk_pct,
+    )
+    return {"ok": True, "message": "Pré-entraînement ES lancé", "progress": _pretrain_es_module.get_progress_es()}
+
+
+@app.get("/api/es/pretrain/status")
+def get_es_pretrain_status(_user: dict = Depends(get_current_user)):
+    return _pretrain_es_module.get_progress_es()
+
+
+@app.get("/api/es/pretrain/result")
+def get_es_pretrain_result(_user: dict = Depends(get_current_user)):
+    prog = _pretrain_es_module.get_progress_es()
+    result = prog.get("last_result")
+    if result is None:
+        return {"ok": False, "message": "Aucun résultat disponible"}
+    return result
+
+
+@app.get("/api/es/dom")
+async def get_es_dom_signal(_user: dict = Depends(get_current_user)):
+    """Placeholder — le signal DOM live vient du DOMScanner NinjaTrader."""
+    return {"signal": None, "message": "Connecter NinjaTrader DOMScanner sur /api/es/dom (POST)"}
+
+
+@app.post("/api/es/dom")
+async def post_es_dom_signal(body: Dict[str, Any]):
+    """Reçoit un signal DOM du DOMScanner NinjaTrader (pas d'auth requis depuis NT)."""
+    # Format attendu : {"side": "BUY"|"SELL", "size": 93, "price": 5839.5, "type": "ABSORPTION"}
+    logger.info("[ES DOM] signal reçu: %s", body)
+    return {"ok": True, "received": body}
 
 
 # SPA fallback — any unknown path serves index.html so React Router can handle it
