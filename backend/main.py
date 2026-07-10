@@ -1177,6 +1177,12 @@ def get_trade_report_endpoint(_user: dict = Depends(get_current_user)):
     return db.get_trade_report(limit=1000)
 
 
+@app.get("/api/report/weekly")
+def get_weekly_report_endpoint(week: int = 0, _user: dict = Depends(get_current_user)):
+    """Rapport hebdo. week=0 = semaine courante, week=-1 = semaine passée."""
+    return db.get_weekly_report(week_offset=week)
+
+
 @app.get("/api/trades")
 def get_trades(scope: str = "today", _user: dict = Depends(get_current_user)):
     mode = state.settings.get("mode")

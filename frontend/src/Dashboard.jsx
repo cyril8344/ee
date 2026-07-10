@@ -367,6 +367,8 @@ export default function Dashboard({ onLogout }) {
   const [tf, setTf] = useState("M5");
   const [trades, setTrades] = useState({ trades: [], equity_curve: [] });
   const [tradesScope, setTradesScope] = useState("today");
+  const [weeklyReport, setWeeklyReport] = useState(null);
+  const [weeklyOffset, setWeeklyOffset] = useState(0);
   const [cleanupLoading, setCleanupLoading] = useState(false);
   const [cleanupResult, setCleanupResult] = useState(null);
   const [blockedHours, setBlockedHours] = useState([]);
@@ -502,6 +504,14 @@ export default function Dashboard({ onLogout }) {
       clearInterval(id);
     };
   }, [tradesScope]);
+
+  /* Rapport hebdo */
+  useEffect(() => {
+    fetch(`${API}/api/report/weekly?week=${weeklyOffset}`, { headers: authHeaders() })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => d && setWeeklyReport(d))
+      .catch(() => {});
+  }, [weeklyOffset]);
 
   /* Heures bloquées — chargement initial */
   useEffect(() => {
@@ -2654,6 +2664,114 @@ export default function Dashboard({ onLogout }) {
               </div>
             );
           })()}
+
+          {/* ===== rapport hebdo ===== */}
+          <div className="dashboard-panel section-gap" style={{ ...panel(), marginTop: 14, padding: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <h3 style={{ margin: 0, fontSize: 14 }}>
+                Rapport hebdo
+                {weeklyReport && <span style={{ fontSize: 11, color: COLORS.sub, fontWeight: 400, marginLeft: 8 }}>{weeklyReport.week_label}</span>}
+              </h3>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => setWeeklyOffset(w => w - 1)} style={{ ...tabBtn(false), fontSize: 11, padding: "3px 8px" }}>← Semaine préc.</button>
+                <button onClick={() => setWeeklyOffset(0)} style={{ ...tabBtn(weeklyOffset === 0), fontSize: 11, padding: "3px 8px" }}>Cette semaine</button>
+              </div>
+            </div>
+            {!weeklyReport || weeklyReport.stats.total === 0 ? (
+              <div style={{ color: COLORS.sub, fontSize: 12, textAlign: "center", padding: "20px 0" }}>
+                Aucun trade cette semaine
+              </div>
+            ) : (() => {
+              const s = weeklyReport.stats;
+              const ex = weeklyReport.exit_reasons;
+              const pnlColor = s.total_pnl >= 0 ? COLORS.green : COLORS.red;
+              return (
+                <div>
+                  {/* KPIs principaux */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8, marginBottom: 14 }}>
+                    {[
+                      { label: "Trades", value: s.total },
+                      { label: "Win Rate", value: `${s.win_rate}%`, color: s.win_rate >= 52 ? COLORS.green : s.win_rate >= 45 ? COLORS.amber : COLORS.red },
+                      { label: "Profit Factor", value: s.profit_factor, color: s.profit_factor >= 1.15 ? COLORS.green : s.profit_factor >= 1.0 ? COLORS.amber : COLORS.red },
+                      { label: "P&L", value: `${s.total_pnl >= 0 ? "+" : ""}${s.total_pnl}$`, color: pnlColor },
+                      { label: "SL direct", value: `${ex.sl_direct_pct}%`, color: ex.sl_direct_pct <= 32 ? COLORS.green : ex.sl_direct_pct <= 38 ? COLORS.amber : COLORS.red },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} style={{ background: COLORS.panel2, borderRadius: 6, padding: "8px 10px", textAlign: "center" }}>
+                        <div style={{ fontSize: 10, color: COLORS.sub, marginBottom: 4 }}>{label}</div>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: color || COLORS.text }}>{value}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Exits + sessions + direction */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                    {/* Exits */}
+                    <div style={{ background: COLORS.panel2, borderRadius: 6, padding: "8px 10px" }}>
+                      <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 6, fontWeight: 600 }}>Sorties</div>
+                      {[
+                        { label: "TP2 atteint", n: ex.tp2, pct: ex.tp2_pct, color: COLORS.green },
+                        { label: "TP1 seulement", n: ex.tp1_only, pct: s.total > 0 ? Math.round(ex.tp1_only / s.total * 100) : 0, color: COLORS.amber },
+                        { label: "SL direct", n: ex.sl_direct, pct: ex.sl_direct_pct, color: COLORS.red },
+                        { label: "Timeout", n: ex.timeout, pct: s.total > 0 ? Math.round(ex.timeout / s.total * 100) : 0, color: COLORS.sub },
+                      ].map(({ label, n, pct, color }) => (
+                        <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, fontSize: 11 }}>
+                          <span style={{ color: COLORS.sub }}>{label}</span>
+                          <span style={{ color }}>{n} <span style={{ color: COLORS.sub }}>({pct}%)</span></span>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Sessions */}
+                    <div style={{ background: COLORS.panel2, borderRadius: 6, padding: "8px 10px" }}>
+                      <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 6, fontWeight: 600 }}>Sessions</div>
+                      {Object.entries(weeklyReport.by_session).map(([sess, v]) => (
+                        <div key={sess} style={{ marginBottom: 4 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                            <span style={{ color: COLORS.text }}>{sess}</span>
+                            <span style={{ color: COLORS.sub }}>{v.n} trades</span>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                            <span style={{ color: v.wr >= 52 ? COLORS.green : v.wr >= 45 ? COLORS.amber : COLORS.red }}>WR {v.wr}%</span>
+                            <span style={{ color: v.pnl >= 0 ? COLORS.green : COLORS.red }}>{v.pnl >= 0 ? "+" : ""}{v.pnl}$</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Direction */}
+                    <div style={{ background: COLORS.panel2, borderRadius: 6, padding: "8px 10px" }}>
+                      <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 6, fontWeight: 600 }}>Direction</div>
+                      {Object.entries(weeklyReport.by_direction).map(([dir, v]) => (
+                        <div key={dir} style={{ marginBottom: 4 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                            <span style={{ color: dir === "LONG" ? COLORS.green : COLORS.red, fontWeight: 600 }}>{dir}</span>
+                            <span style={{ color: COLORS.sub }}>{v.n} trades</span>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                            <span style={{ color: v.wr >= 52 ? COLORS.green : v.wr >= 45 ? COLORS.amber : COLORS.red }}>WR {v.wr}%</span>
+                            <span style={{ color: v.pnl >= 0 ? COLORS.green : COLORS.red }}>{v.pnl >= 0 ? "+" : ""}{v.pnl}$</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Par jour */}
+                  {Object.keys(weeklyReport.by_day).length > 0 && (
+                    <div style={{ marginTop: 8, background: COLORS.panel2, borderRadius: 6, padding: "8px 10px" }}>
+                      <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 6, fontWeight: 600 }}>Par jour</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 6 }}>
+                        {Object.entries(weeklyReport.by_day).map(([day, v]) => (
+                          <div key={day} style={{ textAlign: "center" }}>
+                            <div style={{ fontSize: 10, color: COLORS.sub }}>{day.slice(5)}</div>
+                            <div style={{ fontSize: 11, color: v.wr >= 52 ? COLORS.green : v.wr >= 45 ? COLORS.amber : COLORS.red }}>WR {v.wr}%</div>
+                            <div style={{ fontSize: 10, color: COLORS.sub }}>{v.n} trades</div>
+                            <div style={{ fontSize: 11, color: v.pnl >= 0 ? COLORS.green : COLORS.red }}>{v.pnl >= 0 ? "+" : ""}{v.pnl}$</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
 
           {/* ===== history + equity ===== */}
           <div className="history-layout section-gap" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14, marginTop: 14 }}>
