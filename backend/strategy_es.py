@@ -60,13 +60,13 @@ DEFAULTS: dict = {
     "bad_hours_et":     [10],  # 10h ET = choppiness post-ouverture
 
     # Volume absorption proxy
-    "vol_multiplier":   2.8,   # ratio volume / moyenne pour déclencher
+    "vol_multiplier":   2.0,   # ratio volume / moyenne pour déclencher
     "vol_lookback":     20,    # barres pour calculer la moyenne
 
     # Qualité bougie d'entrée
-    "close_pct_long":   0.70,  # close ≥ 70% du range pour LONG
-    "close_pct_short":  0.30,  # close ≤ 30% du range pour SHORT
-    "body_ratio_min":   0.20,  # |close-open| / ATR minimum
+    "close_pct_long":   0.65,  # close ≥ 65% du range pour LONG
+    "close_pct_short":  0.35,  # close ≤ 35% du range pour SHORT
+    "body_ratio_min":   0.15,  # |close-open| / ATR minimum
 
     # SL / TP en ticks
     "sl_ticks":   14,   # 3.5 pts = $175/contrat
@@ -124,12 +124,17 @@ def add_indicators(df: pd.DataFrame, params: Optional[dict] = None) -> pd.DataFr
     dx       = 100 * (di_plus - di_minus).abs() / denom
     df["adx"] = dx.ewm(span=14, adjust=False).mean()
 
-    # ── VWAP intraday (reset quotidien) ──────────────────────────────────────
+    # ── VWAP intraday (reset midnight ET, pas UTC) ───────────────────────────
+    # ES trade 24h — un reset UTC inclurait 14.5h de pre-market dans le VWAP
+    # → VWAP > open RTH en marché haussier → bloque tous les LONG
     typical = (df["high"] + df["low"] + df["close"]) / 3
-    if hasattr(df.index, "normalize"):
-        day_key = df.index.normalize()
-    else:
-        day_key = pd.DatetimeIndex([d.date() for d in df.index])
+    try:
+        import pytz
+        et_tz   = pytz.timezone("America/New_York")
+        et_idx  = df.index.tz_convert(et_tz) if df.index.tzinfo is not None else df.index.tz_localize("UTC").tz_convert(et_tz)
+        day_key = et_idx.normalize()
+    except Exception:
+        day_key = df.index.normalize() if hasattr(df.index, "normalize") else pd.DatetimeIndex([d.date() for d in df.index])
     cum_tp_vol = (typical * df["volume"]).groupby(day_key).cumsum()
     cum_vol    = df["volume"].groupby(day_key).cumsum().replace(0, float("nan"))
     df["vwap"] = cum_tp_vol / cum_vol
