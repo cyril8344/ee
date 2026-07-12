@@ -40,33 +40,33 @@ DEFAULTS: dict = {
     "ema_slow":         21,
     "ema_trend":        200,
 
-    # RSI M5 momentum (plus sélectif)
-    "rsi_long":         48,    # LONG : RSI > 48
-    "rsi_short":        52,    # SHORT : RSI < 52
+    # RSI M5 momentum (désactivé = 30/70 large)
+    "rsi_long":         30,    # LONG : RSI > 30 (quasiment off)
+    "rsi_short":        70,    # SHORT : RSI < 70 (quasiment off)
 
-    # Volatilité
-    "atr_min_pts":      2.0,   # ATR minimum en points ES
+    # Volatilité (0 = désactivé)
+    "atr_min_pts":      0,
 
-    # ADX (force de tendance — filtre les ranges plats)
-    "adx_min":          20,
+    # ADX (0 = désactivé)
+    "adx_min":          0,
 
-    # VWAP filter (1=activé, 0=désactivé)
-    "vwap_filter":      1,
+    # VWAP filter (0 = désactivé)
+    "vwap_filter":      0,
 
-    # H1 bias via EMA200 H1 (1=activé, 0=désactivé)
-    "h1_filter":        1,
+    # H1 bias (0 = utilise EMA200 M5 uniquement)
+    "h1_filter":        0,
 
-    # Heures bloquées (heure ET, liste d'entiers)
-    "bad_hours_et":     [10],  # 10h ET = choppiness post-ouverture
+    # Heures bloquées (vide = aucune)
+    "bad_hours_et":     [],
 
-    # Volume absorption proxy
-    "vol_multiplier":   2.0,   # ratio volume / moyenne pour déclencher
-    "vol_lookback":     20,    # barres pour calculer la moyenne
+    # Volume absorption proxy (0 = désactivé)
+    "vol_multiplier":   0,
+    "vol_lookback":     20,
 
-    # Qualité bougie d'entrée
-    "close_pct_long":   0.65,  # close ≥ 65% du range pour LONG
-    "close_pct_short":  0.35,  # close ≤ 35% du range pour SHORT
-    "body_ratio_min":   0.15,  # |close-open| / ATR minimum
+    # Qualité bougie (désactivé)
+    "close_pct_long":   0,     # 0 = toujours vrai
+    "close_pct_short":  1,     # 1 = toujours vrai
+    "body_ratio_min":   0,     # 0 = désactivé
 
     # SL / TP en ticks
     "sl_ticks":   14,   # 3.5 pts = $175/contrat
