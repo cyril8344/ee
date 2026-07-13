@@ -110,7 +110,7 @@ MARKET_CONFIG = {
         "spread_pips": 0.2,
         "slippage_pips": 0.05,
         "pip_size": 0.0001,    # 1 pip EUR/USD = 0.0001
-        "default_strategy": "eurusd_simple",  # EMA pullback + OB + patterns
+        "default_strategy": "B",              # ICT Order Block (strategy_ict.py)
     },
 }
 
