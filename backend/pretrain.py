@@ -576,6 +576,40 @@ def run_pretrain(
             for _k, _v in _fs_by_body.items() if _v["n_sl"] >= 1
         }
 
+        # ---- Diagnostic LONG vs SHORT ----
+        _by_dir: dict = _dd(lambda: {
+            "n": 0, "wins": 0, "sl": 0, "fs": 0,
+            "sl_dist": [], "close_pct": [], "body": [], "candles": [], "atr": [],
+        })
+        for _t in trades_log:
+            _dir = _t.get("direction", "long")
+            _by_dir[_dir]["n"] += 1
+            _by_dir[_dir]["wins"] += int(_t["won"])
+            if _t.get("exit_reason") == "sl":
+                _by_dir[_dir]["sl"] += 1
+                if _t.get("false_stop"):
+                    _by_dir[_dir]["fs"] += 1
+            _by_dir[_dir]["sl_dist"].append(_t.get("sl_dist_atr", 1.4))
+            _by_dir[_dir]["close_pct"].append(_t.get("close_pct", 0.5))
+            _by_dir[_dir]["body"].append(_t.get("body_ratio", 0))
+            _by_dir[_dir]["candles"].append(_t.get("candles_to_exit", 5))
+            _by_dir[_dir]["atr"].append(_t.get("atr", 0))
+        def _lmean(lst): return round(sum(lst) / len(lst), 2) if lst else 0
+        diag_by_direction = {
+            _dir: {
+                "n":            _v["n"],
+                "wr":           round(_v["wins"] / _v["n"] * 100, 1) if _v["n"] else 0,
+                "sl_pct":       round(_v["sl"] / _v["n"] * 100, 1) if _v["n"] else 0,
+                "fs_pct":       round(_v["fs"] / _v["sl"] * 100, 1) if _v["sl"] else 0,
+                "sl_dist_atr":  _lmean(_v["sl_dist"]),
+                "close_pct":    _lmean(_v["close_pct"]),
+                "body_ratio":   _lmean(_v["body"]),
+                "candles_exit": _lmean(_v["candles"]),
+                "atr_entry":    _lmean(_v["atr"]),
+            }
+            for _dir, _v in _by_dir.items() if _v["n"] >= 3
+        }
+
         # ---- Diagnostic indicateurs par outcome ----
         def _grp_means(log, outcome):
             grp = [t for t in log if t.get("exit_reason") == outcome]
@@ -718,6 +752,7 @@ def run_pretrain(
             "false_stop_by_sl_dist":  false_stop_by_sl_dist,
             "false_stop_by_body":     false_stop_by_body,
             "diag_by_dow":            diag_by_dow,
+            "diag_by_direction":      diag_by_direction,
             "rejection_counts":       dict(sorted(rejection_counts.items(), key=lambda x: -x[1])),
         }
         with _lock:
