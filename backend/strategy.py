@@ -886,10 +886,81 @@ def evaluate(
         if bias == "SHORT" and float(cur["close"]) > vwap_val:
             _rej(_reject_log, "vwap"); return None
 
-    # 6) Entry — filtres indicateurs suffisants, pas de pattern requis
+    # 6) Candlestick pattern trigger (any single pattern is enough)
     entry = float(cur["close"])
+    triggers = []
+
+    if bias == "LONG":
+        if is_bullish_engulfing(prev, cur, atr_val):  triggers.append("bullish_engulfing")
+        # hammer exclu (WR 20% sur données historiques)
+        if is_pin_bar_bullish(cur, atr_val):          triggers.append("pin_bar")
+        if is_marubozu_bullish(cur, atr_val):         triggers.append("marubozu")
+        # morning_star exclu (WR 42.9% sur données historiques)
+        if is_bullish_harami(prev, cur):              triggers.append("harami")
+
+        if is_three_white_soldiers(m5.iloc[-3:], atr_val): triggers.append("three_white_soldiers")
+        if is_tweezer_bottom(prev, cur, atr_val):     triggers.append("tweezer_bottom")
+        if is_piercing_line(prev, cur, atr_val):      triggers.append("piercing_line")
+        if ema9_pullback_bounce(m5, bias):            triggers.append("ema9_pullback")
+        if micro_breakout(m5, bias):                  triggers.append("micro_breakout")
+        if is_doji(prev):                             triggers.append("doji_reversal")
+    else:
+        if is_bearish_engulfing(prev, cur, atr_val):  triggers.append("bearish_engulfing")
+        if is_shooting_star(cur, atr_val):            triggers.append("shooting_star")
+        if is_pin_bar_bearish(cur, atr_val):          triggers.append("pin_bar")
+        if is_marubozu_bearish(cur, atr_val):         triggers.append("marubozu")
+        if is_evening_star(m5.iloc[-3:], atr_val):   triggers.append("evening_star")
+        if is_bearish_harami(prev, cur):              triggers.append("bearish_harami")
+        if is_three_black_crows(m5.iloc[-3:], atr_val): triggers.append("three_black_crows")
+        if is_tweezer_top(prev, cur, atr_val):        triggers.append("tweezer_top")
+        if is_dark_cloud_cover(prev, cur, atr_val):   triggers.append("dark_cloud_cover")
+        if ema9_pullback_bounce(m5, bias):            triggers.append("ema9_pullback")
+        if micro_breakout(m5, bias):                  triggers.append("micro_breakout")
+        if is_doji(prev):                             triggers.append("doji_reversal")
+
+    # Order block proximity — confluence only, never a standalone trigger
+    obs = find_order_blocks(m5)
+    if triggers and near_orderblock(entry, bias, obs, atr_val):
+        triggers.append("near_order_block")
+
+    # FVG confluence — add weight if price is inside a matching Fair Value Gap
+    fvgs = find_fvgs(m5)
+    if triggers and near_fvg(entry, bias, fvgs):
+        triggers.append("near_fvg")
+
+    # Entry gating — poids assouplis à 0 pour amorcer l'apprentissage
+    def _w(t: str) -> float:
+        if pattern_weights is None:
+            return 1.0
+        info = pattern_weights.get(t)
+        return info["weight"] if isinstance(info, dict) else float(info) if info else 1.0
+
+    # Exclure les patterns sous le seuil de qualité (PATTERN_FLOOR = 0.0 → aucun exclu)
+    triggers = [t for t in triggers if _w(t) >= PATTERN_FLOOR]
+
+    weights = [_w(t) for t in triggers]
+    weight_total = sum(weights)
+
+    # Passage : au moins 1 pattern détecté — fallback "any_bar" si aucun (amorçage)
+    if not triggers:
+        triggers = ["any_bar"]
+        weights  = [1.0]
+        weight_total = 1.0
+
+    # Filtre corps de bougie : rejette les bougies indécises (corps < 40% de la range)
+    # Exempt pour les patterns conçus avec petite bougie (hammer, pin_bar, doji, tweezer)
+    SMALL_BODY_EXEMPT = {
+        "hammer", "pin_bar", "doji_reversal", "shooting_star",
+        "tweezer_bottom", "tweezer_top", "piercing_line", "dark_cloud_cover",
+    }
+    if BODY_FILTER_ENABLED and not set(triggers) & SMALL_BODY_EXEMPT:
+        bar_range = float(cur["high"]) - float(cur["low"])
+        bar_body  = abs(float(cur["close"]) - float(cur["open"]))
+        if bar_range > 0 and bar_body / bar_range < 0.4:
+            _rej(_reject_log, "body"); return None
 
     # 7) Build trade levels
+    weight_sum = weight_total
     sl_mult = SL_ATR_MULT_HIGH if atr_val > ATR_HIGH else SL_ATR_MULT
 
     if bias == "LONG":
@@ -916,8 +987,9 @@ def evaluate(
 
 
     meta: Dict[str, Any] = {
-        "rsi_m5":  round(float(cur["rsi"]), 1),
-        "rsi_m15": round(float(m15.iloc[-1]["rsi"]), 1),
+        "rsi_m5":    round(float(cur["rsi"]), 1),
+        "rsi_m15":   round(float(m15.iloc[-1]["rsi"]), 1),
+        "triggers":  triggers,
     }
 
     return Signal(
@@ -929,7 +1001,7 @@ def evaluate(
         take_profit1=tp1,
         take_profit2=tp2,
         atr=atr_val,
-        reason="indicators",
+        reason="+".join(triggers),
         risk_distance=risk,
         timestamp=ts,
         meta=meta,
