@@ -120,10 +120,10 @@ class LLMGate:
             ema200_dist=snap.get("ema200_dist", 0.0),
         )
 
-        # Default: fail-open (don't block signal on error)
+        # Default: fail-open (don't block signal on error/timeout)
         result: Dict[str, Any] = {
             "action": direction.upper(),
-            "confidence": 0.5,
+            "confidence": 1.0,
             "reason": "timeout",
         }
         box = [result]
@@ -146,10 +146,11 @@ class LLMGate:
             except Exception as exc:
                 logger.warning("[LLMGate] erreur API: %s", exc)
                 self._n_error += 1
+                # fail-open : erreur API → laisser passer le signal
                 box[0] = {
                     "action": direction.upper(),
-                    "confidence": 0.5,
-                    "reason": f"erreur: {exc}",
+                    "confidence": 1.0,
+                    "reason": f"erreur API → fail-open",
                 }
 
         t = threading.Thread(target=_call, daemon=True)
