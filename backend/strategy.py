@@ -71,6 +71,8 @@ BAD_HOURS_CET         = set()    # configuré via le panel dashboard (persiste e
 ATR_REGIME_MIN_RATIO  = 0.65     # ratio ATR_now/ATR_mean minimal pour entrer (LiveAdaptiveAgent peut ajuster)
 RSI_M5_LONG_MIN       = 46.0    # momentum M5 LONG minimal (LiveAdaptiveAgent peut ajuster)
 RSI_M5_SHORT_MAX      = 57.0    # momentum M5 SHORT maximal (LiveAdaptiveAgent peut ajuster)
+H1_RSI_LONG_MIN       = 48.0    # RSI H1 minimal pour LONG (momentum H1 pas trop baissier)
+H1_RSI_SHORT_MAX      = 52.0    # RSI H1 maximal pour SHORT (momentum H1 pas trop haussier)
 PATTERN_FLOOR         = 0.67    # WR minimal d'un pattern pour être utilisé
 MIN_WEIGHT_SUM_LONG   = 1.0     # somme poids patterns minimale LONG
 
@@ -885,6 +887,14 @@ def evaluate(
             _rej(_reject_log, "vwap"); return None
         if bias == "SHORT" and float(cur["close"]) > vwap_val:
             _rej(_reject_log, "vwap"); return None
+
+    # 5d) RSI H1 alignment — ne pas entrer contre le momentum H1
+    if not BOOTSTRAP_MODE and len(h1) > 0:
+        h1_rsi = float(h1.iloc[-1].get("rsi", 50) or 50)
+        if bias == "LONG"  and h1_rsi < H1_RSI_LONG_MIN:
+            _rej(_reject_log, "h1_rsi"); return None
+        if bias == "SHORT" and h1_rsi > H1_RSI_SHORT_MAX:
+            _rej(_reject_log, "h1_rsi"); return None
 
     # 6) Entry — filtres indicateurs suffisants, pas de pattern requis
     entry = float(cur["close"])
