@@ -71,7 +71,9 @@ from news_filter import NewsFilter
 from macro_filter import MacroFilter
 from broker import make_broker, Position
 import strategy
-from strategy import add_indicators, evaluate, snapshot, swing_levels, active_session, find_order_blocks
+from strategy import (add_indicators, evaluate, snapshot, snapshot_eurusd,
+                       evaluate_eurusd as _eval_eurusd_fn,
+                       swing_levels, active_session, find_order_blocks)
 import feature_logger as _feat_log
 from backtest import BacktestConfig, run_backtest
 from optimizer import OptimizeConfig, run_optimize
@@ -125,6 +127,11 @@ class MarketState:
     circuit_breaker_until: Optional[datetime] = None
     recent_results: List[bool] = field(default_factory=list)
     last_close_time: Optional[datetime] = None  # horodatage de la dernière fermeture
+    # Per-instrument settings and daily counters (independent from global risk)
+    inst_settings: dict = field(default_factory=dict)
+    trades_today: int = 0
+    pnl_today: float = 0.0
+    daily_stopped: bool = False
 
 
 # --------------------------------------------------------------------------- #
@@ -177,18 +184,28 @@ class BotState:
         self.market_states: Dict[str, MarketState] = {}
         for sym in active_markets:
             cfg = MARKET_CONFIG.get(sym, MARKET_CONFIG["XAUUSD"])
+            inst = db.get_instrument_settings(sym)
             broker = make_broker(
                 mode, sym,
-                self.settings.get("spread_pips", cfg["spread_pips"]),
-                self.settings.get("slippage_pips", cfg["slippage_pips"]),
+                inst.get("spread_pips", cfg["spread_pips"]),
+                inst.get("slippage_pips", cfg["slippage_pips"]),
                 cfg["contract_size"],
                 cfg.get("pip_size", 0.1),
             )
             ms = MarketState(symbol=sym, config=cfg, broker=broker)
+            ms.inst_settings = inst
             ms.adaptive = AdaptiveThresholds(
                 atr_min_default=cfg["atr_min"], symbol=sym
             )
             self.market_states[sym] = ms
+
+        # One-time migration: sync XAUUSD global bad_hours → instrument_settings
+        _saved_bh = self.settings.get("bad_hours_cet")
+        _xau_ms = self.market_states.get("XAUUSD")
+        if _xau_ms is not None and _saved_bh is not None:
+            _xau_ms.inst_settings = db.update_instrument_settings(
+                "XAUUSD", {"bad_hours_cet": sorted(_saved_bh)}
+            )
 
         self.pattern_weights: Dict = db.get_pattern_stats()
         self._hydrate_today()
@@ -259,6 +276,16 @@ class BotState:
             start_equity=daily["start_equity"],
             blocked=bool(daily["blocked"]),
         )
+        # Per-instrument hydration
+        _start_eq = daily.get("start_equity") or self.risk.capital
+        for sym, ms in self.market_states.items():
+            sym_trades = db.get_trades_for_day_by_symbol(today, sym, mode=self.settings.get("mode"))
+            sym_closed = [t for t in sym_trades if t["status"] == "closed"]
+            ms.trades_today = len(sym_trades)
+            ms.pnl_today = sum(t.get("pnl") or 0.0 for t in sym_closed)
+            _inst_stop_pct = ms.inst_settings.get("daily_stop_pct", 2.0)
+            if _start_eq > 0 and ms.pnl_today <= -abs(_start_eq * _inst_stop_pct / 100.0):
+                ms.daily_stopped = True
 
     def push_alert(self, kind: str, message: str):
         self.alerts.append({
@@ -398,9 +425,17 @@ def trading_tick() -> Dict[str, Any]:
         for ms in state.market_states.values():
             try:
                 m5, m15, h1, h4 = build_context(ms.broker)
-                snap = snapshot(m5, m15, h1, atr_min_override=ms.config["atr_min"],
-                               pattern_weights=state.pattern_weights,
-                               adaptive_thresholds=ms.adaptive)
+                sym_strategy = ms.config.get("default_strategy", "A")
+                _inst_bad_hours = set(ms.inst_settings.get("bad_hours_cet", []))
+                _inst_bot_enabled = ms.inst_settings.get("bot_enabled", True)
+                _inst_max_trades = ms.inst_settings.get("max_trades_per_day", state.risk.max_trades_per_day)
+                if sym_strategy == "eurusd_simple":
+                    snap = snapshot_eurusd(m5, m15, h1, atr_min_override=ms.config["atr_min"],
+                                           pattern_weights=state.pattern_weights)
+                else:
+                    snap = snapshot(m5, m15, h1, atr_min_override=ms.config["atr_min"],
+                                   pattern_weights=state.pattern_weights,
+                                   adaptive_thresholds=ms.adaptive)
                 ms.last_snapshot = snap
 
                 # Pour les marchés Strategy B, calculer les conditions ICT en temps réel
@@ -530,10 +565,12 @@ def trading_tick() -> Dict[str, Any]:
                         _set_loop_gate(f"macro: {macro_reason}")
                     elif ms.circuit_breaker_until is not None:
                         _set_loop_gate("circuit_breaker")
-                    elif not state.settings.get("bot_enabled", True):
+                    elif ms.daily_stopped:
+                        _set_loop_gate("stop_journalier")
+                    elif not _inst_bot_enabled:
                         _set_loop_gate("bot_désactivé")
-                    elif state.risk.trades_today >= state.risk.max_trades_per_day:
-                        _set_loop_gate(f"max_trades: {state.risk.trades_today}/{state.risk.max_trades_per_day}")
+                    elif ms.trades_today >= _inst_max_trades:
+                        _set_loop_gate(f"max_trades: {ms.trades_today}/{_inst_max_trades}")
 
                 # Cooldown 300s (1 bougie M5) après fermeture — évite la ré-entrée sur le même signal
                 _CLOSE_COOLDOWN_SECS = 300
@@ -542,18 +579,17 @@ def trading_tick() -> Dict[str, Any]:
                     and (now - ms.last_close_time).total_seconds() < _CLOSE_COOLDOWN_SECS
                 )
                 _bs = strategy.BOOTSTRAP_MODE
-                _daily_limit_ok = state.risk.trades_today < state.risk.max_trades_per_day
+                _daily_limit_ok = ms.trades_today < _inst_max_trades
                 if (ms.position is None and not _just_closed and not _in_cooldown
                         and _daily_limit_ok and can_enter_session
+                        and not ms.daily_stopped
                         and (_bs or (
                             not state.risk.blocked
                             and not news_status["blocked"]
                             and not macro_blocked
                             and ms.circuit_breaker_until is None
-                            and state.settings.get("bot_enabled", True)
+                            and _inst_bot_enabled
                         ))):
-                    # Strategy is fixed per symbol in MARKET_CONFIG (not user-switchable)
-                    sym_strategy = ms.config.get("default_strategy", "A")
                     if sym_strategy == "B":
                         from strategy_ict import evaluate_ict as _eval_ict
                         sig = _eval_ict(m5, m15, h1, now=now,
@@ -564,14 +600,16 @@ def trading_tick() -> Dict[str, Any]:
                         sig = _eval_eurusd(m5, m15, h1, now=now,
                                            check_session=session_filter,
                                            atr_min=ms.config["atr_min"],
-                                           pattern_weights=state.pattern_weights)
+                                           pattern_weights=state.pattern_weights,
+                                           bad_hours=_inst_bad_hours)
                     else:
                         _rlog: Dict[str, Any] = {}
                         sig = evaluate(m5, m15, h1, h4=h4, now=now, check_session=session_filter,
                                        atr_min=ms.config["atr_min"],
                                        pattern_weights=state.pattern_weights,
                                        adaptive_thresholds=ms.adaptive,
-                                       _reject_log=_rlog)
+                                       _reject_log=_rlog,
+                                       bad_hours=_inst_bad_hours)
                         if sig is None and _rlog:
                             ms.last_snapshot["reject_log"] = _rlog
                             _set_loop_gate("evaluate: " + list(_rlog.keys())[0])
@@ -595,7 +633,7 @@ def trading_tick() -> Dict[str, Any]:
                         if not decision.allowed and strategy.BOOTSTRAP_MODE:
                             sl_dist = abs(sig.entry - sig.stop_loss)
                             if (sl_dist > 0
-                                    and state.risk.trades_today < state.risk.max_trades_per_day
+                                    and ms.trades_today < _inst_max_trades
                                     and not state.risk.blocked):
                                 risk_amt = 0.01 * sl_dist * ms.config["contract_size"]
                                 decision = RiskDecision(True, "bootstrap_min_lot",
@@ -642,6 +680,7 @@ def _open_trade(ms: MarketState, sig, decision, now):
     )
     ms.position = pos
     state.risk.register_open()
+    ms.trades_today += 1
 
     trade_id = db.insert_trade({
         "symbol": ms.symbol,
@@ -686,6 +725,14 @@ def _open_trade(ms: MarketState, sig, decision, now):
 def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], now: datetime):
     pnl = float(close_info["pnl"])
     state.risk.register_close(pnl)
+
+    # Per-instrument P&L tracking and daily stop
+    ms.pnl_today += pnl
+    _inst_stop_pct = ms.inst_settings.get("daily_stop_pct", 2.0)
+    _start_eq = state.risk.start_equity_today or state.risk.capital
+    if not ms.daily_stopped and _start_eq > 0 and ms.pnl_today <= -abs(_start_eq * _inst_stop_pct / 100.0):
+        ms.daily_stopped = True
+        state.push_alert("warn", f"[{ms.symbol}] Stop journalier atteint ({ms.pnl_today:+.2f}$)")
 
     # Update pattern performance stats
     triggers = pos.meta.get("triggers", [])
@@ -872,6 +919,7 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
         # Préférer le prix du feed WebSocket temps réel au close OHLCV (stale jusqu'à 5 min)
         rt_tick = realtime_feed.get_latest(_sym_to_td.get(sym, sym))
         live_price = rt_tick["price"] if rt_tick else snap.get("price")
+        _sym_strat = ms.config.get("default_strategy", "A")
         markets[sym] = {
             "symbol": sym,
             "name": ms.config["name"],
@@ -887,13 +935,18 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
             },
             "position": _position_payload(ms),
             "last_signal": ms.last_signal,
-            "conditions": snap.get("conditions"),
+            "conditions": None if _sym_strat == "eurusd_simple" else snap.get("conditions"),
+            "eurusd_conditions": snap.get("conditions") if _sym_strat == "eurusd_simple" else None,
             "ict_conditions": snap.get("ict_conditions"),
             "reject_log": snap.get("reject_log"),
             "ml_gate": {},
             "data_provider": getattr(getattr(ms.broker, "data", None), "provider", None),
             "data_errors": {k: v for k, v in __import__("data_provider").get_last_errors().items()
                             if k.startswith(sym + ":")},
+            "trades_today": ms.trades_today,
+            "pnl_today": round(ms.pnl_today, 2),
+            "daily_stopped": ms.daily_stopped,
+            "inst_settings": ms.inst_settings,
         }
 
     return {
@@ -1355,6 +1408,60 @@ def toggle_blocked_hour(hour: int, _user: dict = Depends(get_current_user)):
     return {"blocked_hours": sorted(bad), "action": action, "hour": hour}
 
 
+@app.get("/api/instrument/{symbol}/settings")
+def get_instrument_settings_api(symbol: str, _user: dict = Depends(get_current_user)):
+    """Paramètres per-instrument (max_trades, risk_pct, daily_stop, bad_hours, bot_enabled)."""
+    ms = state.market_states.get(symbol)
+    if ms is None:
+        raise HTTPException(status_code=404, detail=f"Unknown market: {symbol}")
+    return ms.inst_settings
+
+
+@app.post("/api/instrument/{symbol}/settings")
+def update_instrument_settings_api(symbol: str, body: Dict[str, Any],
+                                    _user: dict = Depends(get_current_user)):
+    """Met à jour les paramètres per-instrument et les persiste en DB."""
+    ms = state.market_states.get(symbol)
+    if ms is None:
+        raise HTTPException(status_code=404, detail=f"Unknown market: {symbol}")
+    with state.lock:
+        ms.inst_settings = db.update_instrument_settings(symbol, body)
+    return ms.inst_settings
+
+
+@app.post("/api/instrument/{symbol}/toggle")
+def toggle_instrument_bot(symbol: str, _user: dict = Depends(get_current_user)):
+    """Active/désactive le bot pour un instrument spécifique."""
+    ms = state.market_states.get(symbol)
+    if ms is None:
+        raise HTTPException(status_code=404, detail=f"Unknown market: {symbol}")
+    with state.lock:
+        new_val = not ms.inst_settings.get("bot_enabled", True)
+        ms.inst_settings = db.update_instrument_settings(symbol, {"bot_enabled": new_val})
+    return {"symbol": symbol, "bot_enabled": new_val}
+
+
+@app.post("/api/instrument/{symbol}/blocked-hours/{hour}")
+def toggle_instrument_blocked_hour(symbol: str, hour: int,
+                                    _user: dict = Depends(get_current_user)):
+    """Active/désactive une heure bloquée CET pour un instrument (0-23)."""
+    if not (0 <= hour <= 23):
+        raise HTTPException(status_code=400, detail="Heure invalide (0-23)")
+    ms = state.market_states.get(symbol)
+    if ms is None:
+        raise HTTPException(status_code=404, detail=f"Unknown market: {symbol}")
+    with state.lock:
+        bad = set(ms.inst_settings.get("bad_hours_cet", []))
+        if hour in bad:
+            bad.discard(hour)
+            action = "unblocked"
+        else:
+            bad.add(hour)
+            action = "blocked"
+        ms.inst_settings = db.update_instrument_settings(symbol, {"bad_hours_cet": sorted(bad)})
+    return {"symbol": symbol, "blocked_hours": sorted(bad), "action": action, "hour": hour}
+
+
 @app.post("/api/risk/reset-daily")
 def reset_daily_counter(_user: dict = Depends(get_current_user)):
     """Recalcule le compteur de trades du jour et le P&L depuis la DB.
@@ -1416,6 +1523,8 @@ def reset_day(_user: dict = Depends(get_current_user)):
         today = db.today_utc()
         db.update_daily(today, {"blocked": 0})
         state.risk.start_new_day(state.risk.capital)
+        for ms in state.market_states.values():
+            ms.daily_stopped = False
         state.bot_status = "ACTIF"
     state.push_alert("info", "Journée réinitialisée — bot débloqué, compteurs remis à zéro")
     return {"ok": True, "message": "Journée réinitialisée"}

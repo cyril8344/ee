@@ -70,6 +70,27 @@ DEFAULT_SETTINGS = {
     "bot_enabled": True,
 }
 
+INSTRUMENT_DEFAULTS: Dict[str, Dict[str, Any]] = {
+    "XAUUSD": {
+        "bot_enabled": True,
+        "max_trades_per_day": 4,
+        "risk_pct": 5.0,
+        "daily_stop_pct": 2.0,
+        "spread_pips": 0.3,
+        "slippage_pips": 0.1,
+        "bad_hours_cet": [8, 10, 14],
+    },
+    "EURUSD": {
+        "bot_enabled": True,
+        "max_trades_per_day": 4,
+        "risk_pct": 2.0,
+        "daily_stop_pct": 5.0,
+        "spread_pips": 0.2,
+        "slippage_pips": 0.05,
+        "bad_hours_cet": [8, 14],
+    },
+}
+
 
 def init_db() -> None:
     """Create tables and seed default settings if needed."""
@@ -155,6 +176,12 @@ def init_db() -> None:
                 trade_log  TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS instrument_settings (
+                symbol     TEXT PRIMARY KEY,
+                data       TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             """
         )
 
@@ -229,6 +256,34 @@ def update_settings(patch: Dict[str, Any]) -> Dict[str, Any]:
         conn.execute(
             "UPDATE settings SET data = ?, updated_at = ? WHERE id = 1",
             (json.dumps(current), _utcnow_iso()),
+        )
+    return current
+
+
+# --------------------------------------------------------------------------- #
+# Instrument settings (per-symbol)
+# --------------------------------------------------------------------------- #
+def get_instrument_settings(symbol: str) -> Dict[str, Any]:
+    defaults = dict(INSTRUMENT_DEFAULTS.get(symbol, INSTRUMENT_DEFAULTS["XAUUSD"]))
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT data FROM instrument_settings WHERE symbol = ?", (symbol,)
+        ).fetchone()
+        if row:
+            data = json.loads(row["data"])
+            defaults.update(data)
+    return defaults
+
+
+def update_instrument_settings(symbol: str, patch: Dict[str, Any]) -> Dict[str, Any]:
+    current = get_instrument_settings(symbol)
+    current.update(patch)
+    now = _utcnow_iso()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO instrument_settings (symbol, data, updated_at) VALUES (?, ?, ?)"
+            " ON CONFLICT(symbol) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
+            (symbol, json.dumps(current), now),
         )
     return current
 
@@ -336,6 +391,19 @@ def get_trades_for_day(day: str, mode: Optional[str] = None) -> List[Dict[str, A
     """day = 'YYYY-MM-DD' (UTC).  Matches on entry_time prefix."""
     q = "SELECT * FROM trades WHERE substr(entry_time, 1, 10) = ?"
     params: List[Any] = [day]
+    if mode:
+        q += " AND mode = ?"
+        params.append(mode)
+    q += " ORDER BY entry_time ASC"
+    with get_conn() as conn:
+        rows = conn.execute(q, params).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+
+def get_trades_for_day_by_symbol(day: str, symbol: str, mode: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Same as get_trades_for_day but filtered by symbol."""
+    q = "SELECT * FROM trades WHERE substr(entry_time, 1, 10) = ? AND symbol = ?"
+    params: List[Any] = [day, symbol]
     if mode:
         q += " AND mode = ?"
         params.append(mode)
