@@ -238,12 +238,13 @@ class PaperBroker(BaseBroker):
                 return {"closed": True, "reason": "early_exit",
                         "exit_price": price, "pnl": pos.realised}
 
-        # TP1 — sortie 50% à 0.7R, SL déplacé à l'entrée (BE 0R) sur la bougie suivante
+        # TP1 — sortie 50% (ou 100% si tp1_close_all) à 0.7R
         # Utilise bar_high/bar_low pour capturer les touches intrabar (évite les faux SL)
         if not pos.tp1_done:
             hit = bar_high >= pos.take_profit1 if direction == "long" else bar_low <= pos.take_profit1
             if hit:
-                lots50 = round(min(pos.volume * 0.5, pos.remaining), 2)
+                close_ratio = 1.0 if pos.meta.get("tp1_close_all") else 0.5
+                lots50 = round(min(pos.volume * close_ratio, pos.remaining), 2)
                 if lots50 < 0.01:
                     lots50 = pos.remaining  # trop petit pour spliter → close total
                 pos.realised += pnl_for(pos.take_profit1 - self.slippage * sign, lots50)
@@ -386,11 +387,12 @@ class MT5Broker(BaseBroker):
         price = self.get_price()
         sign = 1.0 if pos.direction == "long" else -1.0
 
-        # TP1 — sortie 50% à 0.7R, SL reste au niveau initial (pas de déplacement)
+        # TP1 — sortie 50% (ou 100% si tp1_close_all) à 0.7R
         if not pos.tp1_done:
             hit = price >= pos.take_profit1 if pos.direction == "long" else price <= pos.take_profit1
             if hit:
-                lots50 = round(min(pos.volume * 0.5, pos.remaining), 2)
+                close_ratio = 1.0 if pos.meta.get("tp1_close_all") else 0.5
+                lots50 = round(min(pos.volume * close_ratio, pos.remaining), 2)
                 tick = self._mt5.symbol_info_tick(self.symbol)
                 fill_price = tick.bid if pos.direction == "long" else tick.ask
                 self._send_partial_close(pos, lots50, fill_price)

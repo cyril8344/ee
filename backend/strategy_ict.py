@@ -333,6 +333,7 @@ def evaluate_ict(
         timestamp=ts,
         meta={
             "strategy":      "B_OB",
+            "tp1_close_all": True,
             "ob_low":        round(ob["low"],  5) if ob else None,
             "ob_high":       round(ob["high"], 5) if ob else None,
             "ob_ts":         ob_ts_str,
