@@ -458,8 +458,8 @@ def trading_tick() -> Dict[str, Any]:
                 def _set_loop_gate(reason: str):
                     """Surcharge blocking_reason dans conditions pour debug dashboard."""
                     c = ms.last_snapshot.get("conditions")
-                    if isinstance(c, dict) and not c.get("blocking_reason"):
-                        c["blocking_reason"] = reason
+                    if isinstance(c, dict):
+                        c["blocking_reason"] = reason  # toujours écraser — la raison réelle prime sur le snapshot
 
                 # BOOTSTRAP_MODE : lever les blocages capital/daily-stop uniquement
                 # — max_trades_per_day est respecté pour éviter les doublons
