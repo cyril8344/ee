@@ -2026,11 +2026,17 @@ def pretrain_stats(_user: dict = Depends(get_current_user)):
         "false_be_pct":        false_be_pct,
         "false_be_n":          false_be_n,
         "data_coverage":       data_cov,
-        "indicator_diagnostic": result.get("indicator_diagnostic", {}),
-        "wr_by_pattern":        result.get("wr_by_pattern", {}),
-        "wr_by_session":        result.get("wr_by_session", {}),
-        "wr_by_hour":           result.get("wr_by_hour", {}),
-        "rejection_counts":     result.get("rejection_counts", {}),
+        "indicator_diagnostic":  result.get("indicator_diagnostic", {}),
+        "wr_by_pattern":         result.get("wr_by_pattern", {}),
+        "wr_by_session":         result.get("wr_by_session", {}),
+        "wr_by_hour":            result.get("wr_by_hour", {}),
+        "rejection_counts":      result.get("rejection_counts", {}),
+        "false_stop_spike_stats": result.get("false_stop_spike_stats"),
+        "false_stop_by_hour":    result.get("false_stop_by_hour", {}),
+        "false_stop_by_sl_dist": result.get("false_stop_by_sl_dist", {}),
+        "false_stop_by_body":    result.get("false_stop_by_body", {}),
+        "diag_by_dow":           result.get("diag_by_dow", {}),
+        "diag_by_direction":     result.get("diag_by_direction", {}),
     }
 
 
