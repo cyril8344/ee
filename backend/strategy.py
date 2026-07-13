@@ -54,8 +54,9 @@ SR_PROXIMITY_ATR = 0.7
 SR_ZONE_ATR      = 1.5   # zone S/R pour flip de biais (× ATR M5)
 SR_TP_MIN_R      = 1.0   # distance minimale S/R cible pour remplacer TP2 fixe
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
-SL_ATR_MULT      = 1.8      # multiplicateur SL normal (élargi pour éviter la zone de stop hunt 0.8-1.2×ATR)
+SL_ATR_MULT      = 1.8      # multiplicateur SL normal (plafond max)
 SL_ATR_MULT_HIGH = 2.0      # multiplicateur SL haute volatilité (ATR > ATR_HIGH)
+SL_MIN_ATR_MULT  = 1.2      # plancher SL minimal — < 1.2×ATR → 70% faux stops
 SWING_LOOKBACK = 5          # bars each side for swing detection
 
 # SMC parameters (optimised by Agent IA)
@@ -907,11 +908,13 @@ def evaluate(
         swing = last_swing_low(m5, lookback=10)
         raw_sl = min(swing, entry - 1e-6)
         sl = max(raw_sl, entry - sl_mult * atr_val)
+        sl = min(sl, entry - SL_MIN_ATR_MULT * atr_val)  # plancher min 1.2×ATR
         direction = "long"
     else:
         swing = last_swing_high(m5, lookback=10)
         raw_sl = max(swing, entry + 1e-6)
         sl = min(raw_sl, entry + sl_mult * atr_val)
+        sl = max(sl, entry + SL_MIN_ATR_MULT * atr_val)  # plancher min 1.2×ATR
         direction = "short"
 
     risk = abs(entry - sl)

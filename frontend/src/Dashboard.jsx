@@ -1273,8 +1273,6 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                       val: mkt.conditions.vwap_passes != null ? (mkt.conditions.vwap_passes ? "✓" : "✗ mauvais côté") : "—" },
                     { label: "RSI H1", ok: mkt.conditions.h1_rsi_passes ?? true,
                       val: mkt.conditions.h1_rsi_val != null ? `${mkt.conditions.h1_rsi_passes ? "✓" : "✗"} ${mkt.conditions.h1_rsi_val.toFixed(1)}` : "—" },
-                    { label: "Pattern", ok: mkt.conditions.patterns?.length > 0,
-                      val: mkt.conditions.patterns?.length > 0 ? mkt.conditions.patterns.join(", ").replace(/_/g, " ") : "aucun" },
                   ].map(({ label, ok, val }) => (
                     <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                       <span style={{ color: COLORS.sub }}>{label}</span>
@@ -2290,33 +2288,6 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                 )}
               </div>
 
-              {/* pattern weights */}
-              {Object.keys(patternStats).length > 0 && (
-                <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 10 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <button
-                      onClick={() => setWeightsOpen((o) => !o)}
-                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
-                        fontSize: 12, color: COLORS.sub, display: "flex", gap: 6, alignItems: "center" }}>
-                      <span>Poids des patterns</span>
-                      <span>{weightsOpen ? "▲" : "▼"}</span>
-                    </button>
-                  </div>
-                  {weightsOpen && Object.entries(patternStats)
-                    .filter(([, s]) => s.trades >= 1)
-                    .sort((a, b) => b[1].weight - a[1].weight)
-                    .map(([name, s]) => (
-                      <div key={name} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 3 }}>
-                        <span style={{ color: COLORS.text }}>{name.replace(/_/g, " ")}</span>
-                        <span style={{ color: COLORS.sub }}>{s.trades}t {s.win_rate}%</span>
-                        <span style={{ color: s.weight > 1.2 ? COLORS.green : s.weight < 0.8 ? COLORS.red : COLORS.sub, fontWeight: "bold" }}>
-                          x{fmt(s.weight, 2)}
-                        </span>
-                      </div>
-                    ))
-                  }
-                </div>
-              )}
 
               {/* Agent IA */}
               {agentStatus && (
