@@ -397,6 +397,8 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [pretrainRiskPct, setPretrainRiskPct] = useState(2.0);
   const [pretrainStart, setPretrainStart]     = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 6); return d.toISOString().slice(0, 10); });
   const [pretrainEnd, setPretrainEnd]         = useState(() => new Date().toISOString().slice(0, 10));
+  const [wfStart, setWfStart]                 = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 12); return d.toISOString().slice(0, 10); });
+  const [wfEnd, setWfEnd]                     = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 6); return d.toISOString().slice(0, 10); });
   const PRETRAIN_PAGE = 20;
   const [agentStatus, setAgentStatus] = useState(null);
   const [agentHistory, setAgentHistory] = useState([]);
@@ -663,7 +665,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
     setWfStatus({ running: true, window: 0, n_splits: wfSplits, result: null, error: null });
     fetch(`${API}/api/pretrain/walkforward`, {
       method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ start: pretrainStart, end: pretrainEnd, n_splits: wfSplits, symbol: activeMarket, capital: pretrainCapital, risk_pct: pretrainRiskPct }),
+      body: JSON.stringify({ start: wfStart, end: wfEnd, n_splits: wfSplits, symbol: activeMarket, capital: pretrainCapital, risk_pct: pretrainRiskPct, strategy_mode: strategyMode }),
     }).then(() => setWfLoading(false)).catch(() => setWfLoading(false));
   };
 
@@ -2093,18 +2095,45 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                     {/* Walk-forward anti-overfitting */}
                     <div style={{ marginTop: 8, borderTop: `1px solid ${COLORS.border}`, paddingTop: 8 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                        <span style={{ color: COLORS.sub, fontSize: 11, flex: 1 }}>Walk-forward (fenêtres)</span>
+                        <span style={{ color: COLORS.sub, fontSize: 11, flex: 1 }}>Walk-forward OOS</span>
                         <select value={wfSplits} onChange={e => setWfSplits(parseInt(e.target.value))}
                           style={{ background: COLORS.panel, color: COLORS.text, border: `1px solid ${COLORS.border}`, borderRadius: 3, padding: "1px 4px", fontSize: 11 }}>
                           {[3,4,5,6].map(n => <option key={n} value={n}>{n}</option>)}
                         </select>
+                      </div>
+                      <div style={{ fontSize: 10, color: COLORS.sub, marginBottom: 4 }}>
+                        Période OOS — différente du pretrain pour éviter l'overfitting
+                      </div>
+                      <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
+                        <input type="date" value={wfStart} onChange={e => setWfStart(e.target.value)}
+                          style={{ flex: 1, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                        <input type="date" value={wfEnd} onChange={e => setWfEnd(e.target.value)}
+                          style={{ flex: 1, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
+                      <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
+                        <button onClick={() => { setWfStart(pretrainStart); setWfEnd(pretrainEnd); }}
+                          style={{ flex: 1, fontSize: 9, background: COLORS.panel, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.sub, padding: "2px 0", cursor: "pointer" }}>
+                          Même période
+                        </button>
+                        <button onClick={() => {
+                          const s = new Date(); s.setMonth(s.getMonth() - 12);
+                          const e = new Date(); e.setMonth(e.getMonth() - 6);
+                          setWfStart(s.toISOString().slice(0, 10));
+                          setWfEnd(e.toISOString().slice(0, 10));
+                        }} style={{ flex: 1, fontSize: 9, background: COLORS.panel, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.sub, padding: "2px 0", cursor: "pointer" }}>
+                          −12M → −6M
+                        </button>
                       </div>
                       <button onClick={launchWalkForward}
                         disabled={wfStatus?.running || pretrainLoading || pretrainStatus?.running}
                         style={{ width: "100%", background: "#22c55e22",
                           border: `1px solid #22c55e`, borderRadius: 4,
                           color: "#22c55e", padding: "5px 0", cursor: "pointer", fontSize: 11 }}>
-                        {wfStatus?.running ? `⏳ Walk-forward en cours…` : "Lancer Walk-Forward"}
+                        {wfStatus?.running ? `⏳ Walk-forward en cours…` : "Lancer Walk-Forward OOS"}
                       </button>
                     </div>
 
