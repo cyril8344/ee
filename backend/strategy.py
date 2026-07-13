@@ -259,11 +259,12 @@ def active_session(ts_utc: datetime) -> Optional[str]:
     return None
 
 
-def is_bad_timing(ts_utc: datetime) -> bool:
+def is_bad_timing(ts_utc: datetime, bad_hours: Optional[set] = None) -> bool:
     """Return True during high-uncertainty windows we want to avoid.
 
     - Monday before 10:00 CET  (uncertain market open)
     - Friday after 16:00 CET   (volatile weekly close)
+    - bad_hours: per-instrument override; falls back to global BAD_HOURS_CET
     """
     if ts_utc.tzinfo is None:
         ts_utc = ts_utc.replace(tzinfo=timezone.utc)
@@ -274,7 +275,8 @@ def is_bad_timing(ts_utc: datetime) -> bool:
         return True
     if weekday == 4 and t >= time(16, 0):
         return True
-    if local.hour in BAD_HOURS_CET:
+    hours = bad_hours if bad_hours is not None else BAD_HOURS_CET
+    if local.hour in hours:
         return True
     return False
 
@@ -783,6 +785,7 @@ def evaluate(
     pattern_weights: Optional[Dict[str, float]] = None,
     adaptive_thresholds=None,
     _reject_log: Optional[Dict] = None,
+    bad_hours: Optional[set] = None,
 ) -> Optional[Signal]:
     """
     Evaluate the full multi-timeframe stack on the *last closed* M5 bar.
@@ -800,7 +803,7 @@ def evaluate(
         ts = ts.replace(tzinfo=timezone.utc)
 
     # 0) Bad timing (Monday open / Friday close)
-    if is_bad_timing(ts):
+    if is_bad_timing(ts, bad_hours=bad_hours):
         _rej(_reject_log, "timing"); return None
 
     # 1) Session gate
@@ -959,6 +962,7 @@ def evaluate_eurusd(
     atr_min: float = 0.00030,
     pattern_weights: Optional[Dict[str, float]] = None,
     _reject_log: Optional[Dict] = None,
+    bad_hours: Optional[set] = None,
 ) -> Optional[Signal]:
     """
     Stratégie EUR/USD simplifiée : H1 EMA200 bias + ancre EMA9/OB + patterns.
@@ -975,7 +979,7 @@ def evaluate_eurusd(
         ts = now or pd.Timestamp(cur.name)
 
     # 1) Bad timing (lundi matin, vendredi soir, heures bloquées)
-    if is_bad_timing(ts):
+    if is_bad_timing(ts, bad_hours=bad_hours):
         _rej(_reject_log, "timing"); return None
 
     # 2) Session gate
@@ -1072,6 +1076,100 @@ def evaluate_eurusd(
         timestamp=ts,
         meta={"triggers": triggers, "bias": bias, "strategy": "eurusd_simple"},
     )
+
+
+def snapshot_eurusd(
+    m5: pd.DataFrame,
+    m15: pd.DataFrame,
+    h1: pd.DataFrame,
+    now: Optional[datetime] = None,
+    atr_min_override: float = 0.00030,
+    pattern_weights: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Lightweight EUR/USD market snapshot for the dashboard.
+    Mirrors evaluate_eurusd() conditions exactly so blocking_reason is accurate.
+    """
+    ts = now or datetime.now(timezone.utc)
+    bias = compute_bias(h1) if len(h1) else "NEUTRE"
+    session = active_session(ts)
+    cur5   = m5.iloc[-1] if len(m5) else None
+    cur_h1 = h1.iloc[-1] if len(h1) else None
+
+    def _f(row, col, digits=5):
+        v = row.get(col, float("nan")) if row is not None else float("nan")
+        return round(float(v), digits) if not pd.isna(v) else None
+
+    atr_val = float(cur5["atr"]) if (cur5 is not None and not pd.isna(cur5.get("atr", float("nan")))) else 0.0
+    atr_ok  = atr_val >= atr_min_override
+
+    # Pattern detection — mirrors evaluate_eurusd()
+    triggers: List[str] = []
+    obs: list = []
+    if bias != "NEUTRE" and cur5 is not None and len(m5) >= 2:
+        prev5  = m5.iloc[-2]
+        entry  = float(cur5["close"])
+        obs    = find_order_blocks(m5)
+        if bias == "LONG":
+            if is_bullish_engulfing(prev5, cur5, atr_val):        triggers.append("bullish_engulfing")
+            if is_pin_bar_bullish(cur5, atr_val):                 triggers.append("pin_bar")
+            if is_bullish_harami(prev5, cur5):                    triggers.append("harami")
+            if is_three_white_soldiers(m5.iloc[-3:], atr_val):   triggers.append("three_white_soldiers")
+            if is_tweezer_bottom(prev5, cur5, atr_val):          triggers.append("tweezer_bottom")
+            if is_marubozu_bullish(cur5, atr_val):               triggers.append("marubozu")
+            if ema9_pullback_bounce(m5, bias):                   triggers.append("ema9_pullback")
+            if near_orderblock(entry, bias, obs, atr_val):       triggers.append("near_order_block")
+        else:
+            if is_bearish_engulfing(prev5, cur5, atr_val):       triggers.append("bearish_engulfing")
+            if is_pin_bar_bearish(cur5, atr_val):                triggers.append("pin_bar")
+            if is_bearish_harami(prev5, cur5):                   triggers.append("bearish_harami")
+            if is_three_black_crows(m5.iloc[-3:], atr_val):     triggers.append("three_black_crows")
+            if is_tweezer_top(prev5, cur5, atr_val):            triggers.append("tweezer_top")
+            if is_marubozu_bearish(cur5, atr_val):              triggers.append("marubozu")
+            if ema9_pullback_bounce(m5, bias):                  triggers.append("ema9_pullback")
+            if near_orderblock(entry, bias, obs, atr_val):      triggers.append("near_order_block")
+
+    def _pw(t: str) -> float:
+        if pattern_weights is None:
+            return 1.0
+        info = pattern_weights.get(t)
+        return info["weight"] if isinstance(info, dict) else float(info) if info else 1.0
+
+    triggers_filtered = [t for t in triggers if _pw(t) >= PATTERN_FLOOR]
+    pattern_weight_detail = {t: round(_pw(t), 3) for t in triggers_filtered}
+    weight_sum   = sum(pattern_weight_detail.values())
+    has_anchor   = bool(set(triggers_filtered) & {"ema9_pullback", "near_order_block"})
+    patterns_ok  = bool(triggers_filtered) and has_anchor and weight_sum >= 1.0
+
+    # Blocking diagnosis — same order as evaluate_eurusd()
+    blocking_reason = None
+    if bias == "NEUTRE":
+        blocking_reason = "bias_neutre"
+    elif not atr_ok:
+        blocking_reason = "atr_trop_bas"
+    elif not has_anchor:
+        blocking_reason = "no_anchor"
+    elif not patterns_ok:
+        blocking_reason = "patterns"
+
+    return {
+        "bias":    bias,
+        "session": session or "Hors session",
+        "price":   _f(cur5, "close"),
+        "atr_m5":  _f(cur5, "atr"),
+        "atr_min": atr_min_override,
+        "adx_h1":  _f(cur_h1, "adx", 1),
+        "rsi_m5":  _f(cur5, "rsi", 1),
+        "conditions": {
+            "h1_bias":              bias,
+            "atr_ok":               atr_ok,
+            "has_anchor":           has_anchor,
+            "weight_sum":           round(weight_sum, 3),
+            "patterns":             triggers_filtered,
+            "pattern_weight_detail": pattern_weight_detail,
+            "ob_count":             len(obs),
+            "blocking_reason":      blocking_reason,
+        },
+    }
 
 
 def batch_signals(

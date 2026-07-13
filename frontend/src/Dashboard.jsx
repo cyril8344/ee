@@ -513,18 +513,14 @@ export default function Dashboard({ onLogout, onNavigateES }) {
       .catch(() => {});
   }, [weeklyOffset]);
 
-  /* Heures bloquées — chargement initial */
+  /* Heures bloquées — par instrument (sync depuis state WebSocket) */
   useEffect(() => {
-    fetch(`${API}/api/strategy/blocked-hours`, { headers: authHeaders() })
-      .then((r) => r.json())
-      .then((d) => setBlockedHours(d.blocked_hours || []))
-      .catch(() => {});
-  }, []);
+    const bh = state?.markets?.[activeMarket]?.inst_settings?.bad_hours_cet;
+    if (Array.isArray(bh)) setBlockedHours(bh);
+  }, [activeMarket, state?.markets?.[activeMarket]?.inst_settings?.bad_hours_cet?.length]);
 
   const handleToggleHour = (h) => {
-    fetch(`${API}/api/strategy/blocked-hours/${h}`, { method: "POST", headers: authHeaders() })
-      .then((r) => r.json())
-      .then((d) => setBlockedHours(d.blocked_hours || []))
+    fetch(`${API}/api/instrument/${activeMarket}/blocked-hours/${h}`, { method: "POST", headers: authHeaders() })
       .catch(() => {});
   };
 
@@ -845,7 +841,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
     }).then((r) => { if (r.status === 401) logout401(onLogout); });
 
   const toggleBot = () =>
-    fetch(`${API}/api/bot/toggle`, {
+    fetch(`${API}/api/instrument/${activeMarket}/toggle`, {
       method: "POST",
       headers: authHeaders(),
     }).then((r) => { if (r.status === 401) logout401(onLogout); });
@@ -993,14 +989,16 @@ export default function Dashboard({ onLogout, onNavigateES }) {
             <Stat label="Session"
               value={mkt.session || "—"}
               color={mkt.session?.includes("session") ? COLORS.grey : COLORS.blue} />
-            <Stat label="P&L du jour"
-              value={`${money(state?.day_pnl)} (${pct(state?.day_pnl_pct)})`}
-              color={(state?.day_pnl || 0) >= 0 ? COLORS.green : COLORS.red} />
+            <Stat label={`P&L ${mkt.name || activeMarket}`}
+              value={money(mkt.pnl_today ?? state?.day_pnl)}
+              color={(mkt.pnl_today ?? state?.day_pnl ?? 0) >= 0 ? COLORS.green : COLORS.red} />
             <div style={panel()}>
               <div style={{ fontSize: 11, color: COLORS.sub, textTransform: "uppercase", letterSpacing: 0.5 }}>Trades du jour</div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
-                <span style={{ fontSize: 18, fontWeight: 700, color: COLORS.text }}>
-                  {state?.trades_today ?? 0} / {state?.max_trades_per_day ?? 4}
+                <span style={{ fontSize: 18, fontWeight: 700,
+                  color: mkt.daily_stopped ? COLORS.red : COLORS.text }}>
+                  {mkt.trades_today ?? state?.trades_today ?? 0} / {mkt.inst_settings?.max_trades_per_day ?? state?.max_trades_per_day ?? 4}
+                  {mkt.daily_stopped && <span style={{ fontSize: 11, color: COLORS.red, marginLeft: 4 }}>🛑</span>}
                 </span>
                 <button onClick={handleResetDaily} title="Resynchroniser le compteur depuis la DB"
                   style={{ fontSize: 11, padding: "1px 6px", background: "transparent",
@@ -1201,7 +1199,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
               </div>
 
               {/* ---- trading conditions checklist ---- */}
-              {(mkt.ict_conditions || mkt.conditions) && (
+              {(mkt.ict_conditions || mkt.eurusd_conditions || mkt.conditions) && (
                 <div style={{ background: "#0a1020", borderRadius: 6, padding: "8px 10px", marginBottom: 10, fontSize: 11 }}>
                   {mkt.ict_conditions ? (
                     /* ---- Strategy B (ICT / Order Blocks) ---- */
@@ -1228,6 +1226,38 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                           val: mkt.ict_conditions.in_ob_zone ? "✓ dans zone" : "✗ hors zone" },
                         { label: "Zone S/R H1", ok: mkt.ict_conditions.sr_active,
                           val: mkt.ict_conditions.sr_active ? `✓ ${mkt.ict_conditions.sr_zone || ""}` : "—" },
+                      ].map(({ label, ok, val }) => (
+                        <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                          <span style={{ color: COLORS.sub }}>{label}</span>
+                          <span style={{ color: ok ? COLORS.green : ok === false ? COLORS.red : COLORS.grey, fontWeight: 500 }}>{val}</span>
+                        </div>
+                      ))}
+                    </>
+                  ) : mkt.eurusd_conditions ? (
+                    /* ---- EUR/USD simple (EMA bias + ATR + anchor pattern) ---- */
+                    <>
+                      <div style={{ color: COLORS.sub, fontWeight: 600, marginBottom: 6, fontSize: 11 }}>
+                        Conditions EUR/USD
+                        {mkt.eurusd_conditions.blocking_reason ? (
+                          <span style={{ marginLeft: 6, color: COLORS.amber, fontWeight: 400 }}>
+                            — bloqué: {mkt.eurusd_conditions.blocking_reason.replace(/_/g, " ")}
+                          </span>
+                        ) : (
+                          <span style={{ marginLeft: 6, color: COLORS.green, fontWeight: 400 }}>✓ prêt</span>
+                        )}
+                      </div>
+                      {[
+                        { label: "Biais H1 EMA50", ok: mkt.eurusd_conditions.h1_bias !== "NEUTRE", val: mkt.eurusd_conditions.h1_bias || "NEUTRE" },
+                        { label: "ATR M5 suffisant", ok: mkt.eurusd_conditions.atr_ok,
+                          val: mkt.eurusd_conditions.atr_ok ? "✓" : "✗ trop bas" },
+                        { label: "Ancre (ema9 / OB)", ok: mkt.eurusd_conditions.has_anchor,
+                          val: mkt.eurusd_conditions.has_anchor ? "✓" : "✗ absente" },
+                        { label: "Patterns", ok: mkt.eurusd_conditions.weight_sum >= 1.0,
+                          val: mkt.eurusd_conditions.patterns?.length
+                            ? `${mkt.eurusd_conditions.patterns.join(", ")} (${(mkt.eurusd_conditions.weight_sum ?? 0).toFixed(2)})`
+                            : "—" },
+                        { label: "OBs détectés", ok: (mkt.eurusd_conditions.ob_count ?? 0) > 0,
+                          val: `${mkt.eurusd_conditions.ob_count ?? 0}` },
                       ].map(({ label, ok, val }) => (
                         <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                           <span style={{ color: COLORS.sub }}>{label}</span>
