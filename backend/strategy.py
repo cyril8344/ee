@@ -54,7 +54,7 @@ SR_PROXIMITY_ATR = 0.7
 SR_ZONE_ATR      = 1.5   # zone S/R pour flip de biais (× ATR M5)
 SR_TP_MIN_R      = 1.0   # distance minimale S/R cible pour remplacer TP2 fixe
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
-SL_ATR_MULT      = 1.4      # multiplicateur SL normal
+SL_ATR_MULT      = 1.8      # multiplicateur SL normal (élargi pour éviter la zone de stop hunt 0.8-1.2×ATR)
 SL_ATR_MULT_HIGH = 2.0      # multiplicateur SL haute volatilité (ATR > ATR_HIGH)
 SWING_LOOKBACK = 5          # bars each side for swing detection
 
@@ -821,14 +821,6 @@ def evaluate(
                 _rej(_reject_log, "h1_ema200"); return None
             if price_vs_ema200 < -TREND_BIAS_DISTANCE and bias == "LONG":
                 _rej(_reject_log, "h1_ema200"); return None
-
-    # 2c) EMA200 H1 slope — LONG interdit si EMA200 H1 est en baisse (contre-tendance macro)
-    if not BOOTSTRAP_MODE and bias == "LONG" and len(h1) >= 4:
-        ema200_now  = float(h1.iloc[-1].get("ema200", float("nan")) or float("nan"))
-        ema200_prev = float(h1.iloc[-4].get("ema200", float("nan")) or float("nan"))
-        if not pd.isna(ema200_now) and not pd.isna(ema200_prev):
-            if ema200_now < ema200_prev:
-                _rej(_reject_log, "ema200_slope"); return None
 
     # H4 EMA200 bias filter supprimé — H1 suffit pour le biais directionnel
 
