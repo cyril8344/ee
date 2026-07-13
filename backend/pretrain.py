@@ -249,10 +249,6 @@ def run_pretrain(
                     if features:
                         adaptive.update(features, open_trade["entry"], won)
 
-                    triggers = open_trade.get("triggers", [])
-                    if triggers:
-                        db.update_pattern_stats(triggers, won)
-
                     # ---- Analyse false stop ----
                     # Sur un SL direct : est-ce que le prix aurait atteint TP1
                     # dans les 10 bougies suivantes (50 min) ?
@@ -399,7 +395,6 @@ def run_pretrain(
                 "remaining":    volume,
                 "realised":     0.0,
                 "max_exit_time": ts.to_pydatetime() + timedelta(minutes=sig.max_duration_min),
-                "triggers":     sig.meta.get("triggers", []),
                 "ml_features":  sig.meta.get("ml_features"),
                 "risk":         sl_dist,
                 "mae":          0.0,
@@ -410,7 +405,6 @@ def run_pretrain(
                     "adx_h1":       float(h1_cur.get("adx", 0) or 0),
                     "atr":          float(bar.get("atr", 0) or 0),
                     "hour_cet":     ts.astimezone(CET).hour,
-                    "n_patterns":   len(sig.meta.get("triggers", [])),
                     "ema9_dist_r":  round(
                         abs(float(bar.get("close", 0) or 0) - float(bar.get("ema9", 0) or 0))
                         / max(float(bar.get("atr", 1) or 1), 0.001), 2
