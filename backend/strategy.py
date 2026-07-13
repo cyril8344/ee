@@ -72,7 +72,7 @@ ATR_REGIME_MIN_RATIO  = 0.65     # ratio ATR_now/ATR_mean minimal pour entrer (L
 RSI_M5_LONG_MIN       = 46.0    # momentum M5 LONG minimal (LiveAdaptiveAgent peut ajuster)
 RSI_M5_SHORT_MAX      = 57.0    # momentum M5 SHORT maximal (LiveAdaptiveAgent peut ajuster)
 PATTERN_FLOOR         = 0.67    # WR minimal d'un pattern pour être utilisé
-MIN_WEIGHT_SUM_LONG   = 1.0     # somme poids patterns minimale LONG
+MIN_WEIGHT_SUM_LONG   = 0       # patterns retirés de evaluate() — désactivé dans le snapshot
 
 # Mode amorçage — court-circuite TOUS les filtres sauf session + biais direction
 # False = filtres réels actifs (ATR, patterns, RSI, M15, etc.)
