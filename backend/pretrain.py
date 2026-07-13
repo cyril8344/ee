@@ -128,7 +128,7 @@ def run_pretrain(
         "M15_FILTER_ENABLED":    True,
         "EMA9_FILTER_ENABLED":   True,
         "VWAP_FILTER_ENABLED":   True,
-        "BAD_HOURS_CET":         {8, 10},
+        "BAD_HOURS_CET":         {8, 10, 14},
     }
     if extra_overrides:
         _PRETRAIN_OVERRIDES.update(extra_overrides)
