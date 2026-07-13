@@ -862,7 +862,7 @@ def evaluate(
         if len(m5) >= 20:
             atr_avg = float(m5["atr"].iloc[-20:].mean())
             if atr_avg > 0 and atr_val / atr_avg < ATR_REGIME_MIN_RATIO:
-                return None
+                _rej(_reject_log, "atr_regime"); return None
 
         # 4b) H1 ADX trend strength
         if h1_adx < ADX_MIN:
@@ -1238,7 +1238,7 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
     _adapt_ready = _adapt is not None and _adapt.is_ready
     snap_atr_min   = 0.0 if ATR_MIN == 0.0 else (_adapt.atr_min if _adapt_ready else atr_min_override)
     snap_ema9_mult = _adapt.ema9_mult  if _adapt_ready else 0.5
-    snap_m15_mult  = _adapt.m15_mult   if _adapt_ready else 0.3
+    snap_m15_mult  = _adapt.m15_mult   if _adapt_ready else 0.8
 
     # --- condition diagnostics ---
     m15_confirmed = confirm_m15(m15, bias, ema_mult=snap_m15_mult) if (len(m15) >= 1 and bias != "NEUTRE") else False
@@ -1351,6 +1351,32 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
     else:
         vwap_passes = True
 
+    # h1_ema200 distance check (mirrors evaluate() stage 2b)
+    h1_ema200_passes = True
+    if cur_h1 is not None and bias != "NEUTRE":
+        _h1_ema200_v = float(cur_h1.get("ema200", float("nan")) or float("nan"))
+        _h1_atr_v = float(cur_h1.get("atr", 0) or 0)
+        if not pd.isna(_h1_ema200_v) and _h1_atr_v > 0:
+            _pvema200 = (float(cur_h1["close"]) - _h1_ema200_v) / _h1_atr_v
+            if bias == "SHORT" and _pvema200 > TREND_BIAS_DISTANCE:
+                h1_ema200_passes = False
+            if bias == "LONG" and _pvema200 < -TREND_BIAS_DISTANCE:
+                h1_ema200_passes = False
+
+    # ATR régime (mirrors evaluate() stage 4c)
+    atr_regime_passes = True
+    if len(m5) >= 20 and atr_val > 0:
+        atr_avg_snap = float(m5["atr"].iloc[-20:].mean())
+        if atr_avg_snap > 0:
+            atr_regime_passes = atr_val / atr_avg_snap >= ATR_REGIME_MIN_RATIO
+
+    # ADX pente (mirrors evaluate() stage 4d)
+    adx_slope_passes = True
+    if ADX_SLOPE_ENABLED and cur_h1 is not None and len(h1) >= 2:
+        adx_prev_snap = float(h1.iloc[-2].get("adx", snap_adx_h1))
+        if snap_adx_h1 < adx_prev_snap:
+            adx_slope_passes = False
+
     # first failing condition for quick diagnosis — ordre identique à evaluate()
     blocking_reason = None
     if BOOTSTRAP_MODE:
@@ -1360,6 +1386,8 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
         # else: pas de raison de blocage, le bot fire à chaque bougie
     elif bias == "NEUTRE":
         blocking_reason = "bias_neutre"
+    elif not h1_ema200_passes:
+        blocking_reason = "h1_ema200"
     elif H1_RSI_FILTER_ENABLED and cur_h1 is not None and (
         (bias == "LONG"  and float(cur_h1.get("rsi", 50) or 50) < RSI_H1_LONG_MIN) or
         (bias == "SHORT" and float(cur_h1.get("rsi", 50) or 50) > RSI_H1_SHORT_MAX)
@@ -1376,18 +1404,18 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
             blocking_reason = "m15_non_confirmé"
     elif not atr_ok:
         blocking_reason = "atr_trop_bas"
+    elif not atr_regime_passes:
+        blocking_reason = "atr_regime"
     elif not adx_passes:
         blocking_reason = "adx"
+    elif ADX_SLOPE_ENABLED and not adx_slope_passes:
+        blocking_reason = "adx_slope"
     elif EMA9_FILTER_ENABLED and not ema9_aligned:
         blocking_reason = "ema9_non_aligné"
     elif not rsi_m5_passes:
         blocking_reason = "rsi_m5"
     elif not vwap_passes:
         blocking_reason = "vwap"
-    elif not patterns_detected:
-        blocking_reason = "aucun_pattern"
-    elif MIN_WEIGHT_SUM_LONG > 0 and not weight_gate_ok:
-        blocking_reason = "poids_insuffisants"
 
     return {
         "bias": bias,
@@ -1423,6 +1451,9 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
                     (bias == "SHORT" and float(cur_h1.get("rsi", 50) or 50) > RSI_H1_SHORT_MAX)
                 )
             ),
+            "h1_ema200_passes": h1_ema200_passes,
+            "atr_regime_passes": atr_regime_passes,
+            "adx_slope_passes": adx_slope_passes,
             "vwap_passes": vwap_passes,
             "rsi_m5_passes": rsi_m5_passes,
             "patterns": patterns_detected,
