@@ -1411,6 +1411,17 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
             "m15_rsi_ok": m15_rsi_ok,
             "atr_ok": atr_ok,
             "ema9_aligned": ema9_aligned,
+            "adx_passes": adx_passes,
+            "adx_h1_val": snap_adx_h1,
+            "h1_rsi_val": float(cur_h1.get("rsi", 50) or 50) if cur_h1 is not None else None,
+            "h1_rsi_passes": not (
+                H1_RSI_FILTER_ENABLED and cur_h1 is not None and (
+                    (bias == "LONG"  and float(cur_h1.get("rsi", 50) or 50) < RSI_H1_LONG_MIN) or
+                    (bias == "SHORT" and float(cur_h1.get("rsi", 50) or 50) > RSI_H1_SHORT_MAX)
+                )
+            ),
+            "vwap_passes": vwap_passes,
+            "rsi_m5_passes": rsi_m5_passes,
             "patterns": patterns_detected,
             "pattern_weight_sum": pattern_weight_sum,
             "pattern_weight_detail": pattern_weight_detail,
