@@ -309,22 +309,26 @@ def run_pretrain(
                         "won":           won,
                         "mae_r":         mae_r,
                         "mfe_r":         mfe_r,
-                        "patterns":      [],
-                        "false_stop":          false_stop,
+                        "false_stop":           false_stop,
                         "false_stop_spike_atr": false_stop_spike_atr,
-                        "false_be":            false_be,
+                        "false_be":             false_be,
                         "rsi_m5":        _snap.get("rsi_m5", 50),
                         "rsi_m15":       _snap.get("rsi_m15", 50),
                         "adx_h1":        _snap.get("adx_h1", 0),
                         "atr":           _snap.get("atr", 0),
                         "hour_cet":      _snap.get("hour_cet"),
-                        "n_patterns":    0,
                         "ema9_dist_r":   _snap.get("ema9_dist_r", 0),
                         "ema200_dist_r": _snap.get("ema200_dist_r", 0),
                         "vwap_side":     _snap.get("vwap_side", 0),
                         "h1_rsi":        _snap.get("h1_rsi", 50),
                         "body_ratio":    _snap.get("body_ratio", 0),
                         "h4_bias":       _snap.get("h4_bias", 0),
+                        "sl_dist_atr":   _snap.get("sl_dist_atr", 1.4),
+                        "close_pct":     _snap.get("close_pct", 0.5),
+                        "day_of_week":   _snap.get("day_of_week", 0),
+                        "candles_to_exit": max(1, round(
+                            (ts - open_trade["entry_time"]).total_seconds() / 300
+                        )),
                     })
 
                     open_trade = None
@@ -419,6 +423,14 @@ def run_pretrain(
                         abs(float(bar.get("close", 0) or 0) - float(bar.get("open", 0) or 0))
                         / max(float(bar.get("atr", 1) or 1), 0.001), 2
                     ),
+                    "sl_dist_atr": round(
+                        sl_dist / max(float(bar.get("atr", 1) or 1), 0.001), 2
+                    ),
+                    "close_pct": round(
+                        (float(bar.get("close", 0) or 0) - float(bar.get("low", 0) or 0))
+                        / max(float(bar.get("high", 0) or 0) - float(bar.get("low", 0) or 0), 0.001), 2
+                    ),
+                    "day_of_week": ts.weekday(),
                     "h4_bias": (
                         1 if compute_bias(h4_s) == "LONG"
                         else -1 if compute_bias(h4_s) == "SHORT"
@@ -427,20 +439,8 @@ def run_pretrain(
                 },
             }
 
-        # ---- WR par pattern ----
-        from collections import defaultdict as _dd
-        _by_pat: dict = _dd(lambda: {"n": 0, "wins": 0})
-        for _t in trades_log:
-            for _p in _t.get("patterns", []):
-                _by_pat[_p]["n"] += 1
-                _by_pat[_p]["wins"] += int(_t["won"])
-        wr_by_pattern = {
-            _p: {"n": _v["n"], "wr": round(_v["wins"] / _v["n"], 3)}
-            for _p, _v in sorted(_by_pat.items(), key=lambda x: -x[1]["n"])
-            if _v["n"] >= 3
-        }
-
         # ---- WR par session ----
+        from collections import defaultdict as _dd
         _by_sess: dict = _dd(lambda: {"n": 0, "wins": 0})
         for _t in trades_log:
             _s = _t.get("session", "")
@@ -508,22 +508,72 @@ def run_pretrain(
             for _h, _v in sorted(_fs_by_hour.items()) if _v["n_sl"] >= 2
         }
 
-        # ---- % faux stops par pattern ----
-        _fs_by_pat: dict = _dd(lambda: {"n_sl": 0, "n_fs": 0})
+        # ---- Diagnostic par jour de semaine ----
+        _DOW = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
+        _by_dow: dict = _dd(lambda: {"n": 0, "wins": 0, "sl": 0, "fs": 0, "sl_dist": [], "body": []})
+        for _t in trades_log:
+            _d = _t.get("day_of_week", 0)
+            _k = _DOW[_d] if _d < len(_DOW) else str(_d)
+            _by_dow[_k]["n"] += 1
+            _by_dow[_k]["wins"] += int(_t["won"])
+            if _t.get("exit_reason") == "sl":
+                _by_dow[_k]["sl"] += 1
+                if _t.get("false_stop"):
+                    _by_dow[_k]["fs"] += 1
+            _by_dow[_k]["sl_dist"].append(_t.get("sl_dist_atr", 1.4))
+            _by_dow[_k]["body"].append(_t.get("body_ratio", 0))
+        diag_by_dow = {
+            _k: {
+                "n":           _v["n"],
+                "wr":          round(_v["wins"] / _v["n"] * 100, 1) if _v["n"] else 0,
+                "sl_pct":      round(_v["sl"] / _v["n"] * 100, 1) if _v["n"] else 0,
+                "fs_pct":      round(_v["fs"] / _v["sl"] * 100, 1) if _v["sl"] else 0,
+                "sl_dist_atr": round(sum(_v["sl_dist"]) / len(_v["sl_dist"]), 2) if _v["sl_dist"] else 0,
+                "body_ratio":  round(sum(_v["body"]) / len(_v["body"]), 2) if _v["body"] else 0,
+            }
+            for _k, _v in _by_dow.items() if _v["n"] >= 2
+        }
+
+        # ---- False stops par distance SL (buckets en ATR) ----
+        _fs_by_dist: dict = _dd(lambda: {"n_sl": 0, "n_fs": 0})
         for _t in trades_log:
             if _t.get("exit_reason") == "sl":
-                for _p in _t.get("patterns", []):
-                    _fs_by_pat[_p]["n_sl"] += 1
-                    if _t.get("false_stop"):
-                        _fs_by_pat[_p]["n_fs"] += 1
-        false_stop_by_pattern = {
-            _p: {
-                "n_sl":          _v["n_sl"],
-                "n_false_stops": _v["n_fs"],
-                "pct_false":     round(_v["n_fs"] / _v["n_sl"] * 100, 1) if _v["n_sl"] else 0.0,
+                _d = _t.get("sl_dist_atr", 1.4)
+                if _d < 0.8:   _bk = "<0.8 ATR (très serré)"
+                elif _d < 1.2: _bk = "0.8–1.2 ATR"
+                elif _d < 1.6: _bk = "1.2–1.6 ATR"
+                else:          _bk = ">1.6 ATR (large)"
+                _fs_by_dist[_bk]["n_sl"] += 1
+                if _t.get("false_stop"):
+                    _fs_by_dist[_bk]["n_fs"] += 1
+        false_stop_by_sl_dist = {
+            _k: {
+                "n_sl":      _v["n_sl"],
+                "n_fs":      _v["n_fs"],
+                "pct_false": round(_v["n_fs"] / _v["n_sl"] * 100, 1) if _v["n_sl"] else 0.0,
             }
-            for _p, _v in sorted(_fs_by_pat.items(), key=lambda x: -x[1]["n_sl"])
-            if _v["n_sl"] >= 2
+            for _k, _v in _fs_by_dist.items() if _v["n_sl"] >= 1
+        }
+
+        # ---- False stops par body_ratio ----
+        _fs_by_body: dict = _dd(lambda: {"n_sl": 0, "n_fs": 0})
+        for _t in trades_log:
+            if _t.get("exit_reason") == "sl":
+                _b = _t.get("body_ratio", 0)
+                if _b < 0.15:   _bk = "<0.15 (doji)"
+                elif _b < 0.30: _bk = "0.15–0.30 (faible)"
+                elif _b < 0.50: _bk = "0.30–0.50 (moyen)"
+                else:           _bk = ">0.50 (fort)"
+                _fs_by_body[_bk]["n_sl"] += 1
+                if _t.get("false_stop"):
+                    _fs_by_body[_bk]["n_fs"] += 1
+        false_stop_by_body = {
+            _k: {
+                "n_sl":      _v["n_sl"],
+                "n_fs":      _v["n_fs"],
+                "pct_false": round(_v["n_fs"] / _v["n_sl"] * 100, 1) if _v["n_sl"] else 0.0,
+            }
+            for _k, _v in _fs_by_body.items() if _v["n_sl"] >= 1
         }
 
         # ---- Diagnostic indicateurs par outcome ----
@@ -540,7 +590,6 @@ def run_pretrain(
                 "rsi_m15":       round(_mean("rsi_m15", 50), 1),
                 "adx_h1":        round(_mean("adx_h1", 0), 1),
                 "atr":           round(_mean("atr", 0), 2),
-                "n_patterns":    round(_mean("n_patterns", 0), 1),
                 "ema9_dist_r":   round(_mean("ema9_dist_r", 0), 2),
                 "ema200_dist_r": round(_mean("ema200_dist_r", 0), 2),
                 "vwap_above_pct": round(
@@ -549,6 +598,9 @@ def run_pretrain(
                 "h1_rsi":    round(_mean("h1_rsi", 50), 1),
                 "body_ratio": round(_mean("body_ratio", 0), 2),
                 "h4_bias":   round(_mean("h4_bias", 0), 2),
+                "sl_dist_atr": round(_mean("sl_dist_atr", 1.4), 2),
+                "close_pct":  round(_mean("close_pct", 0.5), 2),
+                "candles_to_exit": round(_mean("candles_to_exit", 5), 1),
                 "london_pct": round(
                     sum(1 for t in grp if t.get("session") == "London") / len(grp) * 100, 1
                 ),
@@ -659,12 +711,13 @@ def run_pretrain(
                 ) if n_be_for_false_check else 0.0,
             },
             "indicator_diagnostic":   indicator_diagnostic,
-            "wr_by_pattern":          wr_by_pattern,
             "wr_by_session":          wr_by_session,
             "wr_by_hour":             wr_by_hour,
             "false_stop_spike_stats": false_stop_spike_stats,
             "false_stop_by_hour":     false_stop_by_hour,
-            "false_stop_by_pattern":  false_stop_by_pattern,
+            "false_stop_by_sl_dist":  false_stop_by_sl_dist,
+            "false_stop_by_body":     false_stop_by_body,
+            "diag_by_dow":            diag_by_dow,
             "rejection_counts":       dict(sorted(rejection_counts.items(), key=lambda x: -x[1])),
         }
         with _lock:
