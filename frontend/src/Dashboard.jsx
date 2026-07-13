@@ -1243,6 +1243,8 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                       val: mkt.conditions.m15_rsi_ok == null ? "—" : (mkt.conditions.m15_rsi_ok ? "✓" : "✗") },
                     { label: "ATR M5", ok: mkt.conditions.atr_ok, val: mkt.conditions.atr_ok ? "✓" : "✗" },
                     { label: "EMA9 aligné M5", ok: mkt.conditions.ema9_aligned, val: mkt.conditions.ema9_aligned ? "✓" : "✗" },
+                    { label: "Pattern", ok: mkt.conditions.patterns?.length > 0,
+                      val: mkt.conditions.patterns?.length > 0 ? mkt.conditions.patterns.join(", ").replace(/_/g, " ") : "aucun" },
                   ].map(({ label, ok, val }) => (
                     <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                       <span style={{ color: COLORS.sub }}>{label}</span>
@@ -1594,6 +1596,9 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                                     { key: "h1_rsi",         label: "RSI H1"         },
                                     { key: "body_ratio",     label: "Corps/ATR"      },
                                     { key: "h4_bias",        label: "Biais H4 (+1L/-1S)"},
+                                    { key: "sl_dist_atr",    label: "Dist SL (×ATR)"    },
+                                    { key: "close_pct",      label: "Close % range"      },
+                                    { key: "candles_to_exit",label: "Bougies avant exit" },
                                   ];
                                   return (
                                     <div style={{ marginTop: 8 }}>
@@ -1698,48 +1703,6 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                                           );
                                         })}
                                       </div>
-                                    </div>
-                                  );
-                                })()}
-
-                                {/* WR par pattern */}
-                                {(() => {
-                                  const wbp = pretrainStats.wr_by_pattern || {};
-                                  const entries = Object.entries(wbp);
-                                  if (entries.length === 0) return null;
-                                  const patLabels = {
-                                    bullish_engulfing: "Engulfing haussier", bearish_engulfing: "Engulfing baissier",
-                                    hammer: "Hammer", shooting_star: "Shooting star",
-                                    pin_bar: "Pin bar", marubozu: "Marubozu",
-                                    harami: "Harami haussier", bearish_harami: "Harami baissier",
-                                    three_white_soldiers: "3 soldats blancs", three_black_crows: "3 corbeaux",
-                                    tweezer_bottom: "Tweezer bottom", tweezer_top: "Tweezer top",
-                                    piercing_line: "Piercing line", dark_cloud_cover: "Dark cloud",
-                                    ema9_pullback: "EMA9 pullback", micro_breakout: "Micro breakout",
-                                    doji_reversal: "Doji reversal", evening_star: "Evening star",
-                                    near_order_block: "OB confluent", near_fvg: "FVG confluent",
-                                  };
-                                  return (
-                                    <div style={{ marginTop: 10 }}>
-                                      <div style={{ color: COLORS.sub, marginBottom: 5 }}>WR par pattern</div>
-                                      {entries.map(([pat, d]) => {
-                                        const wr = d.wr * 100;
-                                        const col = wr >= 55 ? COLORS.green : wr >= 45 ? COLORS.amber : COLORS.red;
-                                        return (
-                                          <div key={pat} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
-                                            <div style={{ width: 120, fontSize: 9, color: COLORS.sub, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                              {patLabels[pat] || pat}
-                                            </div>
-                                            <div style={{ flex: 1, background: COLORS.border + "44", borderRadius: 2, height: 8, overflow: "hidden" }}>
-                                              <div style={{ width: `${Math.min(wr, 100)}%`, height: "100%", background: col, borderRadius: 2 }} />
-                                            </div>
-                                            <div style={{ width: 62, textAlign: "right", fontSize: 9, color: col, flexShrink: 0 }}>
-                                              {wr.toFixed(0)}% ({d.n})
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                      <div style={{ fontSize: 9, color: COLORS.sub, marginTop: 2 }}>vert ≥55% · orange 45-55% · rouge &lt;45%</div>
                                     </div>
                                   );
                                 })()}
@@ -1852,48 +1815,115 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                                   );
                                 })()}
 
-                                {/* Faux stops % par pattern */}
+                                {/* Jour de la semaine */}
                                 {(() => {
-                                  const fsbp = pretrainStats.false_stop_by_pattern || {};
-                                  const entries = Object.entries(fsbp);
+                                  const dow = pretrainStats.diag_by_dow || {};
+                                  const days = ["Lun","Mar","Mer","Jeu","Ven"];
+                                  const entries = days.filter(d => dow[d]);
                                   if (entries.length === 0) return null;
                                   return (
                                     <div style={{ marginTop: 10 }}>
-                                      <div style={{ color: COLORS.sub, marginBottom: 4 }}>% Faux stops par pattern</div>
-                                      {entries.map(([pat, d]) => {
-                                        const pct = d.pct_false;
-                                        const barCol = pct >= 60 ? COLORS.red : pct >= 40 ? COLORS.amber : COLORS.green;
-                                        return (
-                                          <div key={pat} style={{ marginBottom: 3 }}>
-                                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 1 }}>
-                                              <span style={{ color: COLORS.sub, fontSize: 9 }}>{pat}</span>
-                                              <span style={{ color: barCol, fontSize: 9 }}>{pct}% ({d.n_false_stops}/{d.n_sl})</span>
-                                            </div>
-                                            <div style={{ background: COLORS.border + "44", borderRadius: 2, height: 6 }}>
-                                              <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: barCol, borderRadius: 2 }} />
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                      <div style={{ color: COLORS.sub, fontSize: 9, marginTop: 2 }}>
-                                        % faux stops parmi SL directs par pattern
+                                      <div style={{ color: COLORS.sub, marginBottom: 5 }}>Diagnostic par jour de la semaine</div>
+                                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 9 }}>
+                                        <thead>
+                                          <tr>
+                                            <th style={{ textAlign: "left", color: COLORS.sub, fontWeight: "normal", paddingBottom: 3 }}>Jour</th>
+                                            <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>N</th>
+                                            <th style={{ textAlign: "right", color: COLORS.green, fontWeight: "normal" }}>WR%</th>
+                                            <th style={{ textAlign: "right", color: COLORS.red, fontWeight: "normal" }}>SL%</th>
+                                            <th style={{ textAlign: "right", color: COLORS.amber, fontWeight: "normal" }}>FS%</th>
+                                            <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>SL/ATR</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {entries.map(d => {
+                                            const v = dow[d];
+                                            const wrCol = v.wr >= 55 ? COLORS.green : v.wr >= 45 ? COLORS.amber : COLORS.red;
+                                            const slCol = v.sl_pct >= 40 ? COLORS.red : v.sl_pct >= 28 ? COLORS.amber : COLORS.green;
+                                            const fsCol = v.fs_pct >= 60 ? COLORS.red : v.fs_pct >= 40 ? COLORS.amber : COLORS.green;
+                                            return (
+                                              <tr key={d}>
+                                                <td style={{ color: COLORS.text, paddingTop: 2, paddingRight: 4 }}>{d}</td>
+                                                <td style={{ textAlign: "right", color: COLORS.sub, paddingTop: 2 }}>{v.n}</td>
+                                                <td style={{ textAlign: "right", color: wrCol, paddingTop: 2 }}>{v.wr}%</td>
+                                                <td style={{ textAlign: "right", color: slCol, paddingTop: 2 }}>{v.sl_pct}%</td>
+                                                <td style={{ textAlign: "right", color: fsCol, paddingTop: 2 }}>{v.fs_pct}%</td>
+                                                <td style={{ textAlign: "right", color: COLORS.sub, paddingTop: 2 }}>{v.sl_dist_atr}</td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                      <div style={{ color: COLORS.sub, fontSize: 8, marginTop: 3 }}>
+                                        SL%=pertes directes · FS%=faux stops parmi SL · SL/ATR=distance SL moyenne
                                       </div>
                                     </div>
                                   );
                                 })()}
 
-                                {/* Patterns dominants dans les pertes */}
-                                {pretrainStats.top_patterns_losses?.length > 0 && (
-                                  <div style={{ marginTop: 6 }}>
-                                    <div style={{ color: COLORS.sub, marginBottom: 3 }}>Patterns fréquents dans les pertes</div>
-                                    {pretrainStats.top_patterns_losses.map(([p, n]) => (
-                                      <div key={p} style={{ display: "flex", justifyContent: "space-between", color: COLORS.red, marginBottom: 1 }}>
-                                        <span style={{ color: COLORS.sub }}>{p}</span>
-                                        <span>{n}×</span>
+                                {/* Faux stops par distance SL */}
+                                {(() => {
+                                  const fsd = pretrainStats.false_stop_by_sl_dist || {};
+                                  const buckets = ["<0.8 ATR (très serré)", "0.8–1.2 ATR", "1.2–1.6 ATR", ">1.6 ATR (large)"];
+                                  const entries = buckets.filter(b => fsd[b]);
+                                  if (entries.length === 0) return null;
+                                  return (
+                                    <div style={{ marginTop: 10 }}>
+                                      <div style={{ color: COLORS.sub, marginBottom: 4 }}>Faux stops par distance SL (×ATR)</div>
+                                      {entries.map(b => {
+                                        const d = fsd[b];
+                                        const pct = d.pct_false;
+                                        const barCol = pct >= 60 ? COLORS.red : pct >= 40 ? COLORS.amber : COLORS.green;
+                                        return (
+                                          <div key={b} style={{ marginBottom: 3 }}>
+                                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 1 }}>
+                                              <span style={{ color: COLORS.sub, fontSize: 9 }}>{b}</span>
+                                              <span style={{ color: barCol, fontSize: 9 }}>{pct}% ({d.n_fs}/{d.n_sl})</span>
+                                            </div>
+                                            <div style={{ background: COLORS.border + "44", borderRadius: 2, height: 7 }}>
+                                              <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: barCol, borderRadius: 2 }} />
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                      <div style={{ color: COLORS.sub, fontSize: 8, marginTop: 2 }}>
+                                        % faux stops / SL directs par bucket de distance · rouge≥60% · orange40-60%
                                       </div>
-                                    ))}
-                                  </div>
-                                )}
+                                    </div>
+                                  );
+                                })()}
+
+                                {/* Faux stops par corps de bougie */}
+                                {(() => {
+                                  const fsb = pretrainStats.false_stop_by_body || {};
+                                  const buckets = ["<0.15 (doji)", "0.15–0.30 (faible)", "0.30–0.50 (moyen)", ">0.50 (fort)"];
+                                  const entries = buckets.filter(b => fsb[b]);
+                                  if (entries.length === 0) return null;
+                                  return (
+                                    <div style={{ marginTop: 10 }}>
+                                      <div style={{ color: COLORS.sub, marginBottom: 4 }}>Faux stops par corps de bougie (Corps/ATR)</div>
+                                      {entries.map(b => {
+                                        const d = fsb[b];
+                                        const pct = d.pct_false;
+                                        const barCol = pct >= 60 ? COLORS.red : pct >= 40 ? COLORS.amber : COLORS.green;
+                                        return (
+                                          <div key={b} style={{ marginBottom: 3 }}>
+                                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 1 }}>
+                                              <span style={{ color: COLORS.sub, fontSize: 9 }}>{b}</span>
+                                              <span style={{ color: barCol, fontSize: 9 }}>{pct}% ({d.n_fs}/{d.n_sl})</span>
+                                            </div>
+                                            <div style={{ background: COLORS.border + "44", borderRadius: 2, height: 7 }}>
+                                              <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: barCol, borderRadius: 2 }} />
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                      <div style={{ color: COLORS.sub, fontSize: 8, marginTop: 2 }}>
+                                        Doji (indécis) vs fort (conviction) · rouge≥60% · orange40-60%
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             );
                           })()}
