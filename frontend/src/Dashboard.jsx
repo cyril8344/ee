@@ -2130,7 +2130,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                   </div>
 
                   {/* Adaptive thresholds */}
-                  {mkt.conditions.adaptive && (
+                  {mkt.conditions?.adaptive && (
                     <div style={{ marginTop: 4, borderTop: `1px solid ${COLORS.border}`, paddingTop: 4 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
                         <span style={{ color: COLORS.sub }}>Seuils adaptatifs</span>
