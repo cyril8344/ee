@@ -71,6 +71,9 @@ BAD_HOURS_CET         = set()    # configuré via le panel dashboard (persiste e
 ATR_REGIME_MIN_RATIO  = 0.65     # ratio ATR_now/ATR_mean minimal pour entrer (LiveAdaptiveAgent peut ajuster)
 RSI_M5_LONG_MIN       = 46.0    # momentum M5 LONG minimal (LiveAdaptiveAgent peut ajuster)
 RSI_M5_SHORT_MAX      = 57.0    # momentum M5 SHORT maximal (LiveAdaptiveAgent peut ajuster)
+RSI_H1_LONG_MIN       = 45.0    # RSI H1 minimal pour LONG — H1 pas trop bearish
+RSI_H1_SHORT_MAX      = 55.0    # RSI H1 maximal pour SHORT — H1 pas trop bullish
+H1_RSI_FILTER_ENABLED = True    # filtre RSI H1 momentum alignment
 PATTERN_FLOOR         = 0.67    # WR minimal d'un pattern pour être utilisé
 MIN_WEIGHT_SUM_LONG   = 0       # patterns retirés de evaluate() — désactivé dans le snapshot
 
@@ -824,6 +827,14 @@ def evaluate(
 
     # H4 EMA200 bias filter supprimé — H1 suffit pour le biais directionnel
 
+    # 2c) H1 RSI momentum alignment — évite d'entrer contre le momentum H1
+    if H1_RSI_FILTER_ENABLED and len(h1) > 0:
+        h1_rsi_val = float(h1.iloc[-1].get("rsi", 50) or 50)
+        if bias == "LONG" and h1_rsi_val < RSI_H1_LONG_MIN:
+            _rej(_reject_log, "h1_rsi"); return None
+        if bias == "SHORT" and h1_rsi_val > RSI_H1_SHORT_MAX:
+            _rej(_reject_log, "h1_rsi"); return None
+
     # Seuils adaptatifs (si disponibles et entraînés)
     _adapt = adaptive_thresholds
     _adapt_ready = _adapt is not None and _adapt.is_ready
@@ -1346,6 +1357,11 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
         # else: pas de raison de blocage, le bot fire à chaque bougie
     elif bias == "NEUTRE":
         blocking_reason = "bias_neutre"
+    elif H1_RSI_FILTER_ENABLED and cur_h1 is not None and (
+        (bias == "LONG"  and float(cur_h1.get("rsi", 50) or 50) < RSI_H1_LONG_MIN) or
+        (bias == "SHORT" and float(cur_h1.get("rsi", 50) or 50) > RSI_H1_SHORT_MAX)
+    ):
+        blocking_reason = "h1_rsi"
     elif M15_FILTER_ENABLED and not m15_confirmed:
         if m15_ema_aligned is False and m15_rsi_ok is False:
             blocking_reason = "m15_ema_et_rsi"
