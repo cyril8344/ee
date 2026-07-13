@@ -1243,6 +1243,8 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                       val: mkt.conditions.m15_rsi_ok == null ? "—" : (mkt.conditions.m15_rsi_ok ? "✓" : "✗") },
                     { label: "ATR M5", ok: mkt.conditions.atr_ok, val: mkt.conditions.atr_ok ? "✓" : "✗" },
                     { label: "EMA9 aligné M5", ok: mkt.conditions.ema9_aligned, val: mkt.conditions.ema9_aligned ? "✓" : "✗" },
+                    { label: "Pattern", ok: mkt.conditions.patterns?.length > 0,
+                      val: mkt.conditions.patterns?.length > 0 ? mkt.conditions.patterns.join(", ").replace(/_/g, " ") : "aucun" },
                   ].map(({ label, ok, val }) => (
                     <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                       <span style={{ color: COLORS.sub }}>{label}</span>
