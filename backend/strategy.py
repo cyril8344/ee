@@ -48,6 +48,7 @@ VOL_AVG_PERIOD = 20
 RSI_LOW = 30.0   # seuil M15 RSI LONG (LiveAdaptiveAgent peut ajuster)
 RSI_HIGH = 70.0  # seuil M15 RSI SHORT (LiveAdaptiveAgent peut ajuster)
 ATR_MIN = 3.0    # plancher volatilité M5 (LiveAdaptiveAgent peut ajuster)
+ATR_LONG_MIN = 7.0  # plancher ATR spécifique aux LONG (les SHORT n'ont pas ce filtre)
 ATR_HIGH = 4.5   # seuil vol. élevée : SL passe à SL_ATR_MULT_HIGH au lieu de bloquer
 ADX_MIN = 22.0   # force tendance minimale H1 (LiveAdaptiveAgent peut ajuster)
 SR_PROXIMITY_ATR = 0.7
@@ -885,6 +886,10 @@ def evaluate(
             _rej(_reject_log, "vwap"); return None
         if bias == "SHORT" and float(cur["close"]) > vwap_val:
             _rej(_reject_log, "vwap"); return None
+
+    # 5d) ATR minimal LONG — ne pas trader LONG en faible volatilité
+    if not BOOTSTRAP_MODE and bias == "LONG" and atr_val < ATR_LONG_MIN:
+        _rej(_reject_log, "atr_long"); return None
 
     # 6) Entry — filtres indicateurs suffisants, pas de pattern requis
     entry = float(cur["close"])
