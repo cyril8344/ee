@@ -1315,7 +1315,29 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
     pattern_weight_sum = round(sum(pattern_weight_detail.values()), 3)
     weight_gate_ok = pattern_weight_sum >= MIN_WEIGHT_SUM_LONG if patterns_detected else False
 
-    # first failing condition for quick diagnosis
+    # Pre-compute ADX / RSI M5 / VWAP for blocking diagnosis (mirrors evaluate() order)
+    snap_adx_h1 = float(cur_h1.get("adx", 0) or 0) if cur_h1 is not None else 0.0
+    adx_passes = snap_adx_h1 >= ADX_MIN
+
+    rsi_m5_val = float(cur5.get("rsi", 50) or 50) if cur5 is not None else 50.0
+    if bias == "LONG":
+        rsi_m5_passes = rsi_m5_val >= RSI_M5_LONG_MIN
+    elif bias == "SHORT":
+        rsi_m5_passes = rsi_m5_val <= RSI_M5_SHORT_MAX
+    else:
+        rsi_m5_passes = True
+
+    vwap_snap = float(cur5.get("vwap", float("nan")) or float("nan")) if cur5 is not None else float("nan")
+    if VWAP_FILTER_ENABLED and not pd.isna(vwap_snap) and cur5 is not None and bias != "NEUTRE":
+        close_snap = float(cur5["close"])
+        vwap_passes = not (
+            (bias == "LONG"  and close_snap < vwap_snap) or
+            (bias == "SHORT" and close_snap > vwap_snap)
+        )
+    else:
+        vwap_passes = True
+
+    # first failing condition for quick diagnosis — ordre identique à evaluate()
     blocking_reason = None
     if BOOTSTRAP_MODE:
         # En mode amorçage, aucun filtre ne bloque — seul le biais H1 est requis
@@ -1335,8 +1357,14 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
             blocking_reason = "m15_non_confirmé"
     elif not atr_ok:
         blocking_reason = "atr_trop_bas"
+    elif not adx_passes:
+        blocking_reason = "adx"
     elif EMA9_FILTER_ENABLED and not ema9_aligned:
         blocking_reason = "ema9_non_aligné"
+    elif not rsi_m5_passes:
+        blocking_reason = "rsi_m5"
+    elif not vwap_passes:
+        blocking_reason = "vwap"
     elif not patterns_detected:
         blocking_reason = "aucun_pattern"
     elif MIN_WEIGHT_SUM_LONG > 0 and not weight_gate_ok:
