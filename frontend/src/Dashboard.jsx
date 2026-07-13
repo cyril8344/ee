@@ -1925,6 +1925,65 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                                     </div>
                                   );
                                 })()}
+
+                                {/* LONG vs SHORT diagnostic */}
+                                {(() => {
+                                  const dbd = pretrainStats.diag_by_direction || {};
+                                  const long = dbd["long"];
+                                  const short = dbd["short"];
+                                  if (!long && !short) return null;
+                                  const cols = [
+                                    { key: "n",            label: "Trades"       },
+                                    { key: "wr",           label: "WR%"          },
+                                    { key: "sl_pct",       label: "SL%"          },
+                                    { key: "fs_pct",       label: "Faux-stop%"   },
+                                    { key: "sl_dist_atr",  label: "Dist SL/ATR"  },
+                                    { key: "close_pct",    label: "Close% range" },
+                                    { key: "body_ratio",   label: "Corps/ATR"    },
+                                    { key: "atr_entry",    label: "ATR entrée"   },
+                                    { key: "candles_exit", label: "Bougies exit" },
+                                  ];
+                                  const fmt = (v) => v != null ? v : "—";
+                                  const diffCol = (lv, sv, higherIsBetter) => {
+                                    if (lv == null || sv == null) return COLORS.sub;
+                                    const d = lv - sv;
+                                    if (Math.abs(d) < 0.5) return COLORS.sub;
+                                    const longBetter = higherIsBetter ? d > 0 : d < 0;
+                                    return longBetter ? COLORS.green : COLORS.red;
+                                  };
+                                  const higherBetter = { wr: true, fs_pct: false, sl_pct: false, sl_dist_atr: false, close_pct: true, body_ratio: true, atr_entry: false, candles_exit: true };
+                                  return (
+                                    <div style={{ marginTop: 10 }}>
+                                      <div style={{ color: COLORS.sub, marginBottom: 5 }}>LONG vs SHORT — comparaison directe</div>
+                                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 9 }}>
+                                        <thead>
+                                          <tr>
+                                            <th style={{ textAlign: "left", color: COLORS.sub, fontWeight: "normal", paddingBottom: 3 }}>Métrique</th>
+                                            <th style={{ textAlign: "right", color: COLORS.green, fontWeight: "normal" }}>LONG</th>
+                                            <th style={{ textAlign: "right", color: COLORS.amber, fontWeight: "normal" }}>SHORT</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {cols.map(({ key, label }) => {
+                                            const lv = long?.[key];
+                                            const sv = short?.[key];
+                                            const col = diffCol(lv, sv, higherBetter[key] ?? true);
+                                            return (
+                                              <tr key={key}>
+                                                <td style={{ color: COLORS.sub, paddingTop: 2, paddingRight: 4 }}>{label}</td>
+                                                <td style={{ textAlign: "right", color: col, fontWeight: col !== COLORS.sub ? 600 : "normal", paddingTop: 2 }}>{fmt(lv)}</td>
+                                                <td style={{ textAlign: "right", color: COLORS.sub, paddingTop: 2 }}>{fmt(sv)}</td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                      <div style={{ color: COLORS.sub, fontSize: 8, marginTop: 3 }}>
+                                        LONG en rouge = underperformance vs SHORT sur cette métrique
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             );
                           })()}
