@@ -33,9 +33,9 @@ OB_IMPULSE_ATR    = 1.5  # impulse minimum après l'OB (en ATR)
 OB_MAX_BARS       = 50   # fenêtre de recherche OBs (50 M5 ≈ 4h)
 OB_MIN_BODY_ATR   = 0.2  # corps minimum bougie OB (filtre dojis)
 OB_MAX_HEIGHT_ATR = 1.5  # hauteur maximale OB (OBs larges → R:R défavorable)
-ADX_MIN_H1        = 20   # ADX H1 minimum — rejet marchés non-tendanciels (chop)
+ADX_MIN_H1        = 28   # ADX H1 minimum — rejet marchés non-tendanciels (chop)
 SL_BUFFER_ATR     = 0.3  # buffer SL derrière l'extrême de l'OB
-MAX_RISK_ATR      = 1.5  # plafond risque (SL ≤ 1.5×ATR de l'entrée)
+MAX_RISK_ATR      = 1.2  # plafond risque (SL ≤ 1.2×ATR de l'entrée)
 TP1_R             = 0.7
 TP2_R             = 1.8
 
@@ -248,10 +248,19 @@ def evaluate_ict(
 
     _sr_zone_active = _near_res or _near_sup
 
-    # 4) ADX H1 — requis en mode tendance, ignoré en mode S/R (range = normal)
+    # 4) ADX H1 — requis en toutes conditions (trend et S/R)
     h1_adx = float(h1.iloc[-1].get("adx", 0) or 0) if len(h1) > 0 else 0.0
-    if not _sr_zone_active and h1_adx < ADX_MIN_H1:
+    if h1_adx < ADX_MIN_H1:
         return None
+
+    # 4b) VWAP alignment — ne pas entrer contre le VWAP intraday
+    import math as _math
+    vwap_val = float(cur.get("vwap", float("nan")) or float("nan"))
+    if not _math.isnan(vwap_val) and vwap_val > 0:
+        if direction == "LONG"  and float(cur["close"]) < vwap_val:
+            return None
+        if direction == "SHORT" and float(cur["close"]) > vwap_val:
+            return None
 
     # 5) Order Blocks M5 — obligatoires hors S/R, optionnels (confluence) en mode S/R
     entry_price = float(cur["close"])
