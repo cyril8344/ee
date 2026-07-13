@@ -103,7 +103,7 @@ class LLMGate:
 
         client = _get_client()
         if client is None:
-            return {"action": direction, "confidence": 0.5, "reason": "client absent"}
+            return {"action": direction, "confidence": 1.0, "reason": "client absent — fail-open"}
 
         prompt = _TMPL.format(
             direction=direction.upper(),

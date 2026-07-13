@@ -13,3 +13,4 @@ websocket-client==1.8.0
 gymnasium==0.29.1
 optuna==3.6.1
 aiofiles==23.2.1
+anthropic>=0.44.0
