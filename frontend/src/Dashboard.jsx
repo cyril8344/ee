@@ -1243,38 +1243,12 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                       val: mkt.conditions.m15_rsi_ok == null ? "—" : (mkt.conditions.m15_rsi_ok ? "✓" : "✗") },
                     { label: "ATR M5", ok: mkt.conditions.atr_ok, val: mkt.conditions.atr_ok ? "✓" : "✗" },
                     { label: "EMA9 aligné M5", ok: mkt.conditions.ema9_aligned, val: mkt.conditions.ema9_aligned ? "✓" : "✗" },
-                    { label: "Pattern", ok: mkt.conditions.patterns?.length > 0,
-                      val: mkt.conditions.patterns?.length > 0 ? mkt.conditions.patterns.join(", ").replace(/_/g, " ") : "aucun" },
                   ].map(({ label, ok, val }) => (
                     <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                       <span style={{ color: COLORS.sub }}>{label}</span>
                       <span style={{ color: ok ? COLORS.green : COLORS.red, fontWeight: 500 }}>{val}</span>
                     </div>
                   ))}
-                  {/* Pattern weight gate */}
-                  {mkt.conditions.patterns?.length > 0 && (
-                    <div style={{ marginTop: 4, borderTop: `1px solid ${COLORS.border}`, paddingTop: 4 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
-                        <span style={{ color: COLORS.sub }}>Poids total patterns</span>
-                        <span style={{
-                          color: mkt.conditions.weight_gate_ok ? COLORS.green : COLORS.red,
-                          fontWeight: 600,
-                        }}>
-                          {mkt.conditions.pattern_weight_sum != null
-                            ? `${mkt.conditions.pattern_weight_sum.toFixed(2)} / 1.0 ${mkt.conditions.weight_gate_ok ? "✓" : "✗"}`
-                            : "—"}
-                        </span>
-                      </div>
-                      {mkt.conditions.pattern_weight_detail && Object.entries(mkt.conditions.pattern_weight_detail).map(([p, w]) => (
-                        <div key={p} style={{ display: "flex", justifyContent: "space-between", paddingLeft: 8, opacity: 0.8 }}>
-                          <span style={{ color: COLORS.sub, fontSize: 10 }}>{p.replace(/_/g, " ")}</span>
-                          <span style={{ fontSize: 10, color: w >= 1.0 ? COLORS.green : w >= 0.6 ? COLORS.amber : COLORS.red }}>
-                            x{w.toFixed(2)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                     </> /* fin Strategy A */
                   )} {/* fin ternaire ICT vs A */}
                   {/* Pré-entraînement — séparé par stratégie */}
@@ -1613,7 +1587,6 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                                     { key: "rsi_m15",        label: "RSI M15"        },
                                     { key: "adx_h1",         label: "ADX H1"         },
                                     { key: "atr",            label: "ATR (M5)"       },
-                                    { key: "n_patterns",     label: "Nb patterns"    },
                                     { key: "ema9_dist_r",    label: "Dist EMA9 (R)"  },
                                     { key: "ema200_dist_r",  label: "Dist EMA200 H1" },
                                     { key: "vwap_above_pct", label: "Au-dessus VWAP %"},
