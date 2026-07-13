@@ -356,11 +356,12 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
             t["realised"] += pnl_for(close, t["remaining"])
             return t["realised"], close, "early_exit"
 
-    # 1) TP1 — sortie 50% à 0.7R
+    # 1) TP1 — sortie 50% (ou 100% si tp1_close_all) à 0.7R
     if not t["tp1_done"]:
         hit_tp1 = (high >= t["tp1"]) if direction == "long" else (low <= t["tp1"])
         if hit_tp1:
-            lots50 = _round_lot(t["volume"] * 0.5)
+            close_ratio = 1.0 if t.get("tp1_close_all") else 0.5
+            lots50 = _round_lot(t["volume"] * close_ratio)
             lots50 = min(lots50, t["remaining"])
             if lots50 < MIN_LOT:
                 lots50 = t["remaining"]  # trop petit pour spliter → close total à TP1
