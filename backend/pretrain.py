@@ -754,6 +754,7 @@ def run_pretrain(
             "diag_by_dow":            diag_by_dow,
             "diag_by_direction":      diag_by_direction,
             "rejection_counts":       dict(sorted(rejection_counts.items(), key=lambda x: -x[1])),
+            "sl_atr_mult":            SL_ATR_MULT,
         }
         with _lock:
             _last_by_strategy[strategy_mode] = result
