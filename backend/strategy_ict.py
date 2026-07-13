@@ -37,7 +37,7 @@ ADX_MIN_H1        = 28   # ADX H1 minimum — rejet marchés non-tendanciels (ch
 SL_BUFFER_ATR     = 0.3  # buffer SL derrière l'extrême de l'OB
 MAX_RISK_ATR      = 1.2  # plafond risque (SL ≤ 1.2×ATR de l'entrée)
 TP1_R             = 0.7
-TP2_R             = 1.8
+TP2_R             = 1.0
 
 # S/R zone-to-zone (H1)
 SR_ZONE_ATR_H1  = 1.0   # prix dans 1.0×ATR H1 d'un niveau → zone active
