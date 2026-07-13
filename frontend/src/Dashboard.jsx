@@ -1775,7 +1775,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                                           <div style={{ width: 36, textAlign: "right", fontSize: 9, color: COLORS.text, flexShrink: 0 }}>{pct}%</div>
                                         </div>
                                       ))}
-                                      <div style={{ fontSize: 9, color: COLORS.sub, marginTop: 2 }}>N={sp.n} faux stops · SL actuel=1.4×ATR</div>
+                                      <div style={{ fontSize: 9, color: COLORS.sub, marginTop: 2 }}>N={sp.n} faux stops · SL actuel={pretrainStats.sl_atr_mult ?? 1.8}×ATR</div>
                                     </div>
                                   );
                                 })()}
