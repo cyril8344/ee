@@ -1716,6 +1716,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                                   const stageLabels = {
                                     timing: "Timing (lun/ven)", session: "Session (hors Lo/NY)",
                                     h1_neutre: "H1 neutre (EMA50≈200)", h1_ema200: "H1 EMA200 mauvais côté",
+                                    ema200_slope: "EMA200 H1 en baisse (LONG)",
                                     h1_ema200_dist: "H1 dist EMA200 trop proche", h4_bias: "H4 biais contraire",
                                     m15: "M15 EMA/RSI", atr_min: "ATR trop bas",
                                     atr_max: "ATR trop haut", adx: "ADX H1 trop faible",

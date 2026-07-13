@@ -822,6 +822,14 @@ def evaluate(
             if price_vs_ema200 < -TREND_BIAS_DISTANCE and bias == "LONG":
                 _rej(_reject_log, "h1_ema200"); return None
 
+    # 2c) EMA200 H1 slope — LONG interdit si EMA200 H1 est en baisse (contre-tendance macro)
+    if not BOOTSTRAP_MODE and bias == "LONG" and len(h1) >= 4:
+        ema200_now  = float(h1.iloc[-1].get("ema200", float("nan")) or float("nan"))
+        ema200_prev = float(h1.iloc[-4].get("ema200", float("nan")) or float("nan"))
+        if not pd.isna(ema200_now) and not pd.isna(ema200_prev):
+            if ema200_now < ema200_prev:
+                _rej(_reject_log, "ema200_slope"); return None
+
     # H4 EMA200 bias filter supprimé — H1 suffit pour le biais directionnel
 
     # Seuils adaptatifs (si disponibles et entraînés)
