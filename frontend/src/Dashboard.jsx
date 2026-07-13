@@ -1720,7 +1720,8 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                                     m15: "M15 EMA/RSI", atr_min: "ATR trop bas",
                                     atr_max: "ATR trop haut", adx: "ADX H1 trop faible",
                                     ema9: "EMA9 M5 désalignée", rsi_m5: "RSI M5 faible",
-                                    vwap: "VWAP mauvais côté", h1_rsi: "RSI H1 contre-courant",
+                                    vwap: "VWAP mauvais côté", close_pct: "LONG bougie en extension",
+                                    h1_rsi: "RSI H1 contre-courant",
                                     patterns: "Patterns insuffisants",
                                     body: "Corps bougie < 40%",
                                   };

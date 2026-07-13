@@ -49,6 +49,7 @@ RSI_LOW = 30.0   # seuil M15 RSI LONG (LiveAdaptiveAgent peut ajuster)
 RSI_HIGH = 70.0  # seuil M15 RSI SHORT (LiveAdaptiveAgent peut ajuster)
 ATR_MIN = 3.0    # plancher volatilité M5 (LiveAdaptiveAgent peut ajuster)
 ATR_HIGH = 4.5   # seuil vol. élevée : SL passe à SL_ATR_MULT_HIGH au lieu de bloquer
+LONG_CLOSE_PCT_MAX = 0.90  # LONG interdit si close > 90% de la range (bougie en extension)
 ADX_MIN = 22.0   # force tendance minimale H1 (LiveAdaptiveAgent peut ajuster)
 SR_PROXIMITY_ATR = 0.7
 SR_ZONE_ATR      = 1.5   # zone S/R pour flip de biais (× ATR M5)
@@ -885,6 +886,16 @@ def evaluate(
             _rej(_reject_log, "vwap"); return None
         if bias == "SHORT" and float(cur["close"]) > vwap_val:
             _rej(_reject_log, "vwap"); return None
+
+    # 5d) Close PCT — LONG interdit si bougie en extension (close > 90% de la range)
+    if not BOOTSTRAP_MODE and bias == "LONG":
+        _high = float(cur.get("high", 0) or 0)
+        _low  = float(cur.get("low",  0) or 0)
+        _rng  = _high - _low
+        if _rng > 0:
+            _close_pct = (float(cur["close"]) - _low) / _rng
+            if _close_pct > LONG_CLOSE_PCT_MAX:
+                _rej(_reject_log, "close_pct"); return None
 
     # 6) Entry — filtres indicateurs suffisants, pas de pattern requis
     entry = float(cur["close"])
