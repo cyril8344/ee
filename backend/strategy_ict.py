@@ -262,6 +262,14 @@ def evaluate_ict(
     if direction == "SHORT" and rsi_m5 > RSI_SHORT_MAX:
         return None
 
+    # 4c) VWAP alignment — ne pas entrer contre le VWAP intraday
+    vwap_val = float(cur.get("vwap", float("nan")) or float("nan"))
+    if not pd.isna(vwap_val) and vwap_val > 0:
+        if direction == "LONG"  and float(cur["close"]) < vwap_val:
+            return None
+        if direction == "SHORT" and float(cur["close"]) > vwap_val:
+            return None
+
     # 5) Order Blocks M5 — obligatoires hors S/R, optionnels (confluence) en mode S/R
     entry_price = float(cur["close"])
     obs = _find_order_blocks(m5, direction, atr_val)
@@ -336,7 +344,7 @@ def evaluate_ict(
         timestamp=ts,
         meta={
             "strategy":      "B_OB",
-            "tp1_close_all": True,
+            "tp1_close_all": False,
             "ob_low":        round(ob["low"],  5) if ob else None,
             "ob_high":       round(ob["high"], 5) if ob else None,
             "ob_ts":         ob_ts_str,
