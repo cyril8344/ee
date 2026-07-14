@@ -208,6 +208,7 @@ class BotState:
             )
 
         self.pattern_weights: Dict = db.get_pattern_stats()
+        self._current_day: Optional[str] = None
         self._hydrate_today()
         self._restore_open_positions()
 
@@ -283,9 +284,11 @@ class BotState:
             sym_closed = [t for t in sym_trades if t["status"] == "closed"]
             ms.trades_today = len(sym_trades)
             ms.pnl_today = sum(t.get("pnl") or 0.0 for t in sym_closed)
+            ms.daily_stopped = False
             _inst_stop_pct = ms.inst_settings.get("daily_stop_pct", 2.0)
             if _start_eq > 0 and ms.pnl_today <= -abs(_start_eq * _inst_stop_pct / 100.0):
                 ms.daily_stopped = True
+        self._current_day = today
 
     def push_alert(self, kind: str, message: str):
         self.alerts.append({
@@ -412,8 +415,9 @@ def trading_tick() -> Dict[str, Any]:
         # Daily rollover
         today = db.today_utc()
         daily = db.get_or_create_daily(today, state.risk.capital)
-        if state.risk.start_equity_today is None:
-            state.risk.start_new_day(daily["start_equity"])
+        if state.risk.start_equity_today is None or today != state._current_day:
+            # Premier démarrage OU changement de jour → réhydrater depuis la DB
+            state._hydrate_today()
 
         now = datetime.now(timezone.utc)
         session = active_session(now)
