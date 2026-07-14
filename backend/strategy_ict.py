@@ -34,8 +34,8 @@ OB_MAX_BARS       = 50   # fenêtre de recherche OBs (50 M5 ≈ 4h)
 OB_MIN_BODY_ATR   = 0.2  # corps minimum bougie OB (filtre dojis)
 OB_MAX_HEIGHT_ATR = 1.5  # hauteur maximale OB (OBs larges → R:R défavorable)
 ADX_MIN_H1        = 20   # ADX H1 minimum — EUR/USD typique 18-26, 28 trop strict
-SL_BUFFER_ATR     = 0.3  # buffer SL derrière l'extrême de l'OB
-MAX_RISK_ATR      = 1.2  # plafond risque (SL ≤ 1.2×ATR de l'entrée)
+SL_BUFFER_ATR     = 0.7  # buffer SL derrière l'extrême de l'OB (0.3 → 0.7 : 62% faux stops couverts)
+MAX_RISK_ATR      = 2.0  # plafond risque élargi pour accommoder le buffer SL augmenté
 TP1_R             = 0.7
 TP2_R             = 1.0
 
