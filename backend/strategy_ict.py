@@ -24,7 +24,7 @@ from typing import Optional, Dict, Any, List
 import pandas as pd
 
 from strategy import (Signal, active_session, is_bad_timing, ATR_MIN,
-                      nearest_support_below, nearest_resistance_above)
+                      nearest_support_below, nearest_resistance_above, CET)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Paramètres
@@ -215,6 +215,10 @@ def evaluate_ict(
         return None
     session = session or "London"
 
+    # 1b) 11h CET bloqué — WR 36% sur 53 trades (pire heure EUR/USD)
+    if ts.astimezone(CET).hour == 11:
+        return None
+
     # 2) ATR plancher
     atr_val = float(cur.get("atr", 0) or 0)
     if atr_val < atr_min:
@@ -249,6 +253,10 @@ def evaluate_ict(
             _sr_tp2_target = _t
 
     _sr_zone_active = _near_res or _near_sup
+
+    # 3d) SHORT uniquement — LONG WR 31% trop faible (London 34%, NY non statistique)
+    if direction == "LONG":
+        return None
 
     # 4) ADX H1 — requis en toutes conditions (trend et S/R)
     h1_adx = float(h1.iloc[-1].get("adx", 0) or 0) if len(h1) > 0 else 0.0
