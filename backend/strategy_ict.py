@@ -34,6 +34,8 @@ OB_MAX_BARS       = 50   # fenêtre de recherche OBs (50 M5 ≈ 4h)
 OB_MIN_BODY_ATR   = 0.2  # corps minimum bougie OB (filtre dojis)
 OB_MAX_HEIGHT_ATR = 1.5  # hauteur maximale OB (OBs larges → R:R défavorable)
 ADX_MIN_H1        = 20   # ADX H1 minimum — EUR/USD typique 18-26, 28 trop strict
+RSI_LONG_MIN      = 46   # RSI M5 minimum pour LONG (identique strategy A, validé Optuna)
+RSI_SHORT_MAX     = 57   # RSI M5 maximum pour SHORT
 SL_BUFFER_ATR     = 0.7  # buffer SL derrière l'extrême de l'OB (0.3 → 0.7 : 62% faux stops couverts)
 MAX_RISK_ATR      = 2.0  # plafond risque élargi pour accommoder le buffer SL augmenté
 TP1_R             = 0.7
@@ -251,6 +253,13 @@ def evaluate_ict(
     # 4) ADX H1 — requis en toutes conditions (trend et S/R)
     h1_adx = float(h1.iloc[-1].get("adx", 0) or 0) if len(h1) > 0 else 0.0
     if h1_adx < ADX_MIN_H1:
+        return None
+
+    # 4b) RSI M5 momentum — filtre les entrées sans momentum dans le sens du trade
+    rsi_m5 = float(cur.get("rsi", 50) or 50)
+    if direction == "LONG"  and rsi_m5 < RSI_LONG_MIN:
+        return None
+    if direction == "SHORT" and rsi_m5 > RSI_SHORT_MAX:
         return None
 
     # 5) Order Blocks M5 — obligatoires hors S/R, optionnels (confluence) en mode S/R
