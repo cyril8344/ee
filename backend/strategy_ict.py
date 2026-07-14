@@ -277,11 +277,12 @@ def evaluate_ict(
     entry = entry_price
 
     if direction == "LONG":
-        # SL sous l'OB si disponible, sinon sous la zone S/R (support + buffer)
+        # SL sous l'OB si disponible, sinon sous le support H1 le plus proche SOUS l'entrée
         if ob is not None:
             raw_sl = ob["low"] - SL_BUFFER_ATR * atr_val
         else:
-            sup = max(_h1_sr["support"]) if _h1_sr["support"] else entry - MAX_RISK_ATR * atr_val
+            _sup_below = [s for s in _h1_sr["support"] if s < entry]
+            sup = max(_sup_below) if _sup_below else entry - MAX_RISK_ATR * atr_val
             raw_sl = sup - SL_BUFFER_ATR * atr_val
         sl   = max(raw_sl, entry - MAX_RISK_ATR * atr_val)
         risk = abs(entry - sl)
@@ -293,7 +294,9 @@ def evaluate_ict(
         if ob is not None:
             raw_sl = ob["high"] + SL_BUFFER_ATR * atr_val
         else:
-            res = min(_h1_sr["resistance"]) if _h1_sr["resistance"] else entry + MAX_RISK_ATR * atr_val
+            # Utiliser la résistance la plus proche AU-DESSUS de l'entrée (pas min global)
+            _res_above = [r for r in _h1_sr["resistance"] if r > entry]
+            res = min(_res_above) if _res_above else entry + MAX_RISK_ATR * atr_val
             raw_sl = res + SL_BUFFER_ATR * atr_val
         sl   = min(raw_sl, entry + MAX_RISK_ATR * atr_val)
         risk = abs(entry - sl)
