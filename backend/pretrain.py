@@ -140,8 +140,12 @@ def run_pretrain(
     pip_size      = 0.1     if symbol == "XAUUSD" else 0.0001
     default_atr   = 3.0     if symbol == "XAUUSD" else 0.00030
     effective_atr = atr_min if atr_min is not None else default_atr
-    spread    = 2.0  * pip_size   # $0.20 spread réaliste XAU/USD
-    slippage  = 0.5  * pip_size   # $0.05 slippage
+    if symbol == "XAUUSD":
+        spread   = 2.0  * pip_size   # 2.0 pips XAU/USD = 0.20 (réaliste)
+        slippage = 0.5  * pip_size   # 0.5 pips XAU/USD = 0.05
+    else:
+        spread   = 0.2  * pip_size   # 0.2 pips EUR/USD = 0.00002 (identique broker live)
+        slippage = 0.05 * pip_size   # 0.05 pips EUR/USD = 0.000005
 
     try:
         # ---- Charger et préparer les données ----
