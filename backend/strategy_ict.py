@@ -29,11 +29,11 @@ from strategy import (Signal, active_session, is_bad_timing, ATR_MIN,
 # ──────────────────────────────────────────────────────────────────────────────
 # Paramètres
 # ──────────────────────────────────────────────────────────────────────────────
-OB_IMPULSE_ATR    = 1.5  # impulse minimum après l'OB (en ATR)
+OB_IMPULSE_ATR    = 1.0  # impulse minimum après l'OB (en ATR) — 1.5 trop strict (0 OB détecté)
 OB_MAX_BARS       = 50   # fenêtre de recherche OBs (50 M5 ≈ 4h)
 OB_MIN_BODY_ATR   = 0.2  # corps minimum bougie OB (filtre dojis)
 OB_MAX_HEIGHT_ATR = 1.5  # hauteur maximale OB (OBs larges → R:R défavorable)
-ADX_MIN_H1        = 28   # ADX H1 minimum — rejet marchés non-tendanciels (chop)
+ADX_MIN_H1        = 20   # ADX H1 minimum — EUR/USD typique 18-26, 28 trop strict
 SL_BUFFER_ATR     = 0.3  # buffer SL derrière l'extrême de l'OB
 MAX_RISK_ATR      = 1.2  # plafond risque (SL ≤ 1.2×ATR de l'entrée)
 TP1_R             = 0.7
@@ -252,15 +252,6 @@ def evaluate_ict(
     h1_adx = float(h1.iloc[-1].get("adx", 0) or 0) if len(h1) > 0 else 0.0
     if h1_adx < ADX_MIN_H1:
         return None
-
-    # 4b) VWAP alignment — ne pas entrer contre le VWAP intraday
-    import math as _math
-    vwap_val = float(cur.get("vwap", float("nan")) or float("nan"))
-    if not _math.isnan(vwap_val) and vwap_val > 0:
-        if direction == "LONG"  and float(cur["close"]) < vwap_val:
-            return None
-        if direction == "SHORT" and float(cur["close"]) > vwap_val:
-            return None
 
     # 5) Order Blocks M5 — obligatoires hors S/R, optionnels (confluence) en mode S/R
     entry_price = float(cur["close"])
