@@ -381,6 +381,12 @@ def run_pretrain(
                 last_ob_ts = sig.meta.get("ob_ts")
 
             fill = sig.entry + (spread + slippage) * (1 if sig.direction == "long" else -1)
+            # Rejeter si TP1 non rentable après coûts aller+retour (spread + 2×slippage)
+            _roundtrip = spread + 2 * slippage
+            if sig.direction == "long"  and sig.take_profit1 <= sig.entry + _roundtrip:
+                continue
+            if sig.direction == "short" and sig.take_profit1 >= sig.entry - _roundtrip:
+                continue
             sl_dist = abs(fill - sig.stop_loss)
             volume = _size_lots(equity, risk_pct, sl_dist, contract_size)
             h1_cur  = h1_s.iloc[-1]  if len(h1_s)  > 0 else pd.Series(dtype=float)

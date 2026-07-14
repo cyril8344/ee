@@ -640,7 +640,16 @@ def trading_tick() -> Dict[str, Any]:
                                                         volume=0.01, risk_amount=risk_amt,
                                                         stop_distance=sl_dist)
                         if decision.allowed:
-                            _open_trade(ms, sig, decision, now)
+                            # TP1 doit être rentable après coûts aller+retour (spread + 2×slippage)
+                            _roundtrip = ms.broker.spread + 2 * ms.broker.slippage
+                            _tp1_viable = (
+                                (sig.direction == "long"  and sig.take_profit1 > sig.entry + _roundtrip) or
+                                (sig.direction == "short" and sig.take_profit1 < sig.entry - _roundtrip)
+                            )
+                            if _tp1_viable:
+                                _open_trade(ms, sig, decision, now)
+                            else:
+                                _set_loop_gate("tp1_below_fill: risque trop faible vs spread")
                         else:
                             _set_loop_gate(f"risk_trade: {decision.reason}")
                             state.push_alert("warn", f"[{ms.symbol}] Signal ignoré: {decision.reason}")
