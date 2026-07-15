@@ -36,6 +36,10 @@ OB_MAX_HEIGHT_ATR = 1.5  # hauteur maximale OB (OBs larges → R:R défavorable)
 ADX_MIN_H1        = 20   # ADX H1 minimum — EUR/USD typique 18-26, 28 trop strict
 RSI_LONG_MIN      = 46   # RSI M5 minimum pour LONG (identique strategy A, validé Optuna)
 RSI_SHORT_MAX     = 57   # RSI M5 maximum pour SHORT
+RSI_M15_LONG_MIN  = 45   # RSI M15 minimum pour LONG (momentum M15 dans le bon sens)
+RSI_M15_SHORT_MAX = 55   # RSI M15 maximum pour SHORT (Δ +4.9 discriminant)
+RSI_H1_LONG_MIN   = 46   # RSI H1 minimum pour LONG (momentum H1 dans le bon sens)
+RSI_H1_SHORT_MAX  = 54   # RSI H1 maximum pour SHORT (Δ +5.5 discriminant)
 SL_BUFFER_ATR     = 0.7  # buffer SL derrière l'extrême de l'OB (0.3 → 0.7 : 62% faux stops couverts)
 MAX_RISK_ATR      = 2.0  # plafond risque élargi pour accommoder le buffer SL augmenté
 TP1_R             = 0.7
@@ -215,10 +219,6 @@ def evaluate_ict(
         return None
     session = session or "London"
 
-    # 1b) 11h CET bloqué — WR 36% sur 53 trades (pire heure EUR/USD)
-    if ts.astimezone(CET).hour == 11:
-        return None
-
     # 2) ATR plancher
     atr_val = float(cur.get("atr", 0) or 0)
     if atr_val < atr_min:
@@ -254,10 +254,6 @@ def evaluate_ict(
 
     _sr_zone_active = _near_res or _near_sup
 
-    # 3d) SHORT uniquement — LONG WR 31% trop faible (London 34%, NY non statistique)
-    if direction == "LONG":
-        return None
-
     # 4) ADX H1 — requis en toutes conditions (trend et S/R)
     h1_adx = float(h1.iloc[-1].get("adx", 0) or 0) if len(h1) > 0 else 0.0
     if h1_adx < ADX_MIN_H1:
@@ -270,7 +266,21 @@ def evaluate_ict(
     if direction == "SHORT" and rsi_m5 > RSI_SHORT_MAX:
         return None
 
-    # 4c) VWAP alignment — ne pas entrer contre le VWAP intraday
+    # 4c) RSI M15 — discriminant Δ +4.9 (SL dir 53.8 vs TP2 48.9)
+    rsi_m15 = float(m15.iloc[-1].get("rsi", 50) or 50) if len(m15) > 0 else 50.0
+    if direction == "LONG"  and rsi_m15 < RSI_M15_LONG_MIN:
+        return None
+    if direction == "SHORT" and rsi_m15 > RSI_M15_SHORT_MAX:
+        return None
+
+    # 4d) RSI H1 — discriminant Δ +5.5 (SL dir 54.9 vs TP2 49.4)
+    rsi_h1 = float(h1.iloc[-1].get("rsi", 50) or 50) if len(h1) > 0 else 50.0
+    if direction == "LONG"  and rsi_h1 < RSI_H1_LONG_MIN:
+        return None
+    if direction == "SHORT" and rsi_h1 > RSI_H1_SHORT_MAX:
+        return None
+
+    # 4f) VWAP alignment — ne pas entrer contre le VWAP intraday
     vwap_val = float(cur.get("vwap", float("nan")) or float("nan"))
     if not pd.isna(vwap_val) and vwap_val > 0:
         if direction == "LONG"  and float(cur["close"]) < vwap_val:
