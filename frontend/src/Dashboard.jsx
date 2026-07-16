@@ -402,6 +402,8 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const PRETRAIN_PAGE = 20;
   const [agentStatus, setAgentStatus] = useState(null);
   const [agentHistory, setAgentHistory] = useState([]);
+  const [liveAgentStatus, setLiveAgentStatus] = useState(null);
+  const [liveAgentReverting, setLiveAgentReverting] = useState(false);
   const [rlStatus, setRlStatus] = useState(null);
   const [rlHistory, setRlHistory] = useState([]);
   const [rlLoading, setRlLoading] = useState(false);
@@ -721,6 +723,18 @@ export default function Dashboard({ onLogout, onNavigateES }) {
     };
     load();
     const id = setInterval(load, 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  /* Live Adaptive Agent polling — every 60 seconds */
+  useEffect(() => {
+    const load = () =>
+      fetch(`${API}/api/live-agent`, { headers: authHeaders() })
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => d && setLiveAgentStatus(d))
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 60000);
     return () => clearInterval(id);
   }, []);
 
@@ -2390,6 +2404,59 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                           </div>
                         ))}
                       </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Agent adaptatif live (LiveAdaptiveAgent) */}
+              {liveAgentStatus && (
+                <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: COLORS.sub }}>
+                    Agent adaptatif live
+                  </div>
+                  <Row k="Trades" v={`${liveAgentStatus.total_trades} (${liveAgentStatus.trades_to_exit} avant filtres)`} />
+                  {liveAgentStatus.rolling_wr != null && (
+                    <Row k="WR glissant" v={`${(liveAgentStatus.rolling_wr * 100).toFixed(0)}%`}
+                         color={liveAgentStatus.rolling_wr >= 0.52 ? COLORS.green : liveAgentStatus.rolling_wr < 0.42 ? COLORS.red : COLORS.text} />
+                  )}
+                  <Row k="RSI_M5_LONG_MIN" v={liveAgentStatus.params?.RSI_M5_LONG_MIN} />
+                  <Row k="RSI_M5_SHORT_MAX" v={liveAgentStatus.params?.RSI_M5_SHORT_MAX} />
+                  <Row k="ADX_MIN" v={liveAgentStatus.params?.ADX_MIN} />
+                  <Row k="ATR_REGIME" v={liveAgentStatus.params?.ATR_REGIME_MIN_RATIO} />
+                  {liveAgentStatus.last_adj && (
+                    <div style={{ marginTop: 6, fontSize: 11, color: COLORS.amber }}>
+                      Dernier ajust. ({liveAgentStatus.n_adjustments}) — WR {(liveAgentStatus.last_adj.wr * 100).toFixed(0)}%
+                      {Object.entries(liveAgentStatus.last_adj.changes || {}).map(([k, v]) => (
+                        <div key={k} style={{ color: COLORS.sub }}>{k}: {v.from} → {v.to}</div>
+                      ))}
+                      <button
+                        disabled={liveAgentReverting}
+                        onClick={() => {
+                          const prev = {};
+                          Object.entries(liveAgentStatus.last_adj.changes || {}).forEach(([k, v]) => {
+                            prev[k] = v.from;
+                          });
+                          if (Object.keys(prev).length === 0) return;
+                          setLiveAgentReverting(true);
+                          fetch(`${API}/api/live-agent/params`, {
+                            method: "POST",
+                            headers: { ...authHeaders(), "Content-Type": "application/json" },
+                            body: JSON.stringify({ params: prev }),
+                          })
+                            .then((r) => r.json())
+                            .then((d) => setLiveAgentStatus((s) => ({ ...s, params: d.applied })))
+                            .catch(() => {})
+                            .finally(() => setLiveAgentReverting(false));
+                        }}
+                        style={{
+                          marginTop: 6, padding: "3px 8px", fontSize: 11,
+                          border: `1px solid ${COLORS.amber}`, borderRadius: 4,
+                          background: "transparent", color: COLORS.amber, cursor: "pointer",
+                        }}
+                      >
+                        {liveAgentReverting ? "..." : "↩ Revenir en arrière"}
+                      </button>
                     </div>
                   )}
                 </div>
