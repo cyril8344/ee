@@ -2201,6 +2201,16 @@ async def get_live_agent_status(user=Depends(get_current_user)):
     return state.live_agent.status()
 
 
+class LiveAgentParamsRequest(BaseModel):
+    params: Dict[str, float]
+
+@app.post("/api/live-agent/params")
+async def set_live_agent_params(req: LiveAgentParamsRequest, user=Depends(get_current_user)):
+    """Force-apply specific live-agent params (RSI_M5_LONG_MIN, ADX_MIN, etc.) and persist."""
+    updated = state.live_agent.force_params(req.params)
+    return {"applied": updated}
+
+
 # ── Portfolio index ─────────────────────────────────────────────────────────
 from portfolio_index import (
     PortfolioIndexEngine, TargetAllocation, PaperAdapter, ScheduledRebalancer

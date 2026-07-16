@@ -121,6 +121,17 @@ class LiveAdaptiveAgent:
             if hasattr(st, k):
                 setattr(st, k, v)
 
+    def force_params(self, overrides: Dict[str, float]) -> Dict[str, float]:
+        """Force-apply specific params, persist to DB. Returns updated params."""
+        with self._lock:
+            for k, v in overrides.items():
+                if k in self._params and k in BOUNDS:
+                    lo, hi = BOUNDS[k]
+                    self._params[k] = max(lo, min(hi, float(v)))
+            self._apply_to_strategy()
+            self._save()
+        return dict(self._params)
+
     # ------------------------------------------------------------------ #
 
     def on_trade_closed(self, won: bool, pnl: float, features: Optional[Dict] = None) -> None:
