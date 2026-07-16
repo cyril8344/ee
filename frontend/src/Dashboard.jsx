@@ -1111,28 +1111,6 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                   min={mkt.indicators?.atr_min} />
               </div>
 
-              {/* LLM Gate status */}
-              {state?.llm_gate && (() => {
-                const g = state.llm_gate;
-                const blocking = g.enabled && g.total_calls > 0 && g.pass_rate < 0.3;
-                return (
-                  <div style={{ fontSize: 11, padding: "5px 8px", borderRadius: 4, marginBottom: 8,
-                    background: g.enabled ? (blocking ? COLORS.red + "22" : COLORS.bg) : COLORS.bg,
-                    border: `1px solid ${g.enabled ? (blocking ? COLORS.red : COLORS.border) : COLORS.border}` }}>
-                    <span style={{ color: COLORS.sub }}>LLM gate : </span>
-                    {g.enabled ? (
-                      <span style={{ color: blocking ? COLORS.red : COLORS.green }}>
-                        activé — {g.passed}/{g.total_calls} validés
-                        {g.total_calls > 0 && ` (${Math.round(g.pass_rate * 100)}%)`}
-                        {blocking && " ⚠ taux faible"}
-                      </span>
-                    ) : (
-                      <span style={{ color: COLORS.sub }}>désactivé (fail-open)</span>
-                    )}
-                  </div>
-                );
-              })()}
-
               {/* risk summary — editable */}
               <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 10, fontSize: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
