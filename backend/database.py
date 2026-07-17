@@ -701,7 +701,7 @@ def live_agent_save(symbol: str, params: dict, trade_log: list) -> None:
 # --------------------------------------------------------------------------- #
 # Trade report (pour dashboard + agent IA)
 # --------------------------------------------------------------------------- #
-def get_trade_report(limit: int = 500) -> Dict[str, Any]:
+def get_trade_report(limit: int = 500, symbol: str | None = None) -> Dict[str, Any]:
     """Rapport complet de l'historique pour le dashboard et l'agent IA."""
     try:
         import pytz as _pytz
@@ -712,10 +712,16 @@ def get_trade_report(limit: int = 500) -> Dict[str, Any]:
     from collections import defaultdict
 
     with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT * FROM trades WHERE status = 'closed' ORDER BY entry_time ASC LIMIT ?",
-            (limit,),
-        ).fetchall()
+        if symbol:
+            rows = conn.execute(
+                "SELECT * FROM trades WHERE status = 'closed' AND symbol = ? ORDER BY entry_time ASC LIMIT ?",
+                (symbol, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM trades WHERE status = 'closed' ORDER BY entry_time ASC LIMIT ?",
+                (limit,),
+            ).fetchall()
 
     trades_list = [_row_to_dict(r) for r in rows]
 

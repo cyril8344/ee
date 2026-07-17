@@ -414,6 +414,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [fedData, setFedData] = useState(null);
   const [tradeReport, setTradeReport] = useState(null);
   const [reportError, setReportError] = useState(null);
+  const [reportSymbol, setReportSymbol] = useState("ALL");
   const [reportLlmOpen, setReportLlmOpen] = useState(false);
   const [aiReport, setAiReport] = useState(null);
   const [aiReportLoading, setAiReportLoading] = useState(false);
@@ -571,8 +572,9 @@ export default function Dashboard({ onLogout, onNavigateES }) {
 
   /* Trade report polling */
   useEffect(() => {
+    const symParam = reportSymbol !== "ALL" ? `?symbol=${reportSymbol}` : "";
     const load = () =>
-      fetch(`${API}/api/trades/report`, { headers: authHeaders() })
+      fetch(`${API}/api/trades/report${symParam}`, { headers: authHeaders() })
         .then((r) => {
           if (r.status === 401) { logout401(onLogout); throw new Error("401"); }
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -583,7 +585,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
     load();
     const id = setInterval(load, 15000);
     return () => clearInterval(id);
-  }, []);
+  }, [reportSymbol]);
 
   /* Pattern stats polling */
   useEffect(() => {
@@ -3086,7 +3088,16 @@ export default function Dashboard({ onLogout, onNavigateES }) {
 
           {/* ===== rapport historique ===== */}
           <div className="dashboard-panel section-gap" style={{ ...panel(), marginTop: 14 }}>
-              <h3 style={{ margin: "0 0 10px", fontSize: 14 }}>Rapport historique</h3>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <h3 style={{ margin: 0, fontSize: 14 }}>
+                  Rapport historique{reportSymbol !== "ALL" ? ` — ${reportSymbol}` : ""}
+                </h3>
+                <div style={{ display: "flex", gap: 4 }}>
+                  <button onClick={() => setReportSymbol("ALL")} style={{ ...tabBtn(reportSymbol === "ALL"), fontSize: 11, padding: "3px 8px" }}>Tous</button>
+                  <button onClick={() => setReportSymbol("XAUUSD")} style={{ ...tabBtn(reportSymbol === "XAUUSD"), fontSize: 11, padding: "3px 8px", color: reportSymbol === "XAUUSD" ? undefined : COLORS.amber }}>XAU</button>
+                  <button onClick={() => setReportSymbol("EURUSD")} style={{ ...tabBtn(reportSymbol === "EURUSD"), fontSize: 11, padding: "3px 8px", color: reportSymbol === "EURUSD" ? undefined : "#6ab0f5" }}>EUR</button>
+                </div>
+              </div>
               {reportError && (
                 <div style={{ fontSize: 12, color: COLORS.red, marginBottom: 8 }}>
                   Erreur : {reportError}
