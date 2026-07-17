@@ -288,12 +288,13 @@ function TvChart({ candles, markers, levels, orderBlocks, position, symbol, live
 function AtrGauge({ atr, avg, min }) {
   const ratio = avg ? Math.min((atr || 0) / (avg * 2), 1) : 0;
   const ok = (atr || 0) >= (min || 0.8);
+  const d = (v) => v != null && v < 1 ? 5 : 2;
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: COLORS.sub }}>
         <span>ATR M5</span>
         <span style={{ color: ok ? COLORS.green : COLORS.amber }}>
-          {fmt(atr, 2)} {ok ? "✓" : "⚠ bas"}
+          {fmt(atr, d(atr))} {ok ? "✓" : "⚠ bas"}
         </span>
       </div>
       <div style={{ height: 8, background: "#1a2233", borderRadius: 4, marginTop: 4, position: "relative" }}>
@@ -303,7 +304,7 @@ function AtrGauge({ atr, avg, min }) {
           top: -2, height: 12, width: 2, background: COLORS.text }} />
       </div>
       <div style={{ fontSize: 11, color: COLORS.sub, marginTop: 3 }}>
-        moyenne 50p: {fmt(avg, 2)} · seuil scalp: {fmt(min, 1)}
+        moyenne 50p: {fmt(avg, d(avg))} · seuil scalp: {fmt(min, d(min))}
       </div>
     </div>
   );
