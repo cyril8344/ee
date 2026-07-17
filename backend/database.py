@@ -856,9 +856,9 @@ def get_weekly_report(week_offset: int = 0, symbol: str | None = None) -> Dict[s
     # Calcul lundi/dimanche de la semaine cible (en UTC)
     now_utc = datetime.now(timezone.utc)
     days_since_monday = now_utc.weekday()
-    monday = (now_utc - timedelta(days=days_since_monday + week_offset * 7)).replace(
+    monday = (now_utc - timedelta(days=days_since_monday)).replace(
         hour=0, minute=0, second=0, microsecond=0
-    )
+    ) + timedelta(weeks=week_offset)
     sunday = monday + timedelta(days=6, hours=23, minutes=59, seconds=59)
 
     week_label = f"{monday.strftime('%d/%m')} – {sunday.strftime('%d/%m/%Y')}"

@@ -2912,6 +2912,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
                 <button onClick={() => setWeeklyOffset(w => w - 1)} style={{ ...tabBtn(false), fontSize: 11, padding: "3px 8px" }}>← Préc.</button>
                 <button onClick={() => setWeeklyOffset(0)} style={{ ...tabBtn(weeklyOffset === 0), fontSize: 11, padding: "3px 8px" }}>Cette sem.</button>
+                {weeklyOffset < 0 && <button onClick={() => setWeeklyOffset(w => w + 1)} style={{ ...tabBtn(false), fontSize: 11, padding: "3px 8px" }}>Suiv. →</button>}
                 <span style={{ color: COLORS.border, margin: "0 2px" }}>|</span>
                 <button onClick={() => setWeeklySymbol("ALL")} style={{ ...tabBtn(weeklySymbol === "ALL"), fontSize: 11, padding: "3px 8px" }}>Tous</button>
                 <button onClick={() => setWeeklySymbol("XAUUSD")} style={{ ...tabBtn(weeklySymbol === "XAUUSD"), fontSize: 11, padding: "3px 8px", color: weeklySymbol === "XAUUSD" ? undefined : COLORS.amber }}>XAU</button>
@@ -3027,6 +3028,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
                 <button onClick={() => setMonthlyOffset(m => m - 1)} style={{ ...tabBtn(false), fontSize: 11, padding: "3px 8px" }}>← Préc.</button>
                 <button onClick={() => setMonthlyOffset(0)} style={{ ...tabBtn(monthlyOffset === 0), fontSize: 11, padding: "3px 8px" }}>Ce mois</button>
+                {monthlyOffset < 0 && <button onClick={() => setMonthlyOffset(m => m + 1)} style={{ ...tabBtn(false), fontSize: 11, padding: "3px 8px" }}>Suiv. →</button>}
                 <span style={{ color: COLORS.border, margin: "0 2px" }}>|</span>
                 <button onClick={() => setMonthlySymbol("ALL")} style={{ ...tabBtn(monthlySymbol === "ALL"), fontSize: 11, padding: "3px 8px" }}>Tous</button>
                 <button onClick={() => setMonthlySymbol("XAUUSD")} style={{ ...tabBtn(monthlySymbol === "XAUUSD"), fontSize: 11, padding: "3px 8px", color: monthlySymbol === "XAUUSD" ? undefined : COLORS.amber }}>XAU</button>
