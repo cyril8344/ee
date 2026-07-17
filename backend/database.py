@@ -861,22 +861,24 @@ def get_weekly_report(week_offset: int = 0, symbol: str | None = None) -> Dict[s
     ) + timedelta(weeks=week_offset)
     sunday = monday + timedelta(days=6, hours=23, minutes=59, seconds=59)
 
+    monday_str = monday.strftime("%Y-%m-%d")
+    sunday_str = sunday.strftime("%Y-%m-%d")
     week_label = f"{monday.strftime('%d/%m')} – {sunday.strftime('%d/%m/%Y')}"
 
     with get_conn() as conn:
         if symbol:
             rows = conn.execute(
                 "SELECT * FROM trades WHERE status = 'closed' AND symbol = ?"
-                " AND entry_time >= ? AND entry_time <= ?"
+                " AND substr(entry_time, 1, 10) >= ? AND substr(entry_time, 1, 10) <= ?"
                 " ORDER BY entry_time ASC",
-                (symbol, monday.isoformat(), sunday.isoformat()),
+                (symbol, monday_str, sunday_str),
             ).fetchall()
         else:
             rows = conn.execute(
                 "SELECT * FROM trades WHERE status = 'closed'"
-                " AND entry_time >= ? AND entry_time <= ?"
+                " AND substr(entry_time, 1, 10) >= ? AND substr(entry_time, 1, 10) <= ?"
                 " ORDER BY entry_time ASC",
-                (monday.isoformat(), sunday.isoformat()),
+                (monday_str, sunday_str),
             ).fetchall()
 
     trades = [_row_to_dict(r) for r in rows]
@@ -1004,22 +1006,24 @@ def get_monthly_report(month_offset: int = 0, symbol: str | None = None) -> Dict
     first_day = datetime(year, month, 1, 0, 0, 0, tzinfo=timezone.utc)
     last_day_num = calendar.monthrange(year, month)[1]
     last_day = datetime(year, month, last_day_num, 23, 59, 59, tzinfo=timezone.utc)
+    first_str = first_day.strftime("%Y-%m-%d")
+    last_str = last_day.strftime("%Y-%m-%d")
     month_label = first_day.strftime("%B %Y")
 
     with get_conn() as conn:
         if symbol:
             rows = conn.execute(
                 "SELECT * FROM trades WHERE status = 'closed' AND symbol = ?"
-                " AND entry_time >= ? AND entry_time <= ?"
+                " AND substr(entry_time, 1, 10) >= ? AND substr(entry_time, 1, 10) <= ?"
                 " ORDER BY entry_time ASC",
-                (symbol, first_day.isoformat(), last_day.isoformat()),
+                (symbol, first_str, last_str),
             ).fetchall()
         else:
             rows = conn.execute(
                 "SELECT * FROM trades WHERE status = 'closed'"
-                " AND entry_time >= ? AND entry_time <= ?"
+                " AND substr(entry_time, 1, 10) >= ? AND substr(entry_time, 1, 10) <= ?"
                 " ORDER BY entry_time ASC",
-                (first_day.isoformat(), last_day.isoformat()),
+                (first_str, last_str),
             ).fetchall()
 
     trades = [_row_to_dict(r) for r in rows]
