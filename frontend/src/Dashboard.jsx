@@ -370,6 +370,10 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [tradesSymbol, setTradesSymbol] = useState("ALL");
   const [weeklyReport, setWeeklyReport] = useState(null);
   const [weeklyOffset, setWeeklyOffset] = useState(0);
+  const [weeklySymbol, setWeeklySymbol] = useState("ALL");
+  const [monthlyReport, setMonthlyReport] = useState(null);
+  const [monthlyOffset, setMonthlyOffset] = useState(0);
+  const [monthlySymbol, setMonthlySymbol] = useState("ALL");
   const [cleanupLoading, setCleanupLoading] = useState(false);
   const [cleanupResult, setCleanupResult] = useState(null);
   const [blockedHours, setBlockedHours] = useState([]);
@@ -513,11 +517,21 @@ export default function Dashboard({ onLogout, onNavigateES }) {
 
   /* Rapport hebdo */
   useEffect(() => {
-    fetch(`${API}/api/report/weekly?week=${weeklyOffset}`, { headers: authHeaders() })
+    const symQ = weeklySymbol !== "ALL" ? `&symbol=${weeklySymbol}` : "";
+    fetch(`${API}/api/report/weekly?week=${weeklyOffset}${symQ}`, { headers: authHeaders() })
       .then((r) => r.ok ? r.json() : null)
       .then((d) => d && setWeeklyReport(d))
       .catch(() => {});
-  }, [weeklyOffset]);
+  }, [weeklyOffset, weeklySymbol]);
+
+  /* Rapport mensuel */
+  useEffect(() => {
+    const symQ = monthlySymbol !== "ALL" ? `&symbol=${monthlySymbol}` : "";
+    fetch(`${API}/api/report/monthly?month=${monthlyOffset}${symQ}`, { headers: authHeaders() })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => d && setMonthlyReport(d))
+      .catch(() => {});
+  }, [monthlyOffset, monthlySymbol]);
 
   /* Heures bloquées — par instrument (sync depuis state WebSocket) */
   useEffect(() => {
@@ -528,6 +542,76 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const handleToggleHour = (h) => {
     fetch(`${API}/api/instrument/${activeMarket}/blocked-hours/${h}`, { method: "POST", headers: authHeaders() })
       .catch(() => {});
+  };
+
+  /* Export rapport PDF via fenêtre d'impression navigateur */
+  const exportReportPdf = (type, report, sym) => {
+    const isMonthly = type === "monthly";
+    const period = isMonthly ? report.month_label : report.week_label;
+    const symLabel = sym !== "ALL" ? ` — ${sym}` : "";
+    const title = `${isMonthly ? "Rapport mensuel" : "Rapport hebdomadaire"} ${period}${symLabel}`;
+    const s = report.stats;
+    const ex = report.exit_reasons;
+    const pnlSign = s.total_pnl >= 0 ? "+" : "";
+    const sessionRows = Object.entries(report.by_session || {}).map(([k, v]) =>
+      `<tr><td>${k}</td><td>${v.n}</td><td>${v.wr}%</td><td>${v.pnl >= 0 ? "+" : ""}${v.pnl}$</td></tr>`).join("");
+    const dirRows = Object.entries(report.by_direction || {}).map(([k, v]) =>
+      `<tr><td>${k}</td><td>${v.n}</td><td>${v.wr}%</td><td>${v.pnl >= 0 ? "+" : ""}${v.pnl}$</td></tr>`).join("");
+    const subRows = Object.entries(isMonthly ? (report.by_week || {}) : (report.by_day || {})).map(([k, v]) =>
+      `<tr><td>${k}</td><td>${v.n}</td><td>${v.wr}%</td><td>${v.pnl >= 0 ? "+" : ""}${v.pnl}$</td></tr>`).join("");
+    const subLabel = isMonthly ? "Par semaine" : "Par jour";
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>${title}</title>
+<style>
+  body{font-family:Arial,sans-serif;font-size:13px;color:#111;margin:30px}
+  h1{font-size:18px;margin-bottom:4px}
+  h2{font-size:14px;margin:18px 0 6px;border-bottom:1px solid #ddd;padding-bottom:4px}
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:14px 0}
+  .kpi{border:1px solid #ddd;border-radius:6px;padding:10px;text-align:center}
+  .kpi .label{font-size:11px;color:#666;margin-bottom:4px}
+  .kpi .val{font-size:17px;font-weight:700}
+  table{width:100%;border-collapse:collapse;margin-top:6px}
+  th,td{text-align:left;padding:5px 8px;border-bottom:1px solid #eee;font-size:12px}
+  th{background:#f5f5f5;font-weight:600}
+  .green{color:#16a34a} .red{color:#dc2626} .amber{color:#d97706}
+  @media print{body{margin:15px}}
+</style></head><body>
+<h1>${title}</h1>
+<p style="color:#666;font-size:12px">Généré le ${new Date().toLocaleDateString("fr-FR")} à ${new Date().toLocaleTimeString("fr-FR")}</p>
+<div class="kpis">
+  <div class="kpi"><div class="label">Trades</div><div class="val">${s.total}</div></div>
+  <div class="kpi"><div class="label">Win Rate</div><div class="val ${s.win_rate >= 52 ? "green" : s.win_rate >= 45 ? "amber" : "red"}">${s.win_rate}%</div></div>
+  <div class="kpi"><div class="label">Profit Factor</div><div class="val ${s.profit_factor >= 1.15 ? "green" : s.profit_factor >= 1.0 ? "amber" : "red"}">${s.profit_factor}</div></div>
+  <div class="kpi"><div class="label">P&L total</div><div class="val ${s.total_pnl >= 0 ? "green" : "red"}">${pnlSign}${s.total_pnl}$</div></div>
+  <div class="kpi"><div class="label">SL direct</div><div class="val ${ex.sl_direct_pct <= 32 ? "green" : ex.sl_direct_pct <= 38 ? "amber" : "red"}">${ex.sl_direct_pct}%</div></div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
+  <div>
+    <h2>Sorties</h2>
+    <table><thead><tr><th>Type</th><th>N</th><th>%</th></tr></thead><tbody>
+      <tr><td>TP2</td><td>${ex.tp2}</td><td>${ex.tp2_pct}%</td></tr>
+      <tr><td>TP1 seul</td><td>${ex.tp1_only}</td><td>${s.total > 0 ? Math.round(ex.tp1_only / s.total * 100) : 0}%</td></tr>
+      <tr><td>SL direct</td><td>${ex.sl_direct}</td><td>${ex.sl_direct_pct}%</td></tr>
+      <tr><td>Timeout</td><td>${ex.timeout}</td><td>${s.total > 0 ? Math.round(ex.timeout / s.total * 100) : 0}%</td></tr>
+    </tbody></table>
+  </div>
+  <div>
+    <h2>Sessions</h2>
+    <table><thead><tr><th>Session</th><th>N</th><th>WR</th><th>P&L</th></tr></thead><tbody>${sessionRows}</tbody></table>
+  </div>
+  <div>
+    <h2>Direction</h2>
+    <table><thead><tr><th>Dir.</th><th>N</th><th>WR</th><th>P&L</th></tr></thead><tbody>${dirRows}</tbody></table>
+  </div>
+</div>
+<h2>${subLabel}</h2>
+<table><thead><tr><th>Période</th><th>Trades</th><th>WR</th><th>P&L</th></tr></thead><tbody>${subRows}</tbody></table>
+</body></html>`;
+    const w = window.open("", "_blank");
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => w.print(), 400);
   };
 
   /* Suppression manuelle d'un trade */
@@ -2823,11 +2907,18 @@ export default function Dashboard({ onLogout, onNavigateES }) {
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <h3 style={{ margin: 0, fontSize: 14 }}>
                 Rapport hebdo
-                {weeklyReport && <span style={{ fontSize: 11, color: COLORS.sub, fontWeight: 400, marginLeft: 8 }}>{weeklyReport.week_label}</span>}
+                {weeklyReport && <span style={{ fontSize: 11, color: COLORS.sub, fontWeight: 400, marginLeft: 8 }}>{weeklyReport.week_label}{weeklySymbol !== "ALL" ? ` · ${weeklySymbol}` : ""}</span>}
               </h3>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={() => setWeeklyOffset(w => w - 1)} style={{ ...tabBtn(false), fontSize: 11, padding: "3px 8px" }}>← Semaine préc.</button>
-                <button onClick={() => setWeeklyOffset(0)} style={{ ...tabBtn(weeklyOffset === 0), fontSize: 11, padding: "3px 8px" }}>Cette semaine</button>
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <button onClick={() => setWeeklyOffset(w => w - 1)} style={{ ...tabBtn(false), fontSize: 11, padding: "3px 8px" }}>← Préc.</button>
+                <button onClick={() => setWeeklyOffset(0)} style={{ ...tabBtn(weeklyOffset === 0), fontSize: 11, padding: "3px 8px" }}>Cette sem.</button>
+                <span style={{ color: COLORS.border, margin: "0 2px" }}>|</span>
+                <button onClick={() => setWeeklySymbol("ALL")} style={{ ...tabBtn(weeklySymbol === "ALL"), fontSize: 11, padding: "3px 8px" }}>Tous</button>
+                <button onClick={() => setWeeklySymbol("XAUUSD")} style={{ ...tabBtn(weeklySymbol === "XAUUSD"), fontSize: 11, padding: "3px 8px", color: weeklySymbol === "XAUUSD" ? undefined : COLORS.amber }}>XAU</button>
+                <button onClick={() => setWeeklySymbol("EURUSD")} style={{ ...tabBtn(weeklySymbol === "EURUSD"), fontSize: 11, padding: "3px 8px", color: weeklySymbol === "EURUSD" ? undefined : "#6ab0f5" }}>EUR</button>
+                {weeklyReport && weeklyReport.stats.total > 0 && (
+                  <button onClick={() => exportReportPdf("weekly", weeklyReport, weeklySymbol)} style={{ fontSize: 11, padding: "3px 8px", background: "transparent", border: `1px solid ${COLORS.sub}`, color: COLORS.sub, borderRadius: 4, cursor: "pointer" }}>⬇ PDF</button>
+                )}
               </div>
             </div>
             {!weeklyReport || weeklyReport.stats.total === 0 ? (
@@ -2913,6 +3004,115 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                         {Object.entries(weeklyReport.by_day).map(([day, v]) => (
                           <div key={day} style={{ textAlign: "center" }}>
                             <div style={{ fontSize: 10, color: COLORS.sub }}>{day.slice(5)}</div>
+                            <div style={{ fontSize: 11, color: v.wr >= 52 ? COLORS.green : v.wr >= 45 ? COLORS.amber : COLORS.red }}>WR {v.wr}%</div>
+                            <div style={{ fontSize: 10, color: COLORS.sub }}>{v.n} trades</div>
+                            <div style={{ fontSize: 11, color: v.pnl >= 0 ? COLORS.green : COLORS.red }}>{v.pnl >= 0 ? "+" : ""}{v.pnl}$</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* ===== rapport mensuel ===== */}
+          <div className="dashboard-panel section-gap" style={{ ...panel(), marginTop: 14, padding: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <h3 style={{ margin: 0, fontSize: 14 }}>
+                Rapport mensuel
+                {monthlyReport && <span style={{ fontSize: 11, color: COLORS.sub, fontWeight: 400, marginLeft: 8 }}>{monthlyReport.month_label}{monthlySymbol !== "ALL" ? ` · ${monthlySymbol}` : ""}</span>}
+              </h3>
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <button onClick={() => setMonthlyOffset(m => m - 1)} style={{ ...tabBtn(false), fontSize: 11, padding: "3px 8px" }}>← Préc.</button>
+                <button onClick={() => setMonthlyOffset(0)} style={{ ...tabBtn(monthlyOffset === 0), fontSize: 11, padding: "3px 8px" }}>Ce mois</button>
+                <span style={{ color: COLORS.border, margin: "0 2px" }}>|</span>
+                <button onClick={() => setMonthlySymbol("ALL")} style={{ ...tabBtn(monthlySymbol === "ALL"), fontSize: 11, padding: "3px 8px" }}>Tous</button>
+                <button onClick={() => setMonthlySymbol("XAUUSD")} style={{ ...tabBtn(monthlySymbol === "XAUUSD"), fontSize: 11, padding: "3px 8px", color: monthlySymbol === "XAUUSD" ? undefined : COLORS.amber }}>XAU</button>
+                <button onClick={() => setMonthlySymbol("EURUSD")} style={{ ...tabBtn(monthlySymbol === "EURUSD"), fontSize: 11, padding: "3px 8px", color: monthlySymbol === "EURUSD" ? undefined : "#6ab0f5" }}>EUR</button>
+                {monthlyReport && monthlyReport.stats.total > 0 && (
+                  <button onClick={() => exportReportPdf("monthly", monthlyReport, monthlySymbol)} style={{ fontSize: 11, padding: "3px 8px", background: "transparent", border: `1px solid ${COLORS.sub}`, color: COLORS.sub, borderRadius: 4, cursor: "pointer" }}>⬇ PDF</button>
+                )}
+              </div>
+            </div>
+            {!monthlyReport || monthlyReport.stats.total === 0 ? (
+              <div style={{ color: COLORS.sub, fontSize: 12, textAlign: "center", padding: "20px 0" }}>
+                Aucun trade ce mois
+              </div>
+            ) : (() => {
+              const s = monthlyReport.stats;
+              const ex = monthlyReport.exit_reasons;
+              const pnlColor = s.total_pnl >= 0 ? COLORS.green : COLORS.red;
+              return (
+                <div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8, marginBottom: 14 }}>
+                    {[
+                      { label: "Trades", value: s.total },
+                      { label: "Win Rate", value: `${s.win_rate}%`, color: s.win_rate >= 52 ? COLORS.green : s.win_rate >= 45 ? COLORS.amber : COLORS.red },
+                      { label: "Profit Factor", value: s.profit_factor, color: s.profit_factor >= 1.15 ? COLORS.green : s.profit_factor >= 1.0 ? COLORS.amber : COLORS.red },
+                      { label: "P&L", value: `${s.total_pnl >= 0 ? "+" : ""}${s.total_pnl}$`, color: pnlColor },
+                      { label: "SL direct", value: `${ex.sl_direct_pct}%`, color: ex.sl_direct_pct <= 32 ? COLORS.green : ex.sl_direct_pct <= 38 ? COLORS.amber : COLORS.red },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} style={{ background: COLORS.panel2, borderRadius: 6, padding: "8px 10px", textAlign: "center" }}>
+                        <div style={{ fontSize: 10, color: COLORS.sub, marginBottom: 4 }}>{label}</div>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: color || COLORS.text }}>{value}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                    <div style={{ background: COLORS.panel2, borderRadius: 6, padding: "8px 10px" }}>
+                      <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 6, fontWeight: 600 }}>Sorties</div>
+                      {[
+                        { label: "TP2 atteint", n: ex.tp2, pct: ex.tp2_pct, color: COLORS.green },
+                        { label: "TP1 seulement", n: ex.tp1_only, pct: s.total > 0 ? Math.round(ex.tp1_only / s.total * 100) : 0, color: COLORS.amber },
+                        { label: "SL direct", n: ex.sl_direct, pct: ex.sl_direct_pct, color: COLORS.red },
+                        { label: "Timeout", n: ex.timeout, pct: s.total > 0 ? Math.round(ex.timeout / s.total * 100) : 0, color: COLORS.sub },
+                      ].map(({ label, n, pct, color }) => (
+                        <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, fontSize: 11 }}>
+                          <span style={{ color: COLORS.sub }}>{label}</span>
+                          <span style={{ color }}>{n} <span style={{ color: COLORS.sub }}>({pct}%)</span></span>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ background: COLORS.panel2, borderRadius: 6, padding: "8px 10px" }}>
+                      <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 6, fontWeight: 600 }}>Sessions</div>
+                      {Object.entries(monthlyReport.by_session).map(([sess, v]) => (
+                        <div key={sess} style={{ marginBottom: 4 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                            <span style={{ color: COLORS.text }}>{sess}</span>
+                            <span style={{ color: COLORS.sub }}>{v.n} trades</span>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                            <span style={{ color: v.wr >= 52 ? COLORS.green : v.wr >= 45 ? COLORS.amber : COLORS.red }}>WR {v.wr}%</span>
+                            <span style={{ color: v.pnl >= 0 ? COLORS.green : COLORS.red }}>{v.pnl >= 0 ? "+" : ""}{v.pnl}$</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ background: COLORS.panel2, borderRadius: 6, padding: "8px 10px" }}>
+                      <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 6, fontWeight: 600 }}>Direction</div>
+                      {Object.entries(monthlyReport.by_direction).map(([dir, v]) => (
+                        <div key={dir} style={{ marginBottom: 4 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                            <span style={{ color: dir === "LONG" ? COLORS.green : COLORS.red, fontWeight: 600 }}>{dir}</span>
+                            <span style={{ color: COLORS.sub }}>{v.n} trades</span>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                            <span style={{ color: v.wr >= 52 ? COLORS.green : v.wr >= 45 ? COLORS.amber : COLORS.red }}>WR {v.wr}%</span>
+                            <span style={{ color: v.pnl >= 0 ? COLORS.green : COLORS.red }}>{v.pnl >= 0 ? "+" : ""}{v.pnl}$</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {Object.keys(monthlyReport.by_week).length > 0 && (
+                    <div style={{ marginTop: 8, background: COLORS.panel2, borderRadius: 6, padding: "8px 10px" }}>
+                      <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 6, fontWeight: 600 }}>Par semaine</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))", gap: 6 }}>
+                        {Object.entries(monthlyReport.by_week).map(([wk, v]) => (
+                          <div key={wk} style={{ textAlign: "center" }}>
+                            <div style={{ fontSize: 10, color: COLORS.sub }}>{wk}</div>
                             <div style={{ fontSize: 11, color: v.wr >= 52 ? COLORS.green : v.wr >= 45 ? COLORS.amber : COLORS.red }}>WR {v.wr}%</div>
                             <div style={{ fontSize: 10, color: COLORS.sub }}>{v.n} trades</div>
                             <div style={{ fontSize: 11, color: v.pnl >= 0 ? COLORS.green : COLORS.red }}>{v.pnl >= 0 ? "+" : ""}{v.pnl}$</div>
