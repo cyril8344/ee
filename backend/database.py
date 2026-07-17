@@ -840,7 +840,7 @@ def get_trade_report(limit: int = 500, symbol: str | None = None) -> Dict[str, A
     }
 
 
-def get_weekly_report(week_offset: int = 0) -> Dict[str, Any]:
+def get_weekly_report(week_offset: int = 0, symbol: str | None = None) -> Dict[str, Any]:
     """
     Rapport de la semaine courante (ou N semaines en arrière si week_offset < 0).
     Retourne stats WR/PF/PnL + breakdown par jour, session, direction, exit_reason.
@@ -864,12 +864,20 @@ def get_weekly_report(week_offset: int = 0) -> Dict[str, Any]:
     week_label = f"{monday.strftime('%d/%m')} – {sunday.strftime('%d/%m/%Y')}"
 
     with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT * FROM trades WHERE status = 'closed'"
-            " AND entry_time >= ? AND entry_time <= ?"
-            " ORDER BY entry_time ASC",
-            (monday.isoformat(), sunday.isoformat()),
-        ).fetchall()
+        if symbol:
+            rows = conn.execute(
+                "SELECT * FROM trades WHERE status = 'closed' AND symbol = ?"
+                " AND entry_time >= ? AND entry_time <= ?"
+                " ORDER BY entry_time ASC",
+                (symbol, monday.isoformat(), sunday.isoformat()),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM trades WHERE status = 'closed'"
+                " AND entry_time >= ? AND entry_time <= ?"
+                " ORDER BY entry_time ASC",
+                (monday.isoformat(), sunday.isoformat()),
+            ).fetchall()
 
     trades = [_row_to_dict(r) for r in rows]
 
@@ -967,6 +975,155 @@ def get_weekly_report(week_offset: int = 0) -> Dict[str, Any]:
         "by_day": _agg(_by_day),
         "by_session": _agg(_by_sess),
         "by_direction": _agg(_by_dir),
+    }
+
+
+def get_monthly_report(month_offset: int = 0, symbol: str | None = None) -> Dict[str, Any]:
+    """
+    Rapport mensuel. month_offset=0 = mois courant, -1 = mois précédent, etc.
+    """
+    from collections import defaultdict
+
+    try:
+        import pytz as _pytz
+        _CET = _pytz.timezone("Europe/Paris")
+    except Exception:
+        _CET = None
+
+    now_utc = datetime.now(timezone.utc)
+    year = now_utc.year
+    month = now_utc.month + month_offset
+    while month <= 0:
+        month += 12
+        year -= 1
+    while month > 12:
+        month -= 12
+        year += 1
+
+    import calendar
+    first_day = datetime(year, month, 1, 0, 0, 0, tzinfo=timezone.utc)
+    last_day_num = calendar.monthrange(year, month)[1]
+    last_day = datetime(year, month, last_day_num, 23, 59, 59, tzinfo=timezone.utc)
+    month_label = first_day.strftime("%B %Y")
+
+    with get_conn() as conn:
+        if symbol:
+            rows = conn.execute(
+                "SELECT * FROM trades WHERE status = 'closed' AND symbol = ?"
+                " AND entry_time >= ? AND entry_time <= ?"
+                " ORDER BY entry_time ASC",
+                (symbol, first_day.isoformat(), last_day.isoformat()),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM trades WHERE status = 'closed'"
+                " AND entry_time >= ? AND entry_time <= ?"
+                " ORDER BY entry_time ASC",
+                (first_day.isoformat(), last_day.isoformat()),
+            ).fetchall()
+
+    trades = [_row_to_dict(r) for r in rows]
+
+    for t in trades:
+        try:
+            ts = datetime.fromisoformat(t["entry_time"].replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            ts_cet = ts.astimezone(_CET) if _CET else ts
+            t["date_cet"] = ts_cet.strftime("%Y-%m-%d")
+            t["hour_cet"] = ts_cet.hour
+            # Semaine ISO du mois (1-5)
+            t["week_of_month"] = f"Sem {((ts_cet.day - 1) // 7) + 1}"
+        except Exception:
+            t["date_cet"] = "?"
+            t["hour_cet"] = None
+            t["week_of_month"] = "?"
+
+    closed = [t for t in trades if t.get("pnl") is not None]
+    total = len(closed)
+    wins = [t for t in closed if (t["pnl"] or 0) > 0]
+    losses = [t for t in closed if (t["pnl"] or 0) <= 0]
+
+    gross_profit = sum(t["pnl"] for t in wins)
+    gross_loss = abs(sum(t["pnl"] for t in losses)) if losses else 0.0
+    total_pnl = sum(t["pnl"] for t in closed)
+
+    exit_counts: Dict[str, int] = defaultdict(int)
+    for t in closed:
+        exit_counts[t.get("exit_reason") or "?"] += 1
+
+    sl_direct = exit_counts.get("sl", 0)
+    tp2_count = exit_counts.get("tp2", 0)
+    tp1_count = exit_counts.get("tp1", 0)
+    timeout_count = exit_counts.get("timeout", 0)
+
+    _by_week: Dict[str, Dict] = defaultdict(lambda: {"n": 0, "wins": 0, "pnl": 0.0})
+    _by_sess: Dict[str, Dict] = defaultdict(lambda: {"n": 0, "wins": 0, "pnl": 0.0})
+    _by_dir: Dict[str, Dict] = defaultdict(lambda: {"n": 0, "wins": 0, "pnl": 0.0})
+    _by_day: Dict[str, Dict] = defaultdict(lambda: {"n": 0, "wins": 0, "pnl": 0.0})
+
+    for t in closed:
+        pnl = t.get("pnl") or 0.0
+        won = int(pnl > 0)
+
+        wk = t.get("week_of_month", "?")
+        _by_week[wk]["n"] += 1
+        _by_week[wk]["wins"] += won
+        _by_week[wk]["pnl"] += pnl
+
+        sess = t.get("session") or "Autre"
+        _by_sess[sess]["n"] += 1
+        _by_sess[sess]["wins"] += won
+        _by_sess[sess]["pnl"] += pnl
+
+        d = (t.get("direction") or "?").upper()
+        _by_dir[d]["n"] += 1
+        _by_dir[d]["wins"] += won
+        _by_dir[d]["pnl"] += pnl
+
+        day = t.get("date_cet", "?")
+        _by_day[day]["n"] += 1
+        _by_day[day]["wins"] += won
+        _by_day[day]["pnl"] += pnl
+
+    def _agg(mapping: dict) -> dict:
+        out = {}
+        for k in sorted(mapping.keys(), key=str):
+            v = mapping[k]
+            out[str(k)] = {
+                "n": v["n"],
+                "wins": v["wins"],
+                "wr": round(v["wins"] / v["n"] * 100, 1) if v["n"] > 0 else 0.0,
+                "pnl": round(v["pnl"], 2),
+            }
+        return out
+
+    return {
+        "month_label": month_label,
+        "month_offset": month_offset,
+        "stats": {
+            "total": total,
+            "wins": len(wins),
+            "losses": len(losses),
+            "win_rate": round(len(wins) / total * 100, 1) if total > 0 else 0.0,
+            "profit_factor": round(gross_profit / gross_loss, 2) if gross_loss > 0 else 0.0,
+            "total_pnl": round(total_pnl, 2),
+            "avg_win": round(gross_profit / len(wins), 2) if wins else 0.0,
+            "avg_loss": round(-gross_loss / len(losses), 2) if losses else 0.0,
+        },
+        "exit_reasons": {
+            "sl_direct": sl_direct,
+            "tp1_only": tp1_count,
+            "tp2": tp2_count,
+            "timeout": timeout_count,
+            "sl_direct_pct": round(sl_direct / total * 100, 1) if total > 0 else 0.0,
+            "tp2_pct": round(tp2_count / total * 100, 1) if total > 0 else 0.0,
+        },
+        "by_week": _agg(_by_week),
+        "by_session": _agg(_by_sess),
+        "by_direction": _agg(_by_dir),
+        "by_day": _agg(_by_day),
+        "trades": closed,
     }
 
 

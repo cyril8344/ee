@@ -1200,9 +1200,15 @@ def get_trade_report_endpoint(symbol: str | None = None, _user: dict = Depends(g
 
 
 @app.get("/api/report/weekly")
-def get_weekly_report_endpoint(week: int = 0, _user: dict = Depends(get_current_user)):
+def get_weekly_report_endpoint(week: int = 0, symbol: str | None = None, _user: dict = Depends(get_current_user)):
     """Rapport hebdo. week=0 = semaine courante, week=-1 = semaine passée."""
-    return db.get_weekly_report(week_offset=week)
+    return db.get_weekly_report(week_offset=week, symbol=symbol or None)
+
+
+@app.get("/api/report/monthly")
+def get_monthly_report_endpoint(month: int = 0, symbol: str | None = None, _user: dict = Depends(get_current_user)):
+    """Rapport mensuel. month=0 = mois courant, month=-1 = mois précédent."""
+    return db.get_monthly_report(month_offset=month, symbol=symbol or None)
 
 
 @app.get("/api/trades")
