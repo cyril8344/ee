@@ -517,20 +517,32 @@ export default function Dashboard({ onLogout, onNavigateES }) {
 
   /* Rapport hebdo */
   useEffect(() => {
-    const symQ = weeklySymbol !== "ALL" ? `&symbol=${weeklySymbol}` : "";
-    fetch(`${API}/api/report/weekly?week=${weeklyOffset}${symQ}`, { headers: authHeaders() })
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => d && setWeeklyReport(d))
-      .catch(() => {});
+    setWeeklyReport(null);
+    const load = () => {
+      const symQ = weeklySymbol !== "ALL" ? `&symbol=${weeklySymbol}` : "";
+      fetch(`${API}/api/report/weekly?week=${weeklyOffset}${symQ}`, { headers: authHeaders() })
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => { if (d) setWeeklyReport(d); })
+        .catch(() => {});
+    };
+    load();
+    const id = setInterval(load, 30000);
+    return () => clearInterval(id);
   }, [weeklyOffset, weeklySymbol]);
 
   /* Rapport mensuel */
   useEffect(() => {
-    const symQ = monthlySymbol !== "ALL" ? `&symbol=${monthlySymbol}` : "";
-    fetch(`${API}/api/report/monthly?month=${monthlyOffset}${symQ}`, { headers: authHeaders() })
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => d && setMonthlyReport(d))
-      .catch(() => {});
+    setMonthlyReport(null);
+    const load = () => {
+      const symQ = monthlySymbol !== "ALL" ? `&symbol=${monthlySymbol}` : "";
+      fetch(`${API}/api/report/monthly?month=${monthlyOffset}${symQ}`, { headers: authHeaders() })
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => { if (d) setMonthlyReport(d); })
+        .catch(() => {});
+    };
+    load();
+    const id = setInterval(load, 30000);
+    return () => clearInterval(id);
   }, [monthlyOffset, monthlySymbol]);
 
   /* Heures bloquées — par instrument (sync depuis state WebSocket) */
@@ -2922,7 +2934,11 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                 )}
               </div>
             </div>
-            {!weeklyReport || weeklyReport.stats.total === 0 ? (
+            {!weeklyReport ? (
+              <div style={{ color: COLORS.sub, fontSize: 12, textAlign: "center", padding: "20px 0" }}>
+                Chargement…
+              </div>
+            ) : weeklyReport.stats.total === 0 ? (
               <div style={{ color: COLORS.sub, fontSize: 12, textAlign: "center", padding: "20px 0" }}>
                 Aucun trade cette semaine
               </div>
