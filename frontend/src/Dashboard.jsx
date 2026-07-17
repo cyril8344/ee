@@ -367,6 +367,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [tf, setTf] = useState("M5");
   const [trades, setTrades] = useState({ trades: [], equity_curve: [] });
   const [tradesScope, setTradesScope] = useState("today");
+  const [tradesSymbol, setTradesSymbol] = useState("ALL");
   const [weeklyReport, setWeeklyReport] = useState(null);
   const [weeklyOffset, setWeeklyOffset] = useState(0);
   const [cleanupLoading, setCleanupLoading] = useState(false);
@@ -2926,13 +2927,17 @@ export default function Dashboard({ onLogout, onNavigateES }) {
           {/* ===== history + equity ===== */}
           <div className="history-layout section-gap" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14, marginTop: 14 }}>
             <div className="dashboard-panel" style={panel()}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                 <h3 style={{ margin: 0, fontSize: 14 }}>
                   {tradesScope === "today" ? "Historique du jour" : "Tout l'historique"}
                 </h3>
                 <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                   <button onClick={() => setTradesScope("today")} style={{ ...tabBtn(tradesScope === "today"), fontSize: 11, padding: "3px 8px" }}>Aujourd'hui</button>
                   <button onClick={() => setTradesScope("all")} style={{ ...tabBtn(tradesScope === "all"), fontSize: 11, padding: "3px 8px" }}>Tout</button>
+                  <span style={{ color: COLORS.border, margin: "0 2px" }}>|</span>
+                  <button onClick={() => setTradesSymbol("ALL")} style={{ ...tabBtn(tradesSymbol === "ALL"), fontSize: 11, padding: "3px 8px" }}>Tous</button>
+                  <button onClick={() => setTradesSymbol("XAUUSD")} style={{ ...tabBtn(tradesSymbol === "XAUUSD"), fontSize: 11, padding: "3px 8px", color: tradesSymbol === "XAUUSD" ? undefined : COLORS.amber }}>XAU</button>
+                  <button onClick={() => setTradesSymbol("EURUSD")} style={{ ...tabBtn(tradesSymbol === "EURUSD"), fontSize: 11, padding: "3px 8px", color: tradesSymbol === "EURUSD" ? undefined : "#6ab0f5" }}>EUR</button>
                   <button onClick={handleCleanupDuplicates} disabled={cleanupLoading}
                     title="Supprimer les trades en double (même entrée, même minute)"
                     style={{ fontSize: 10, padding: "3px 7px", background: "transparent", border: `1px solid ${COLORS.red}`, color: COLORS.red, borderRadius: 4, cursor: "pointer", opacity: cleanupLoading ? 0.5 : 1 }}>
@@ -2950,23 +2955,48 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                   )}
                 </div>
               </div>
-              <div className="table-scroll" style={{ maxHeight: 240, overflowY: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 520 }}>
-                  <thead>
-                    <tr style={{ color: COLORS.sub, textAlign: "left" }}>
-                      <th style={th}>{tradesScope === "all" ? "Date / Heure" : "Heure"}</th>
-                      <th style={th}>Actif</th>
-                      <th style={th}>Dir</th>
-                      <th style={th}>Entrée</th>
-                      <th style={th}>Sortie</th>
-                      <th style={th}>Mise</th>
-                      <th style={th}>Gain pot.</th>
-                      <th style={th}>Résultat</th>
-                      <th style={{ ...th, width: 20 }}></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(trades.trades || []).filter((t) => t.status === "closed").reverse().map((t) => {
+              {(() => {
+                const filteredTrades = (trades.trades || [])
+                  .filter((t) => t.status === "closed" && (tradesSymbol === "ALL" || (t.symbol || "XAUUSD") === tradesSymbol));
+                const wins = filteredTrades.filter((t) => (t.pnl || 0) > 0).length;
+                const totalPnl = filteredTrades.reduce((s, t) => s + (t.pnl || 0), 0);
+                const wr = filteredTrades.length > 0 ? Math.round(wins / filteredTrades.length * 100) : null;
+                const xauCount = (trades.trades || []).filter((t) => t.status === "closed" && (t.symbol || "XAUUSD") === "XAUUSD").length;
+                const eurCount = (trades.trades || []).filter((t) => t.status === "closed" && (t.symbol || "XAUUSD") === "EURUSD").length;
+                return (
+                  <>
+                    <div style={{ display: "flex", gap: 12, marginBottom: 8, fontSize: 11 }}>
+                      {tradesSymbol !== "ALL" && filteredTrades.length > 0 && (
+                        <>
+                          <span style={{ color: COLORS.sub }}>{filteredTrades.length} trades</span>
+                          <span style={{ color: wr >= 50 ? COLORS.green : COLORS.red }}>WR {wr}%</span>
+                          <span style={{ color: totalPnl >= 0 ? COLORS.green : COLORS.red, fontWeight: 600 }}>P&L {totalPnl >= 0 ? "+" : ""}{totalPnl.toFixed(2)}$</span>
+                        </>
+                      )}
+                      {tradesSymbol === "ALL" && (xauCount > 0 || eurCount > 0) && (
+                        <>
+                          <span style={{ color: COLORS.amber }}>XAU: {xauCount}</span>
+                          <span style={{ color: "#6ab0f5" }}>EUR: {eurCount}</span>
+                        </>
+                      )}
+                    </div>
+                    <div className="table-scroll" style={{ maxHeight: 230, overflowY: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 520 }}>
+                        <thead>
+                          <tr style={{ color: COLORS.sub, textAlign: "left" }}>
+                            <th style={th}>{tradesScope === "all" ? "Date / Heure" : "Heure"}</th>
+                            <th style={th}>Actif</th>
+                            <th style={th}>Dir</th>
+                            <th style={th}>Entrée</th>
+                            <th style={th}>Sortie</th>
+                            <th style={th}>Mise</th>
+                            <th style={th}>Gain pot.</th>
+                            <th style={th}>Résultat</th>
+                            <th style={{ ...th, width: 20 }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                    {filteredTrades.slice().reverse().map((t) => {
                       const cs = t.symbol === "EURUSD" ? 100000 : 100;
                       const sign = t.direction === "long" ? 1 : -1;
                       const gTp1 = t.take_profit1 && t.entry_price && t.volume
@@ -3019,12 +3049,15 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                         </tr>
                       );
                     })}
-                    {(trades.trades || []).filter((t) => t.status === "closed").length === 0 && (
-                      <tr><td style={{ ...td, color: COLORS.sub }} colSpan={8}>Aucun trade clôturé aujourd'hui</td></tr>
+                    {filteredTrades.length === 0 && (
+                      <tr><td style={{ ...td, color: COLORS.sub }} colSpan={8}>Aucun trade{tradesSymbol !== "ALL" ? ` ${tradesSymbol}` : ""} clôturé</td></tr>
                     )}
-                  </tbody>
-                </table>
-              </div>
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
             <div className="dashboard-panel" style={panel()}>
