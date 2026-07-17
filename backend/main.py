@@ -1195,8 +1195,8 @@ def get_chart(tf: str = "M5", symbol: str = "XAUUSD", _user: dict = Depends(get_
 
 
 @app.get("/api/trades/report")
-def get_trade_report_endpoint(_user: dict = Depends(get_current_user)):
-    return db.get_trade_report(limit=1000)
+def get_trade_report_endpoint(symbol: str | None = None, _user: dict = Depends(get_current_user)):
+    return db.get_trade_report(limit=1000, symbol=symbol or None)
 
 
 @app.get("/api/report/weekly")
