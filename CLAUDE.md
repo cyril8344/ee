@@ -42,9 +42,9 @@ The 10-stage filter runs in strict order — a rejection at any stage short-circ
 3. H1 EMA200 bias — NEUTRAL if EMA50 and EMA200 disagree
 4. M15 EMA9/21 trend + RSI 35–65
 5. M5 ATR ≥ 3.0 (volatility gate)
-6. H1 ADX ≥ 22 (trend strength — LONG et SHORT identique)
+6. H1 ADX ≥ 28 (trend strength — LONG et SHORT identique)
 7. M5 EMA9 alignment (adaptive tolerance)
-8. M5 RSI momentum (LONG > 46, SHORT < 57)
+8. M5 RSI momentum (LONG > 49, SHORT < 57)
 9. VWAP alignment (close ≥ VWAP for LONG, ≤ VWAP for SHORT)
 10. Candle patterns — soit 1 pattern fort (ancre, weight ≥ 0.85) soit 2+ patterns (sum ≥ 1.0 LONG / 1.5 SHORT) — ancre (ema9_pullback ou micro_breakout) toujours requise
 
@@ -82,15 +82,28 @@ FastAPI app with a background asyncio trading loop. Key endpoints:
 | `GET /api/state` | current bot state snapshot |
 | `GET /api/chart?tf=M5\|M15\|H1` | OHLCV + indicator data |
 | `GET /api/trades?scope=today\|all` | trade history + equity curve |
+| `GET /api/trades/report?symbol=` | rapport historique filtré par symbole (XAUUSD/EURUSD) |
 | `GET/POST /api/settings` | read / update bot config (stored in SQLite key-value) |
 | `POST /api/bot/toggle` | pause / resume |
 | `POST /api/mode` | switch paper ↔ live (requires double confirmation) |
 | `POST /api/backtest` | trigger backtest run |
+| `GET /api/report/weekly?week=0&symbol=` | rapport hebdomadaire (week=0 = cette sem., -1 = préc.) |
+| `GET /api/report/monthly?month=0&symbol=` | rapport mensuel (month=0 = ce mois) |
+| `GET /api/live-agent` | statut agent adaptatif live (RSI, ADX courants) |
+| `POST /api/live-agent/params` | forcer des paramètres (annuler ajustement automatique) |
 | `WebSocket /ws` | real-time state stream to dashboard |
 
 ### Frontend (`frontend/src/`)
 
-- **Dashboard.jsx** — the only active page: live bot status, EMA chart (lightweight-charts), RSI/ATR gauges, news countdown, active trade, trade history, equity curve, settings panel, pretrain panel
+- **Dashboard.jsx** — the only active page. Sections principales :
+  - Graphique (candlesticks lightweight-charts + EMA9/21/200 + OB pour ICT)
+  - Statut bot : RSI/ATR gauges, conditions ICT, agent adaptatif live (↩ Revenir en arrière)
+  - Trade actif + historique du jour (tabs Tous/XAU/EUR)
+  - Rapport historique (filtrable Tous/XAU/EUR)
+  - Rapport hebdomadaire (navigation ← Préc. / Cette sem., filtre XAU/EUR, export PDF)
+  - Rapport mensuel (navigation ← Préc. / Ce mois, filtre XAU/EUR, export PDF, breakdown par semaine)
+  - Pretrain panel
+  - Settings panel
 - **BacktestPanel.jsx** — kept in code but **removed from navigation**
 - **LoginPage.jsx** — JWT auth (token stored in localStorage)
 - Vite dev server proxies `/api` and `/ws` to `:8000`; production nginx does the same
@@ -106,16 +119,19 @@ After merging to `main`:
 
 ## Key Architecture Decisions
 
+- **LLM Gate supprimée** (juillet 2026) — ajoutait une latence API Anthropic externe dans la boucle de trading, pouvait bloquer silencieusement des signaux. Fichier `llm_gate.py` conservé mais non importé.
+- **Agent adaptatif live** (`live_agent.py`) — ajuste RSI_M5_LONG_MIN et ADX_MIN automatiquement tous les 10 trades. `_load()` prend `min(saved, default)` pour éviter une dérive excessive. Le bouton "↩ Revenir en arrière" dans le dashboard annule le dernier ajustement.
 - **BacktestPanel removed from nav** — only the pretrain panel is exposed in the dashboard
 - **Synthetic data** uses `vol=0.0004` (realistic for XAU/USD) — avoid drawing conclusions from synthetic backtest results
 - **Volume filter removed** — unreliable across data sources
 - **RSI M15** : zone 30/70 (était 35/65 — assoupli pour éviter blocage en oversold/overbought modéré)
-- **RSI M5** : 46/57 (momentum minimal requis — Optuna walk-forward validé)
+- **RSI M5 LONG** : 49 (was 46 → agent adaptatif a validé 49 en live)
+- **RSI M5 SHORT** : 57
 - **Pattern floor 0.67** blocks patterns that lose 67%+ of the time (was 0.65 → 0.67)
 - **TREND_BIAS_DISTANCE = 0.3 ATR H1** blocks SHORT when price > EMA200 + 0.3×ATR and LONG when price < EMA200 − 0.3×ATR
 - **EMA200_MIN_DIST supprimé** : entrée AT EMA200 valide en scalp M5 avec pattern + VWAP
 - **BAD_HOURS_CET = {8, 10}** : 8h London open (manipulation pre-session) + 10h CET (WR 38% / 37 trades)
-- **ADX_MIN = 22** LONG et SHORT identique (compromis Optuna 25 / ancien 20 — évite le blocage en consolidation)
+- **ADX_MIN = 28** (was 22 → agent adaptatif validé 28 en live; Optuna avait proposé 25)
 - **Mode momentum fort supprimé** : ADX H1 > 35/40 → 1 pattern testé → PF 1.34 vs 1.42, rejeté. Toujours 2 patterns requis.
 - **MAX_TRADE_MINUTES = 45** (was 30) — more time for TP targets to be reached
 - **TP1 = 0.7R**, **TP2 = 1.8R** — gap TP1→TP2 = 1.1R; TP2=1.4R testé mais moins bon, 1.8R optimal confirmé
@@ -123,6 +139,8 @@ After merging to `main`:
 - **Strategy B (EUR/USD) Order Block only** (June 2026) : biais H1 (EMA50 vs EMA200) + OB M5 non mitiguée + retest → TP1=0.7R, TP2=1.8R. Supprimé : AMD, FVG, Asian range, sweep, accumulation.
 - **Strategy A (XAU/USD)** : EMA/patterns, toujours actif sur XAUUSD, non modifiable depuis le dashboard
 - **Strategy B (EUR/USD)** : Order Block M5 via `strategy_ict.py`, toujours actif sur EURUSD, non modifiable depuis le dashboard
+- **ATR M5 pour EUR/USD** : `snapshot()` utilise 5 décimales pour `atr_m5` et `atr_avg` (ATR EUR/USD ≈ 0.0003 — 3 décimales donnait 0.0). `AtrGauge` adapte automatiquement l'affichage (< 1 → 5 décimales).
+- **Rapports hebdo/mensuel** : `entry_time` est comparé via `substr(entry_time, 1, 10)` en SQLite (comparaison lexicographique sur YYYY-MM-DD uniquement — robuste aux formats avec/sans microsecondes ou timezone). Les effects React ont un `setInterval(30s)` pour retry automatique.
 - `MT5Broker` in `broker.py` requires MetaTrader5 (Windows only, manual install); `PaperBroker` is the default everywhere else
 
 ## Règles anti-overfitting (OBLIGATOIRES)
