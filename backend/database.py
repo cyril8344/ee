@@ -168,6 +168,7 @@ def init_db() -> None:
                 start     TEXT NOT NULL,
                 end       TEXT NOT NULL,
                 data      BLOB NOT NULL,
+                provider  TEXT,
                 saved_at  TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS live_agent (
@@ -203,6 +204,14 @@ def init_db() -> None:
                         "INSERT INTO ml_gate (symbol, data, updated_at) VALUES ('XAUUSD', ?, ?)",
                         old,
                     )
+        except Exception:
+            pass
+
+        # Ajoute la colonne provider à ohlcv_cache (bases existantes créées avant ce champ)
+        try:
+            cols = [r[1] for r in c.execute("PRAGMA table_info(ohlcv_cache)").fetchall()]
+            if "provider" not in cols:
+                c.execute("ALTER TABLE ohlcv_cache ADD COLUMN provider TEXT")
         except Exception:
             pass
 
@@ -645,10 +654,12 @@ def load_ml_weights(symbol: str = "XAUUSD") -> dict:
 _OHLCV_CACHE_TTL_HOURS = 168  # 7 jours — données historiques immuables
 
 
-def ohlcv_cache_load(key: str) -> Optional[bytes]:
+def ohlcv_cache_load(key: str) -> Optional[tuple]:
+    """Retourne (data, provider) ou None. provider peut être None pour les
+    entrées mises en cache avant l'ajout de cette colonne."""
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT data, saved_at FROM ohlcv_cache WHERE key = ?", (key,)
+            "SELECT data, provider, saved_at FROM ohlcv_cache WHERE key = ?", (key,)
         ).fetchone()
     if row is None:
         return None
@@ -658,19 +669,20 @@ def ohlcv_cache_load(key: str) -> Optional[bytes]:
     age_h = (datetime.now(timezone.utc) - saved).total_seconds() / 3600
     if age_h > _OHLCV_CACHE_TTL_HOURS:
         return None
-    return row["data"]
+    return row["data"], row["provider"]
 
 
-def ohlcv_cache_save(key: str, symbol: str, start: str, end: str, data: bytes) -> None:
+def ohlcv_cache_save(key: str, symbol: str, start: str, end: str, data: bytes,
+                      provider: Optional[str] = None) -> None:
     now = _utcnow_iso()
     with get_conn() as conn:
         conn.execute(
             """
-            INSERT INTO ohlcv_cache (key, symbol, start, end, data, saved_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(key) DO UPDATE SET data = ?, saved_at = ?
+            INSERT INTO ohlcv_cache (key, symbol, start, end, data, provider, saved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET data = ?, provider = ?, saved_at = ?
             """,
-            (key, symbol, start, end, data, now, data, now),
+            (key, symbol, start, end, data, provider, now, data, provider, now),
         )
 
 
