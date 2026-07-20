@@ -157,6 +157,10 @@ def run_pretrain(
         data_start_actual = m5_raw.index[0].isoformat()[:10]
         data_end_actual   = m5_raw.index[-1].isoformat()[:10]
         data_bars_total   = len(m5_raw)
+        try:
+            data_end_gap_days = (pd.Timestamp(end) - pd.Timestamp(data_end_actual)).days
+        except Exception:
+            data_end_gap_days = 0
         data_provider_errors = _dp.get_last_errors()
 
         m5       = add_indicators(m5_raw)
@@ -716,7 +720,10 @@ def run_pretrain(
                 "actual_start":    data_start_actual,
                 "actual_end":      data_end_actual,
                 "bars":            data_bars_total,
-                "full_coverage":   data_start_actual <= start,
+                "end_gap_days":    data_end_gap_days,
+                # Couvre le début ET la fin de la période demandée (tolérance 3j pour
+                # week-ends / dernier jour non encore clôturé côté provider).
+                "full_coverage":   data_start_actual <= start and data_end_gap_days <= 3,
                 "provider_errors": data_provider_errors or None,
             },
             "symbol":        symbol,
@@ -872,6 +879,11 @@ def run_walk_forward(
                 "profit_factor": r["profit_factor"],
                 "net_pnl":       r["net_pnl"],
                 "sl_direct_pct": round(n_sl / max(r["n_trades"], 1) * 100, 1),
+                # Diagnostic : pourquoi si peu (ou pas) de trades sur cette fenêtre —
+                # rejets par étape du pipeline + couverture réelle des données.
+                "rejection_counts": r.get("rejection_counts", {}),
+                "bars":             r.get("data_coverage", {}).get("bars"),
+                "data_coverage":    r.get("data_coverage", {}),
             })
         except Exception as exc:
             windows.append({

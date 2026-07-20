@@ -1674,7 +1674,12 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                                     color: covOk ? COLORS.green : COLORS.red,
                                   }}>
                                     {covOk ? "✓" : "⚠"} Données : {cov.actual_start} → {cov.actual_end} ({cov.bars} bougies)
-                                    {!covOk && <span style={{ color: COLORS.sub }}> — demandé depuis {cov.requested_start}</span>}
+                                    {!covOk && (
+                                      <span style={{ color: COLORS.sub }}>
+                                        {" "}— demandé {cov.requested_start} → {cov.requested_end}
+                                        {cov.end_gap_days > 0 ? ` (${cov.end_gap_days}j manquants en fin de période)` : ""}
+                                      </span>
+                                    )}
                                     {cov.provider_errors && Object.keys(cov.provider_errors).length > 0 && (
                                       <div style={{ color: COLORS.red, fontSize: 9, marginTop: 2 }}>
                                         Erreur provider : {Object.entries(cov.provider_errors).map(([k,v]) => `${k}: ${v}`).join(" | ")}
@@ -2818,6 +2823,22 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                               <span style={{ color: COLORS.sub }}>Net</span>
                               <span style={{ color: w.net_pnl >= 0 ? COLORS.green : COLORS.red }}>{w.net_pnl >= 0 ? "+" : ""}{w.net_pnl?.toFixed(0)}$</span>
                             </div>
+                            {w.n_trades < 10 && w.rejection_counts && Object.keys(w.rejection_counts).length > 0 && (
+                              <div style={{ marginTop: 6, paddingTop: 4, borderTop: `1px solid ${COLORS.border}` }}>
+                                <div style={{ fontSize: 9, color: COLORS.amber, marginBottom: 2 }}>
+                                  ⚠ peu de trades — top blocages :
+                                </div>
+                                {Object.entries(w.rejection_counts).slice(0, 3).map(([reason, count]) => (
+                                  <div key={reason} style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: COLORS.sub }}>
+                                    <span>{reason}</span>
+                                    <span>{count}</span>
+                                  </div>
+                                ))}
+                                {w.bars != null && (
+                                  <div style={{ fontSize: 9, color: COLORS.sub, marginTop: 2 }}>{w.bars} bougies chargées</div>
+                                )}
+                              </div>
+                            )}
                           </>
                         )}
                       </div>
