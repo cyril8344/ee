@@ -1674,7 +1674,12 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                                     color: covOk ? COLORS.green : COLORS.red,
                                   }}>
                                     {covOk ? "✓" : "⚠"} Données : {cov.actual_start} → {cov.actual_end} ({cov.bars} bougies)
-                                    {!covOk && <span style={{ color: COLORS.sub }}> — demandé depuis {cov.requested_start}</span>}
+                                    {!covOk && (
+                                      <span style={{ color: COLORS.sub }}>
+                                        {" "}— demandé {cov.requested_start} → {cov.requested_end}
+                                        {cov.end_gap_days > 0 ? ` (${cov.end_gap_days}j manquants en fin de période)` : ""}
+                                      </span>
+                                    )}
                                     {cov.provider_errors && Object.keys(cov.provider_errors).length > 0 && (
                                       <div style={{ color: COLORS.red, fontSize: 9, marginTop: 2 }}>
                                         Erreur provider : {Object.entries(cov.provider_errors).map(([k,v]) => `${k}: ${v}`).join(" | ")}
