@@ -1807,6 +1807,13 @@ def start_pretrain(req: PretrainRequest, _user: dict = Depends(get_current_user)
     return {"ok": True, "message": "Pré-entraînement lancé", "progress": _pretrain_module.get_progress()}
 
 
+@app.post("/api/pretrain/cache/clear")
+def clear_ohlcv_cache(symbol: Optional[str] = None, _user: dict = Depends(get_current_user)):
+    """Vide le cache OHLCV disque (tout ou un symbole) pour forcer un refetch traçable."""
+    n = db.ohlcv_cache_clear(symbol)
+    return {"ok": True, "cleared": n, "symbol": symbol or "tous"}
+
+
 # ── Walk-forward ──────────────────────────────────────────────────────────────
 _wf_state: Dict[str, Any] = {"running": False, "window": 0, "n_splits": 4, "result": None, "error": None}
 _wf_lock  = threading.Lock()
