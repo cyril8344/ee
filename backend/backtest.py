@@ -70,10 +70,13 @@ def load_m5_data(start: str, end: str, symbol: str = "XAUUSD") -> pd.DataFrame:
     try:
         df, _provider = data_provider.get_m5(start=start, end=end, bars=5000, symbol=symbol)
         if df is not None and len(df) > 0:
+            df.attrs["provider"] = _provider
             return df
     except Exception:
         pass
-    return _synthetic_m5(start, end)
+    synth = _synthetic_m5(start, end)
+    synth.attrs["provider"] = "synthetic"
+    return synth
 
 
 def _synthetic_m5(start: str, end: str) -> pd.DataFrame:

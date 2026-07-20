@@ -157,6 +157,7 @@ def run_pretrain(
         data_start_actual = m5_raw.index[0].isoformat()[:10]
         data_end_actual   = m5_raw.index[-1].isoformat()[:10]
         data_bars_total   = len(m5_raw)
+        data_provider_used = m5_raw.attrs.get("provider", "unknown")
         try:
             data_end_gap_days = (pd.Timestamp(end) - pd.Timestamp(data_end_actual)).days
         except Exception:
@@ -720,6 +721,7 @@ def run_pretrain(
                 "actual_start":    data_start_actual,
                 "actual_end":      data_end_actual,
                 "bars":            data_bars_total,
+                "provider":        data_provider_used,
                 "end_gap_days":    data_end_gap_days,
                 # Couvre le début ET la fin de la période demandée (tolérance 3j pour
                 # week-ends / dernier jour non encore clôturé côté provider).

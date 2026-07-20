@@ -1669,11 +1669,16 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                                 {cov.actual_start && (
                                   <div style={{
                                     marginBottom: 6, padding: "3px 6px", borderRadius: 3,
-                                    background: covOk ? COLORS.green + "18" : COLORS.red + "18",
-                                    border: `1px solid ${covOk ? COLORS.green : COLORS.red}44`,
-                                    color: covOk ? COLORS.green : COLORS.red,
+                                    background: cov.provider === "synthetic" ? COLORS.red + "18" : covOk ? COLORS.green + "18" : COLORS.red + "18",
+                                    border: `1px solid ${cov.provider === "synthetic" ? COLORS.red : covOk ? COLORS.green : COLORS.red}44`,
+                                    color: cov.provider === "synthetic" ? COLORS.red : covOk ? COLORS.green : COLORS.red,
                                   }}>
-                                    {covOk ? "✓" : "⚠"} Données : {cov.actual_start} → {cov.actual_end} ({cov.bars} bougies)
+                                    {cov.provider === "synthetic" ? "⚠ SYNTHÉTIQUE" : covOk ? "✓" : "⚠"} Données{cov.provider ? ` (${cov.provider})` : ""} : {cov.actual_start} → {cov.actual_end} ({cov.bars} bougies)
+                                    {cov.provider === "synthetic" && (
+                                      <div style={{ color: COLORS.red, fontSize: 9, marginTop: 2 }}>
+                                        Aucun provider réel n'a répondu — résultat basé sur données générées, à ignorer.
+                                      </div>
+                                    )}
                                     {!covOk && (
                                       <span style={{ color: COLORS.sub }}>
                                         {" "}— demandé {cov.requested_start} → {cov.requested_end}
@@ -2804,7 +2809,13 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                           <div style={{ fontSize: 10, color: COLORS.red }}>{w.error}</div>
                         ) : (
                           <>
-                            <div style={{ fontSize: 10, color: COLORS.sub, marginBottom: 6 }}>F{w.window} · {w.period?.slice(0, 10)} →</div>
+                            <div style={{ fontSize: 10, color: COLORS.sub, marginBottom: 2 }}>F{w.window} · {w.period?.slice(0, 10)} →</div>
+                            {w.data_coverage?.provider && (
+                              <div style={{ fontSize: 9, marginBottom: 4,
+                                color: w.data_coverage.provider === "synthetic" ? COLORS.red : COLORS.sub }}>
+                                {w.data_coverage.provider === "synthetic" ? "⚠ synthétique" : w.data_coverage.provider}
+                              </div>
+                            )}
                             <div style={{ fontSize: 20, fontWeight: 700, color: pfColor, textAlign: "center" }}>{pf.toFixed(2)}</div>
                             <div style={{ fontSize: 10, color: COLORS.sub, textAlign: "center", marginBottom: 4 }}>PF</div>
                             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
