@@ -76,26 +76,29 @@ def _cache_key(symbol: str, start: str, end: str) -> str:
     return hashlib.md5(raw.encode()).hexdigest()
 
 
-def _cache_load(symbol: str, start: str, end: str) -> Optional[pd.DataFrame]:
+def _cache_load(symbol: str, start: str, end: str) -> Optional[tuple[pd.DataFrame, str]]:
+    """Retourne (df, provider_original) ou None. provider_original vaut
+    "cache" si l'entrée a été mise en cache avant l'ajout de cette colonne."""
     try:
         from database import ohlcv_cache_load
-        raw = ohlcv_cache_load(_cache_key(symbol, start, end))
-        if raw is None:
+        row = ohlcv_cache_load(_cache_key(symbol, start, end))
+        if row is None:
             return None
+        raw, provider = row
         df = pd.read_parquet(io.BytesIO(raw))
         if df.index.tz is None:
             df.index = df.index.tz_localize("UTC")
-        return df
+        return df, (provider or "cache")
     except Exception:
         return None
 
 
-def _cache_save(symbol: str, start: str, end: str, df: pd.DataFrame) -> None:
+def _cache_save(symbol: str, start: str, end: str, df: pd.DataFrame, provider: str) -> None:
     try:
         from database import ohlcv_cache_save
         buf = io.BytesIO()
         df.to_parquet(buf)
-        ohlcv_cache_save(_cache_key(symbol, start, end), symbol, start, end, buf.getvalue())
+        ohlcv_cache_save(_cache_key(symbol, start, end), symbol, start, end, buf.getvalue(), provider)
     except Exception:
         pass
 
@@ -485,8 +488,13 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
     _is_range = bool(start and end)
     if _is_range:
         cached = _cache_load(symbol, start, end)
-        if cached is not None and len(cached) > 0:
-            return cached, "cache"
+        if cached is not None:
+            cached_df, cached_provider = cached
+            if len(cached_df) > 0:
+                # Renvoie l'origine réelle des données (ex: "twelvedata", "synthetic")
+                # plutôt que juste "cache" — sinon impossible de savoir si un hit de
+                # cache sert de vraies données ou un fallback synthétique historique.
+                return cached_df, cached_provider
 
     # For long-range requests via twelvedata, use the paginated range fetcher
     _use_td_range = (
@@ -503,7 +511,7 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
                 got_days = (df.index.max() - df.index.min()).days if len(df) > 1 else 0
                 coverage_ok = got_days >= req_days * 0.8
                 if _is_range and coverage_ok:
-                    _cache_save(symbol, start, end, df)
+                    _cache_save(symbol, start, end, df, "twelvedata")
                 if coverage_ok:
                     return df, "twelvedata"
                 # Couverture insuffisante → on tombe dans les autres providers
@@ -516,7 +524,7 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
             df = _PROVIDERS[name](start, end, bars, symbol)
             if df is not None and len(df) > 0:
                 if _is_range:
-                    _cache_save(symbol, start, end, df)
+                    _cache_save(symbol, start, end, df, name)
                 # Clear error on success
                 _last_errors.pop(f"{symbol}:{name}", None)
                 return df, name
