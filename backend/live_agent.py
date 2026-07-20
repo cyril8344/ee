@@ -97,9 +97,15 @@ class LiveAdaptiveAgent:
                         default_val = self._params[k]
                         # Toujours prendre la valeur la plus permissive entre sauvegardée et défaut module
                         if k in _lower_is_looser:
-                            self._params[k] = min(saved_val, default_val)
+                            new_val = min(saved_val, default_val)
                         else:  # RSI_M5_SHORT_MAX, RSI_HIGH — valeur haute = plus permissive
-                            self._params[k] = max(saved_val, default_val)
+                            new_val = max(saved_val, default_val)
+                        # Clamp aux BOUNDS — une valeur DB corrompue/hors bornes ne doit
+                        # jamais s'appliquer telle quelle au module strategy live.
+                        if k in BOUNDS:
+                            lo, hi = BOUNDS[k]
+                            new_val = max(lo, min(hi, new_val))
+                        self._params[k] = new_val
                 self._trade_log = data.get("trade_log", [])
                 self._total_trades = len(self._trade_log)
                 self._apply_to_strategy()
