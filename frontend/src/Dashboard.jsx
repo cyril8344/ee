@@ -2823,6 +2823,22 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                               <span style={{ color: COLORS.sub }}>Net</span>
                               <span style={{ color: w.net_pnl >= 0 ? COLORS.green : COLORS.red }}>{w.net_pnl >= 0 ? "+" : ""}{w.net_pnl?.toFixed(0)}$</span>
                             </div>
+                            {w.n_trades < 10 && w.rejection_counts && Object.keys(w.rejection_counts).length > 0 && (
+                              <div style={{ marginTop: 6, paddingTop: 4, borderTop: `1px solid ${COLORS.border}` }}>
+                                <div style={{ fontSize: 9, color: COLORS.amber, marginBottom: 2 }}>
+                                  ⚠ peu de trades — top blocages :
+                                </div>
+                                {Object.entries(w.rejection_counts).slice(0, 3).map(([reason, count]) => (
+                                  <div key={reason} style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: COLORS.sub }}>
+                                    <span>{reason}</span>
+                                    <span>{count}</span>
+                                  </div>
+                                ))}
+                                {w.bars != null && (
+                                  <div style={{ fontSize: 9, color: COLORS.sub, marginTop: 2 }}>{w.bars} bougies chargées</div>
+                                )}
+                              </div>
+                            )}
                           </>
                         )}
                       </div>

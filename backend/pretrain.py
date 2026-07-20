@@ -879,6 +879,11 @@ def run_walk_forward(
                 "profit_factor": r["profit_factor"],
                 "net_pnl":       r["net_pnl"],
                 "sl_direct_pct": round(n_sl / max(r["n_trades"], 1) * 100, 1),
+                # Diagnostic : pourquoi si peu (ou pas) de trades sur cette fenêtre —
+                # rejets par étape du pipeline + couverture réelle des données.
+                "rejection_counts": r.get("rejection_counts", {}),
+                "bars":             r.get("data_coverage", {}).get("bars"),
+                "data_coverage":    r.get("data_coverage", {}),
             })
         except Exception as exc:
             windows.append({
