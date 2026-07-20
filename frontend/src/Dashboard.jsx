@@ -1655,8 +1655,8 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                             const sd  = pretrainStats.by_session_dir || {};
                             const er  = pretrainStats.exit_reasons   || {};
                             const keys = ["London_long", "London_short", "NY_long", "NY_short"];
-                            const erOrder = ["sl", "sl_after_tp1", "timeout", "tp1", "tp2"];
-                            const erLabel = { sl: "SL direct", sl_after_tp1: "SL après TP1", timeout: "Timeout", tp1: "TP1 seul", tp2: "TP2 ✓" };
+                            const erOrder = ["sl", "sl_after_tp1", "timeout", "early_exit", "tp1", "tp2"];
+                            const erLabel = { sl: "SL direct", sl_after_tp1: "SL après TP1", timeout: "Timeout", early_exit: "Early exit (15min)", tp1: "TP1 seul", tp2: "TP2 ✓" };
                             const sessLabel = { London_long: "Lo ↑", London_short: "Lo ↓", NY_long: "NY ↑", NY_short: "NY ↓" };
 
                             const cov = pretrainStats.data_coverage || {};
@@ -1731,7 +1731,8 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                                 <div style={{ color: COLORS.sub, marginBottom: 3 }}>Raisons de sortie</div>
                                 {erOrder.filter(k => er[k]).map(k => {
                                   const d = er[k];
-                                  const barColor = k.startsWith("sl") ? COLORS.red : k === "timeout" ? COLORS.amber : COLORS.green;
+                                  const barColor = k.startsWith("sl") ? COLORS.red
+                                    : (k === "timeout" || k === "early_exit") ? COLORS.amber : COLORS.green;
                                   return (
                                     <div key={k} style={{ marginBottom: 3 }}>
                                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 1 }}>
