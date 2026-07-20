@@ -215,6 +215,14 @@ def init_db() -> None:
         except Exception:
             pass
 
+        # Purge des entrées mises en cache avant le suivi du provider (provider NULL)
+        # — origine ambiguë (peut-être du synthétique jamais signalé comme tel).
+        # Idempotent (no-op une fois purgé) donc sans danger à chaque démarrage.
+        try:
+            c.execute("DELETE FROM ohlcv_cache WHERE provider IS NULL")
+        except Exception:
+            pass
+
         # Seed settings
         row = c.execute("SELECT id FROM settings WHERE id = 1").fetchone()
         if row is None:
@@ -684,6 +692,16 @@ def ohlcv_cache_save(key: str, symbol: str, start: str, end: str, data: bytes,
             """,
             (key, symbol, start, end, data, provider, now, data, provider, now),
         )
+
+
+def ohlcv_cache_clear(symbol: Optional[str] = None) -> int:
+    """Vide le cache OHLCV (tout ou pour un symbole). Retourne le nb de lignes supprimées."""
+    with get_conn() as conn:
+        if symbol:
+            cur = conn.execute("DELETE FROM ohlcv_cache WHERE symbol = ?", (symbol,))
+        else:
+            cur = conn.execute("DELETE FROM ohlcv_cache")
+        return cur.rowcount
 
 
 def live_agent_load(symbol: str) -> Optional[dict]:

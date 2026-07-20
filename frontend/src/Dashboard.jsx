@@ -412,6 +412,8 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [pretrainStats, setPretrainStats]     = useState(null);
   const [pretrainDiag, setPretrainDiag]       = useState(false);
   const [pretrainResetML, setPretrainResetML] = useState(false);
+  const [cacheClearing, setCacheClearing]     = useState(false);
+  const [cacheClearMsg, setCacheClearMsg]     = useState(null);
   const [pretrainCapital, setPretrainCapital] = useState(1000);
   const [pretrainRiskPct, setPretrainRiskPct] = useState(2.0);
   const [pretrainStart, setPretrainStart]     = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 6); return d.toISOString().slice(0, 10); });
@@ -1475,6 +1477,24 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                             Réinitialiser ML {pretrainResetML ? "(repart de zéro)" : "(cumule avec sessions précédentes)"}
                           </span>
                         </label>
+                        <button
+                          disabled={cacheClearing}
+                          onClick={() => {
+                            setCacheClearing(true);
+                            setCacheClearMsg(null);
+                            fetch(`${API}/api/pretrain/cache/clear`, { method: "POST", headers: authHeaders() })
+                              .then(r => r.json())
+                              .then(d => setCacheClearMsg(`${d.cleared} entrée(s) vidée(s) — le prochain run refetchera avec provider traçable`))
+                              .catch(() => setCacheClearMsg("Erreur lors du vidage du cache"))
+                              .finally(() => setCacheClearing(false));
+                          }}
+                          style={{ marginTop: 6, width: "100%", fontSize: 10, padding: "4px 0", cursor: "pointer",
+                            background: "transparent", border: `1px solid ${COLORS.red}`, borderRadius: 3, color: COLORS.red }}>
+                          {cacheClearing ? "Vidage…" : "🗑 Vider le cache OHLCV"}
+                        </button>
+                        {cacheClearMsg && (
+                          <div style={{ fontSize: 9, color: COLORS.sub, marginTop: 3 }}>{cacheClearMsg}</div>
+                        )}
                       </div>
                     )}
                     {isPretrainRunningForMe ? (
