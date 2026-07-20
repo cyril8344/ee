@@ -310,21 +310,34 @@ function AtrGauge({ atr, avg, min }) {
   );
 }
 
-function RsiBar({ label, value }) {
+function RsiBar({ label, value, zoneLow, zoneHigh }) {
   const v = value ?? 50;
-  const inZone = v >= 45 && v <= 55;
+  // Zone réelle du filtre backend si fournie (ajustable en live par l'agent adaptatif),
+  // sinon fallback neutre — évite d'afficher une zone qui ne correspond à aucun filtre réel.
+  const hasZone = zoneLow != null && zoneHigh != null;
+  const lo = hasZone ? zoneLow : 45;
+  const hi = hasZone ? zoneHigh : 55;
+  const inZone = v >= lo && v <= hi;
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: COLORS.sub }}>
         <span>{label}</span>
-        <span style={{ color: inZone ? COLORS.green : COLORS.text }}>{fmt(value, 1)}</span>
+        <span style={{ color: inZone ? COLORS.green : COLORS.text }}>
+          {fmt(value, 1)} {hasZone ? (inZone ? "✓" : "✗") : ""}
+        </span>
       </div>
       <div style={{ height: 8, background: "#1a2233", borderRadius: 4, marginTop: 4, position: "relative" }}>
-        <div style={{ position: "absolute", left: "45%", width: "10%", height: "100%",
+        <div style={{ position: "absolute", left: `${Math.max(0, Math.min(100, lo))}%`,
+          width: `${Math.max(0, Math.min(100, hi) - Math.max(0, lo))}%`, height: "100%",
           background: COLORS.green, opacity: 0.18 }} />
-        <div style={{ position: "absolute", left: `${v}%`, top: -2, height: 12, width: 3,
+        <div style={{ position: "absolute", left: `${Math.max(0, Math.min(100, v))}%`, top: -2, height: 12, width: 3,
           background: inZone ? COLORS.green : COLORS.blue, borderRadius: 2, transition: "left .4s" }} />
       </div>
+      {hasZone && (
+        <div style={{ fontSize: 11, color: COLORS.sub, marginTop: 3 }}>
+          zone active: {fmt(lo, 0)}–{fmt(hi, 0)}
+        </div>
+      )}
     </div>
   );
 }
@@ -1204,8 +1217,13 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                 </div>
               </div>
 
-              <RsiBar label="RSI M5" value={mkt.indicators?.rsi_m5} />
-              <RsiBar label="RSI M15" value={mkt.indicators?.rsi_m15} />
+              <RsiBar label="RSI M5" value={mkt.indicators?.rsi_m5}
+                // RSI M5 : filtre à sens unique selon le biais (pas de plafond en LONG,
+                // pas de plancher en SHORT) — donc pas de zone tant que le biais est neutre.
+                zoneLow={mkt.conditions?.h1_bias === "SHORT" ? 0 : mkt.conditions?.rsi_m5_long_min}
+                zoneHigh={mkt.conditions?.h1_bias === "LONG" ? 100 : mkt.conditions?.rsi_m5_short_max} />
+              <RsiBar label="RSI M15" value={mkt.indicators?.rsi_m15}
+                zoneLow={mkt.conditions?.rsi_m15_low} zoneHigh={mkt.conditions?.rsi_m15_high} />
               <div style={{ margin: "12px 0" }}>
                 <AtrGauge atr={mkt.indicators?.atr_m5} avg={mkt.indicators?.atr_avg}
                   min={mkt.indicators?.atr_min} />

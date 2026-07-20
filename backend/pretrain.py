@@ -405,7 +405,7 @@ def run_pretrain(
                 "tp2":          sig.take_profit2,
                 "volume":       volume,
                 "tp1_done":      False,
-                "be_after_tp1":  False,
+                "be_after_tp1":  True,
                 "tp1_close_all": bool(sig.meta.get("tp1_close_all", False)),
                 "remaining":    volume,
                 "realised":     0.0,

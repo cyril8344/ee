@@ -570,7 +570,8 @@ def trading_tick() -> Dict[str, Any]:
                         from strategy_ict import evaluate_ict as _eval_ict
                         sig = _eval_ict(m5, m15, h1, now=now,
                                         check_session=session_filter,
-                                        atr_min=ms.config["atr_min"])
+                                        atr_min=ms.config["atr_min"],
+                                        bad_hours=_inst_bad_hours)
                     elif sym_strategy == "eurusd_simple":
                         from strategy import evaluate_eurusd as _eval_eurusd
                         sig = _eval_eurusd(m5, m15, h1, now=now,
