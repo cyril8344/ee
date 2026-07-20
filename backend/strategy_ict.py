@@ -199,6 +199,7 @@ def evaluate_ict(
     now: Optional[datetime] = None,
     check_session: bool = True,
     atr_min: float = ATR_MIN,
+    bad_hours: Optional[set] = None,
 ) -> Optional[Signal]:
     """Stratégie B — Order Block M5 avec biais H1."""
     if len(m5) < 50:
@@ -212,7 +213,7 @@ def evaluate_ict(
         ts = ts.replace(tzinfo=timezone.utc)
 
     # 1) Timing / session
-    if is_bad_timing(ts):
+    if is_bad_timing(ts, bad_hours=bad_hours):
         return None
     session = active_session(ts)
     if check_session and session is None:

@@ -317,6 +317,7 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
                         "tp2": sig.take_profit2,
                         "volume": vol,
                         "tp1_done": False,
+                        "be_after_tp1": True,
                         "remaining": vol,
                         "realised": 0.0,
                         "max_exit_time": ts.to_pydatetime() + timedelta(minutes=sig.max_duration_min),
