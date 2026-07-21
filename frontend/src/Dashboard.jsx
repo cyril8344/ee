@@ -2892,22 +2892,35 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                               <span style={{ color: COLORS.sub }}>Net</span>
                               <span style={{ color: w.net_pnl >= 0 ? COLORS.green : COLORS.red }}>{w.net_pnl >= 0 ? "+" : ""}{w.net_pnl?.toFixed(0)}$</span>
                             </div>
-                            {w.n_trades < 10 && w.rejection_counts && Object.keys(w.rejection_counts).length > 0 && (
-                              <div style={{ marginTop: 6, paddingTop: 4, borderTop: `1px solid ${COLORS.border}` }}>
-                                <div style={{ fontSize: 9, color: COLORS.amber, marginBottom: 2 }}>
-                                  ⚠ peu de trades — top blocages :
-                                </div>
-                                {Object.entries(w.rejection_counts).slice(0, 3).map(([reason, count]) => (
-                                  <div key={reason} style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: COLORS.sub }}>
-                                    <span>{reason}</span>
-                                    <span>{count}</span>
+                            {w.rejection_counts && Object.keys(w.rejection_counts).length > 0 && (() => {
+                              const entries = Object.entries(w.rejection_counts);
+                              const totalRej = entries.reduce((s, [, c]) => s + c, 0);
+                              const denom = w.bars || totalRej || 1;
+                              const accounted = totalRej + (w.n_trades || 0);
+                              const unaccounted = Math.max(0, denom - accounted);
+                              return (
+                                <div style={{ marginTop: 6, paddingTop: 4, borderTop: `1px solid ${COLORS.border}` }}>
+                                  <div style={{ fontSize: 9, color: w.n_trades < 10 ? COLORS.amber : COLORS.sub, marginBottom: 2 }}>
+                                    {w.n_trades < 10 ? "⚠ peu de trades — " : ""}blocages pipeline :
                                   </div>
-                                ))}
-                                {w.bars != null && (
-                                  <div style={{ fontSize: 9, color: COLORS.sub, marginTop: 2 }}>{w.bars} bougies chargées</div>
-                                )}
-                              </div>
-                            )}
+                                  {entries.slice(0, 6).map(([reason, count]) => (
+                                    <div key={reason} style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: COLORS.sub }}>
+                                      <span>{reason}</span>
+                                      <span>{count} ({(count / denom * 100).toFixed(0)}%)</span>
+                                    </div>
+                                  ))}
+                                  {unaccounted > 0 && (
+                                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: COLORS.sub, opacity: 0.7 }}>
+                                      <span>autres étapes</span>
+                                      <span>{unaccounted} ({(unaccounted / denom * 100).toFixed(0)}%)</span>
+                                    </div>
+                                  )}
+                                  {w.bars != null && (
+                                    <div style={{ fontSize: 9, color: COLORS.sub, marginTop: 2 }}>{w.bars} bougies chargées</div>
+                                  )}
+                                </div>
+                              );
+                            })()}
                             {w.regime_signature && (
                               <div style={{ marginTop: 6, paddingTop: 4, borderTop: `1px solid ${COLORS.border}` }}>
                                 <div style={{ fontSize: 9, color: COLORS.sub, marginBottom: 2 }}>Régime</div>
@@ -2923,6 +2936,24 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: COLORS.sub }}>
                                   <span>WR L/S</span>
                                   <span>{w.regime_signature.wr_long ?? "—"}% / {w.regime_signature.wr_short ?? "—"}%</span>
+                                </div>
+                              </div>
+                            )}
+                            {w.indicator_diagnostic?.SL_direct && w.indicator_diagnostic?.TP2 && (
+                              <div style={{ marginTop: 6, paddingTop: 4, borderTop: `1px solid ${COLORS.border}` }}>
+                                <div style={{ fontSize: 9, color: COLORS.sub, marginBottom: 2 }}>SL direct vs TP2</div>
+                                {["adx_h1", "rsi_m5", "atr", "london_pct"].map(k => {
+                                  const sl = w.indicator_diagnostic.SL_direct[k];
+                                  const tp = w.indicator_diagnostic.TP2[k];
+                                  if (sl == null || tp == null) return null;
+                                  return (
+                                    <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: COLORS.sub }}>
+                                      <span>{k}</span><span>{sl} / {tp}</span>
+                                    </div>
+                                  );
+                                })}
+                                <div style={{ fontSize: 8, color: COLORS.sub, opacity: 0.7, marginTop: 1 }}>
+                                  SL_direct (n={w.indicator_diagnostic.SL_direct.n}) / TP2 (n={w.indicator_diagnostic.TP2.n})
                                 </div>
                               </div>
                             )}

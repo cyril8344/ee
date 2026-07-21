@@ -910,6 +910,9 @@ def run_walk_forward(
                 # (une fenêtre à PF bas a-t-elle un ADX H1 plus faible, un biais
                 # directionnel plus marqué, etc.)
                 "regime_signature": r.get("regime_signature"),
+                # SL_direct vs TP2 — quelles conditions séparent les trades perdants des
+                # gagnants sur CETTE fenêtre (pas de moyenne globale multi-fenêtres).
+                "indicator_diagnostic": r.get("indicator_diagnostic"),
             })
         except Exception as exc:
             windows.append({
