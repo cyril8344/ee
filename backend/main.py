@@ -1827,6 +1827,7 @@ class WalkForwardRequest(BaseModel):
     capital: float = 10_000.0
     risk_pct: float = 5.0
     strategy_mode: str = "A"
+    adx_min_override: Optional[float] = None
 
 
 @app.post("/api/pretrain/walkforward")
@@ -1839,11 +1840,13 @@ def start_walkforward(req: WalkForwardRequest, _user: dict = Depends(get_current
 
     def _run():
         try:
+            _overrides = {"ADX_MIN": req.adx_min_override} if req.adx_min_override is not None else None
             r = _pretrain_module.run_walk_forward(
                 start=req.start, end=req.end,
                 n_splits=req.n_splits, symbol=req.symbol,
                 capital=req.capital, risk_pct=req.risk_pct,
                 strategy_mode=req.strategy_mode,
+                extra_overrides=_overrides,
             )
             with _wf_lock:
                 _wf_state.update(running=False, window=req.n_splits, result=r)
