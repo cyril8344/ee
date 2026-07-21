@@ -17,7 +17,7 @@ backend.  All timestamps are stored as ISO-8601 strings in UTC.
 import os
 import sqlite3
 import json
-from datetime import datetime, timezone, date
+from datetime import datetime, timedelta, timezone, date
 from contextlib import contextmanager
 from typing import Optional, List, Dict, Any
 
@@ -1158,6 +1158,119 @@ def get_monthly_report(month_offset: int = 0, symbol: str | None = None) -> Dict
         "by_direction": _agg(_by_dir),
         "by_day": _agg(_by_day),
         "trades": closed,
+    }
+
+
+def get_trade_volume_report(symbol: str | None = None, weeks: int = 12) -> Dict[str, Any]:
+    """
+    Diagnostic du volume de trades sur les `weeks` dernières semaines calendaires
+    (lundi CET → dimanche CET). Sert à repérer des anomalies de fréquence :
+    jours de semaine jamais tradés, semaines à zéro trade, variance excessive
+    d'une semaine à l'autre. Les semaines et jours sans trade apparaissent
+    quand même dans le résultat (n=0) pour que les trous soient visibles.
+    """
+    from collections import defaultdict
+
+    try:
+        import pytz as _pytz
+        _CET = _pytz.timezone("Europe/Paris")
+    except Exception:
+        _CET = None
+
+    now_utc = datetime.now(timezone.utc)
+    this_monday = (now_utc - timedelta(days=now_utc.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    range_start = this_monday - timedelta(weeks=weeks - 1)
+    range_start_str = range_start.strftime("%Y-%m-%d")
+
+    with get_conn() as conn:
+        if symbol:
+            rows = conn.execute(
+                "SELECT * FROM trades WHERE status = 'closed' AND symbol = ?"
+                " AND substr(entry_time, 1, 10) >= ? ORDER BY entry_time ASC",
+                (symbol, range_start_str),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM trades WHERE status = 'closed'"
+                " AND substr(entry_time, 1, 10) >= ? ORDER BY entry_time ASC",
+                (range_start_str,),
+            ).fetchall()
+
+    trades = [_row_to_dict(r) for r in rows]
+
+    for t in trades:
+        try:
+            ts = datetime.fromisoformat(t["entry_time"].replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            ts_cet = ts.astimezone(_CET) if _CET else ts
+            t["_weekday_idx"] = ts_cet.weekday()  # 0=lundi … 6=dimanche
+            t["_week_key"] = (ts_cet - timedelta(days=ts_cet.weekday())).strftime("%Y-%m-%d")
+        except Exception:
+            t["_weekday_idx"] = None
+            t["_week_key"] = None
+
+    _WEEKDAY_NAMES = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+
+    _by_weekday: Dict[int, Dict] = defaultdict(lambda: {"n": 0, "wins": 0, "pnl": 0.0})
+    _by_week: Dict[str, Dict] = defaultdict(lambda: {"n": 0, "wins": 0, "pnl": 0.0})
+
+    closed = [t for t in trades if t.get("pnl") is not None]
+    for t in closed:
+        pnl = t.get("pnl") or 0.0
+        won = int(pnl > 0)
+
+        wi = t.get("_weekday_idx")
+        if wi is not None:
+            _by_weekday[wi]["n"] += 1
+            _by_weekday[wi]["wins"] += won
+            _by_weekday[wi]["pnl"] += pnl
+
+        wk = t.get("_week_key")
+        if wk is not None:
+            _by_week[wk]["n"] += 1
+            _by_week[wk]["wins"] += won
+            _by_week[wk]["pnl"] += pnl
+
+    def _fmt(v: Dict) -> Dict:
+        return {
+            "n": v["n"],
+            "wins": v["wins"],
+            "wr": round(v["wins"] / v["n"] * 100, 1) if v["n"] > 0 else 0.0,
+            "pnl": round(v["pnl"], 2),
+        }
+
+    # Lundi-vendredi toujours présents (même à 0) ; samedi/dimanche seulement s'il y a des trades
+    # (ne devrait jamais arriver — signal d'anomalie si ça se produit).
+    by_weekday: Dict[str, Dict] = {}
+    for i in range(7):
+        if i < 5 or i in _by_weekday:
+            by_weekday[_WEEKDAY_NAMES[i]] = _fmt(_by_weekday.get(i, {"n": 0, "wins": 0, "pnl": 0.0}))
+
+    # Semaines contiguës (y compris celles à 0 trade) pour rendre les trous visibles.
+    by_week: Dict[str, Dict] = {}
+    cursor = range_start
+    for _ in range(weeks):
+        wk_key = cursor.strftime("%Y-%m-%d")
+        by_week[wk_key] = _fmt(_by_week.get(wk_key, {"n": 0, "wins": 0, "pnl": 0.0}))
+        cursor += timedelta(weeks=1)
+
+    counts = [v["n"] for v in by_week.values()]
+    weeks_with_trades = sum(1 for c in counts if c > 0)
+
+    return {
+        "symbol": symbol,
+        "weeks_covered": weeks,
+        "range_start": range_start_str,
+        "total_trades": len(closed),
+        "avg_trades_per_week": round(sum(counts) / len(counts), 2) if counts else 0.0,
+        "weeks_with_zero_trades": weeks - weeks_with_trades,
+        "max_trades_in_a_week": max(counts) if counts else 0,
+        "min_trades_in_a_week": min(counts) if counts else 0,
+        "by_weekday": by_weekday,
+        "by_week": by_week,
     }
 
 

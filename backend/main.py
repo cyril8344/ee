@@ -131,6 +131,9 @@ class MarketState:
     trades_today: int = 0
     pnl_today: float = 0.0
     daily_stopped: bool = False
+    # Diagnostic — funnel de rejet cumulé du jour (reset à chaque rollover journalier)
+    reject_counts_today: Dict[str, int] = field(default_factory=dict)
+    eval_attempts_today: int = 0
 
 
 # --------------------------------------------------------------------------- #
@@ -281,6 +284,8 @@ class BotState:
             ms.trades_today = len(sym_trades)
             ms.pnl_today = sum(t.get("pnl") or 0.0 for t in sym_closed)
             ms.daily_stopped = False
+            ms.reject_counts_today = {}
+            ms.eval_attempts_today = 0
             _inst_stop_pct = ms.inst_settings.get("daily_stop_pct", 2.0)
             if _start_eq > 0 and ms.pnl_today <= -abs(_start_eq * _inst_stop_pct / 100.0):
                 ms.daily_stopped = True
@@ -581,6 +586,7 @@ def trading_tick() -> Dict[str, Any]:
                                            bad_hours=_inst_bad_hours)
                     else:
                         _rlog: Dict[str, Any] = {}
+                        ms.eval_attempts_today += 1
                         sig = evaluate(m5, m15, h1, h4=h4, now=now, check_session=session_filter,
                                        atr_min=ms.config["atr_min"],
                                        pattern_weights=state.pattern_weights,
@@ -589,6 +595,8 @@ def trading_tick() -> Dict[str, Any]:
                                        bad_hours=_inst_bad_hours)
                         if sig is None and _rlog:
                             ms.last_snapshot["reject_log"] = _rlog
+                            for _stage, _cnt in _rlog.items():
+                                ms.reject_counts_today[_stage] = ms.reject_counts_today.get(_stage, 0) + _cnt
                             _set_loop_gate("evaluate: " + list(_rlog.keys())[0])
                             logger.info("[%s] evaluate() rejet: %s", ms.symbol, _rlog)
                     if sig is not None:
@@ -1210,6 +1218,23 @@ def get_weekly_report_endpoint(week: int = 0, symbol: str | None = None, _user: 
 def get_monthly_report_endpoint(month: int = 0, symbol: str | None = None, _user: dict = Depends(get_current_user)):
     """Rapport mensuel. month=0 = mois courant, month=-1 = mois précédent."""
     return db.get_monthly_report(month_offset=month, symbol=symbol or None)
+
+
+@app.get("/api/diagnostics")
+def get_diagnostics(symbol: str = "XAUUSD", weeks: int = 12, _user: dict = Depends(get_current_user)):
+    """
+    Diagnostic stratégie : pourquoi le bot ne trade pas (funnel de rejet live
+    cumulé du jour, stratégie A uniquement) + volume de trades par jour de
+    semaine et par semaine sur `weeks` semaines, pour repérer les anomalies
+    de fréquence (jours ignorés, semaines à zéro trade, variance excessive).
+    """
+    ms = state.market_states.get(symbol)
+    return {
+        "symbol": symbol,
+        "rejection_funnel_today": dict(ms.reject_counts_today) if ms else {},
+        "eval_attempts_today": ms.eval_attempts_today if ms else 0,
+        "trade_volume": db.get_trade_volume_report(symbol=symbol, weeks=weeks),
+    }
 
 
 @app.get("/api/trades")
