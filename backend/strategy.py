@@ -70,6 +70,8 @@ EMA200_MIN_DIST_LONG  = 0.3  # LONG doit être à ≥ 0.3×ATR au-dessus de EMA2
 EMA200_MIN_DIST_SHORT = 0.6  # SHORT doit être à ≥ 0.6×ATR en-dessous de EMA200 (XAUUSD uptrend)
 BAD_HOURS_CET         = set()    # configuré via le panel dashboard (persiste en DB)
 ATR_REGIME_MIN_RATIO  = 0.65     # ratio ATR_now/ATR_mean minimal pour entrer (LiveAdaptiveAgent peut ajuster)
+ADX_REGIME_MIN_RATIO  = 0.0      # ratio ADX_H1_now/ADX_H1_mean minimal — 0 = désactivé (test walk-forward only)
+ADX_REGIME_LOOKBACK   = 20       # nb bougies H1 pour la moyenne glissante ADX du régime
 RSI_M5_LONG_MIN       = 49.0    # momentum M5 LONG minimal (LiveAdaptiveAgent peut ajuster)
 RSI_M5_SHORT_MAX      = 57.0    # momentum M5 SHORT maximal (LiveAdaptiveAgent peut ajuster)
 RSI_H1_LONG_MIN       = 40.0    # RSI H1 minimal pour LONG — H1 pas trop bearish
@@ -870,6 +872,14 @@ def evaluate(
         # 4b) H1 ADX trend strength
         if h1_adx < ADX_MIN:
             _rej(_reject_log, "adx"); return None
+
+        # 4f) Régime ADX H1 — force relative à sa propre moyenne récente, pas un seuil
+        # absolu. Désactivé par défaut (ADX_REGIME_MIN_RATIO=0) ; activé uniquement via
+        # extra_overrides pour test walk-forward isolé (ne touche jamais le live tel quel).
+        if ADX_REGIME_MIN_RATIO > 0 and len(h1) >= ADX_REGIME_LOOKBACK:
+            adx_avg = float(h1["adx"].iloc[-ADX_REGIME_LOOKBACK:].mean())
+            if adx_avg > 0 and h1_adx / adx_avg < ADX_REGIME_MIN_RATIO:
+                _rej(_reject_log, "adx_regime"); return None
 
         # 4d) ADX pente
         if ADX_SLOPE_ENABLED and len(h1) >= 2:
