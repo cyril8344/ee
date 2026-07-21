@@ -626,6 +626,25 @@ def run_pretrain(
             for _dir, _v in _by_dir.items() if _v["n"] >= 3
         }
 
+        # ---- Signature de régime (tous trades confondus, pas juste SL/TP2) ----
+        # Sert à comparer les fenêtres walk-forward entre elles : une fenêtre à
+        # PF bas a-t-elle un ADX H1 moyen plus faible, un biais directionnel, etc.
+        regime_signature = None
+        if trades_log:
+            _n = len(trades_log)
+            _n_long  = sum(1 for t in trades_log if t.get("direction") == "long")
+            _n_short = _n - _n_long
+            _wins_long  = sum(1 for t in trades_log if t.get("direction") == "long"  and t["won"])
+            _wins_short = sum(1 for t in trades_log if t.get("direction") == "short" and t["won"])
+            regime_signature = {
+                "avg_adx_h1":  round(sum(t.get("adx_h1", 0) for t in trades_log) / _n, 1),
+                "avg_atr":     round(sum(t.get("atr", 0) for t in trades_log) / _n, 3),
+                "avg_rsi_h1":  round(sum(t.get("h1_rsi", 50) for t in trades_log) / _n, 1),
+                "pct_long":    round(_n_long / _n * 100, 1),
+                "wr_long":     round(_wins_long / _n_long * 100, 1) if _n_long else None,
+                "wr_short":    round(_wins_short / _n_short * 100, 1) if _n_short else None,
+            }
+
         # ---- Diagnostic indicateurs par outcome ----
         def _grp_means(log, outcome):
             grp = [t for t in log if t.get("exit_reason") == outcome]
@@ -773,6 +792,7 @@ def run_pretrain(
             "false_stop_by_body":     false_stop_by_body,
             "diag_by_dow":            diag_by_dow,
             "diag_by_direction":      diag_by_direction,
+            "regime_signature":       regime_signature,
             "rejection_counts":       dict(sorted(rejection_counts.items(), key=lambda x: -x[1])),
             "sl_atr_mult":            SL_ATR_MULT,
         }
@@ -886,6 +906,10 @@ def run_walk_forward(
                 "rejection_counts": r.get("rejection_counts", {}),
                 "bars":             r.get("data_coverage", {}).get("bars"),
                 "data_coverage":    r.get("data_coverage", {}),
+                # Signature de régime — pour comparer les fenêtres entre elles
+                # (une fenêtre à PF bas a-t-elle un ADX H1 plus faible, un biais
+                # directionnel plus marqué, etc.)
+                "regime_signature": r.get("regime_signature"),
             })
         except Exception as exc:
             windows.append({

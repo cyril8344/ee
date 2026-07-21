@@ -2870,6 +2870,24 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                                 )}
                               </div>
                             )}
+                            {w.regime_signature && (
+                              <div style={{ marginTop: 6, paddingTop: 4, borderTop: `1px solid ${COLORS.border}` }}>
+                                <div style={{ fontSize: 9, color: COLORS.sub, marginBottom: 2 }}>Régime</div>
+                                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: COLORS.sub }}>
+                                  <span>ADX H1 moy</span><span>{w.regime_signature.avg_adx_h1}</span>
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: COLORS.sub }}>
+                                  <span>ATR moy</span><span>{w.regime_signature.avg_atr}</span>
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: COLORS.sub }}>
+                                  <span>% LONG</span><span>{w.regime_signature.pct_long}%</span>
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: COLORS.sub }}>
+                                  <span>WR L/S</span>
+                                  <span>{w.regime_signature.wr_long ?? "—"}% / {w.regime_signature.wr_short ?? "—"}%</span>
+                                </div>
+                              </div>
+                            )}
                           </>
                         )}
                       </div>
