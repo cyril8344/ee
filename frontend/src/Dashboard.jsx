@@ -438,6 +438,9 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [reportError, setReportError] = useState(null);
   const [reportSymbol, setReportSymbol] = useState("ALL");
   const [reportLlmOpen, setReportLlmOpen] = useState(false);
+  const [diagSymbol, setDiagSymbol] = useState("XAUUSD");
+  const [diagnostics, setDiagnostics] = useState(null);
+  const [diagError, setDiagError] = useState(null);
   const [aiReport, setAiReport] = useState(null);
   const [aiReportLoading, setAiReportLoading] = useState(false);
   const [aiReportError, setAiReportError] = useState(null);
@@ -700,6 +703,22 @@ export default function Dashboard({ onLogout, onNavigateES }) {
     const id = setInterval(load, 15000);
     return () => clearInterval(id);
   }, [reportSymbol]);
+
+  /* Diagnostic stratégie polling — funnel de rejet live + volume de trades */
+  useEffect(() => {
+    const load = () =>
+      fetch(`${API}/api/diagnostics?symbol=${diagSymbol}`, { headers: authHeaders() })
+        .then((r) => {
+          if (r.status === 401) { logout401(onLogout); throw new Error("401"); }
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        })
+        .then((d) => { setDiagnostics(d); setDiagError(null); })
+        .catch((e) => setDiagError(e.message || "erreur"));
+    load();
+    const id = setInterval(load, 20000);
+    return () => clearInterval(id);
+  }, [diagSymbol]);
 
   /* Pattern stats polling */
   useEffect(() => {
@@ -3550,6 +3569,98 @@ export default function Dashboard({ onLogout, onNavigateES }) {
               </div>
             </div>
           )}
+          </div>
+
+          {/* ===== diagnostic stratégie ===== */}
+          <div className="dashboard-panel section-gap" style={{ ...panel(), marginTop: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <h3 style={{ margin: 0, fontSize: 14 }}>Diagnostic stratégie — {diagSymbol}</h3>
+              <div style={{ display: "flex", gap: 4 }}>
+                <button onClick={() => setDiagSymbol("XAUUSD")} style={{ ...tabBtn(diagSymbol === "XAUUSD"), fontSize: 11, padding: "3px 8px", color: diagSymbol === "XAUUSD" ? undefined : COLORS.amber }}>XAU</button>
+                <button onClick={() => setDiagSymbol("EURUSD")} style={{ ...tabBtn(diagSymbol === "EURUSD"), fontSize: 11, padding: "3px 8px", color: diagSymbol === "EURUSD" ? undefined : "#6ab0f5" }}>EUR</button>
+              </div>
+            </div>
+
+            {diagError && (
+              <div style={{ fontSize: 12, color: COLORS.red, marginBottom: 8 }}>Erreur : {diagError}</div>
+            )}
+
+            {diagnostics && (
+              <div>
+                {/* Funnel de rejet — pourquoi pas de signal aujourd'hui */}
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 6 }}>
+                    Pourquoi pas de trade aujourd'hui — {diagnostics.eval_attempts_today} évaluation(s)
+                  </div>
+                  {diagSymbol !== "XAUUSD" && (
+                    <div style={{ fontSize: 11, color: COLORS.sub, fontStyle: "italic" }}>
+                      Funnel de rejet disponible uniquement pour XAU/USD (stratégie A — EMA/patterns).
+                    </div>
+                  )}
+                  {diagSymbol === "XAUUSD" && diagnostics.eval_attempts_today === 0 && (
+                    <div style={{ fontSize: 11, color: COLORS.sub }}>Aucune évaluation aujourd'hui (hors session, bot en pause, ou position déjà ouverte).</div>
+                  )}
+                  {diagSymbol === "XAUUSD" && diagnostics.eval_attempts_today > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                      {Object.entries(diagnostics.rejection_funnel_today || {})
+                        .sort((a, b) => b[1] - a[1])
+                        .map(([stage, count]) => {
+                          const pct = diagnostics.eval_attempts_today > 0
+                            ? Math.round((count / diagnostics.eval_attempts_today) * 100) : 0;
+                          return (
+                            <div key={stage} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 11, color: COLORS.text, width: 110, flexShrink: 0 }}>{stage}</span>
+                              <div style={{ flex: 1, background: COLORS.border, borderRadius: 3, height: 8, overflow: "hidden" }}>
+                                <div style={{ width: `${pct}%`, background: COLORS.amber, height: "100%", borderRadius: 3 }} />
+                              </div>
+                              <span style={{ fontSize: 10, color: COLORS.sub, width: 70, textAlign: "right", flexShrink: 0 }}>{count} ({pct}%)</span>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Volume de trades par jour de semaine */}
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 6 }}>Trades par jour de semaine (CET, {diagnostics.trade_volume?.weeks_covered ?? 0} sem.)</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    {Object.entries(diagnostics.trade_volume?.by_weekday || {}).map(([day, v]) => {
+                      const maxN = Math.max(1, ...Object.values(diagnostics.trade_volume?.by_weekday || {}).map(x => x.n));
+                      const pct = Math.round((v.n / maxN) * 100);
+                      return (
+                        <div key={day} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 11, color: COLORS.text, width: 70, flexShrink: 0 }}>{day}</span>
+                          <div style={{ flex: 1, background: COLORS.border, borderRadius: 3, height: 8, overflow: "hidden" }}>
+                            <div style={{ width: `${pct}%`, background: v.n === 0 ? COLORS.red : COLORS.green, height: "100%", borderRadius: 3 }} />
+                          </div>
+                          <span style={{ fontSize: 10, color: COLORS.sub, width: 60, textAlign: "right", flexShrink: 0 }}>n={v.n} ({v.wr}%)</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Volume de trades par semaine — repère les trous / la variance */}
+                <div>
+                  <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 6 }}>
+                    Trades par semaine — moy. {diagnostics.trade_volume?.avg_trades_per_week ?? 0}/sem.,{" "}
+                    {diagnostics.trade_volume?.weeks_with_zero_trades ?? 0} semaine(s) à zéro trade
+                  </div>
+                  <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 60 }}>
+                    {Object.entries(diagnostics.trade_volume?.by_week || {}).map(([wk, v]) => {
+                      const maxN = Math.max(1, ...Object.values(diagnostics.trade_volume?.by_week || {}).map(x => x.n));
+                      const h = Math.max(2, Math.round((v.n / maxN) * 56));
+                      return (
+                        <div key={wk} title={`Semaine du ${wk} — n=${v.n}, WR=${v.wr}%`} style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center" }}>
+                          <div style={{ width: "100%", height: h, background: v.n === 0 ? COLORS.red : COLORS.green, borderRadius: 2 }} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ===== agent adaptatif autonome ===== */}
