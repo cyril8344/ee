@@ -936,4 +936,5 @@ def run_walk_forward(
         "max_pf":          round(max(valid_pfs), 3) if valid_pfs else 0.0,
         "std_pf":          std_pf,
         "pct_profitable":  pct_ok,
+        "extra_overrides": extra_overrides or {},
     }

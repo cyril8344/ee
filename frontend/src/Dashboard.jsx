@@ -405,6 +405,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [optunaStatus, setOptunaStatus]       = useState(null);
   const [optunaLoading, setOptunaLoading]     = useState(false);
   const [wfSplits, setWfSplits]               = useState(4);
+  const [wfAdxOverride, setWfAdxOverride]     = useState("");
   const [optunaTrials, setOptunaTrials]       = useState(30);
   const [pretrainTrades, setPretrainTrades]   = useState(null);
   const [pretrainFilter, setPretrainFilter]   = useState("losses");
@@ -782,7 +783,8 @@ export default function Dashboard({ onLogout, onNavigateES }) {
     setWfStatus({ running: true, window: 0, n_splits: wfSplits, result: null, error: null });
     fetch(`${API}/api/pretrain/walkforward`, {
       method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ start: wfStart, end: wfEnd, n_splits: wfSplits, symbol: activeMarket, capital: pretrainCapital, risk_pct: pretrainRiskPct, strategy_mode: strategyMode }),
+      body: JSON.stringify({ start: wfStart, end: wfEnd, n_splits: wfSplits, symbol: activeMarket, capital: pretrainCapital, risk_pct: pretrainRiskPct, strategy_mode: strategyMode,
+        adx_min_override: wfAdxOverride !== "" ? parseFloat(wfAdxOverride) : null }),
     }).then(() => setWfLoading(false)).catch(() => setWfLoading(false));
   };
 
@@ -2269,6 +2271,20 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                           −12M → −6M
                         </button>
                       </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          ADX_MIN test (vide = défaut live)
+                        </span>
+                        <input type="number" step="1" placeholder="28" value={wfAdxOverride}
+                          onChange={e => setWfAdxOverride(e.target.value)}
+                          style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
+                      {wfAdxOverride !== "" && (
+                        <div style={{ fontSize: 9, color: COLORS.amber, marginBottom: 4 }}>
+                          ⚠ Test isolé — ne modifie pas le réglage live tant que tu ne le forces pas ailleurs.
+                        </div>
+                      )}
                       <button onClick={launchWalkForward}
                         disabled={wfStatus?.running || pretrainLoading || pretrainStatus?.running}
                         style={{ width: "100%", background: "#22c55e22",
@@ -2817,6 +2833,11 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                   );
                 })()}
               </div>
+              {wfStatus?.result?.extra_overrides && Object.keys(wfStatus.result.extra_overrides).length > 0 && (
+                <div style={{ fontSize: 10, color: COLORS.amber, marginBottom: 8 }}>
+                  ⚠ Testé avec {Object.entries(wfStatus.result.extra_overrides).map(([k, v]) => `${k}=${v}`).join(", ")} (pas le réglage live)
+                </div>
+              )}
               {wfStatus?.result && (
                 <div style={{ display: "grid", gridTemplateColumns: `repeat(${wfStatus.result.windows?.length ?? wfSplits}, 1fr)`, gap: 10 }}>
                   {(wfStatus.result.windows ?? []).map((w, i) => {
@@ -2834,6 +2855,12 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                               <div style={{ fontSize: 9, marginBottom: 4,
                                 color: w.data_coverage.provider === "synthetic" ? COLORS.red : COLORS.sub }}>
                                 {w.data_coverage.provider === "synthetic" ? "⚠ synthétique" : w.data_coverage.provider}
+                              </div>
+                            )}
+                            {w.data_coverage && w.data_coverage.full_coverage === false && (
+                              <div style={{ fontSize: 9, marginBottom: 4, color: COLORS.red }}>
+                                ⚠ couverture incomplète ({w.data_coverage.actual_start}→{w.data_coverage.actual_end}
+                                {" "}vs {w.data_coverage.requested_start} demandé)
                               </div>
                             )}
                             <div style={{ fontSize: 20, fontWeight: 700, color: pfColor, textAlign: "center" }}>{pf.toFixed(2)}</div>
