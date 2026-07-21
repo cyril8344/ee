@@ -282,12 +282,17 @@ def _fetch_twelvedata_range(start: str, end: str, symbol: str = "XAUUSD") -> pd.
         _td_throttle()
         r = requests.get("https://api.twelvedata.com/time_series",
                          params=params, timeout=REQUEST_TIMEOUT)
-        if r.status_code == 429:
-            _time_mod.sleep(30)
+        # Plusieurs tentatives avec backoff croissant — un seul retry à 30s laissait
+        # trop souvent tomber la couverture sous le seuil (durci à 95%) sur un rate
+        # limit un peu long, faisant basculer silencieusement sur un autre provider.
+        for _backoff in (30, 60, 90):
+            if r.status_code != 429:
+                break
+            _time_mod.sleep(_backoff)
             r = requests.get("https://api.twelvedata.com/time_series",
                              params=params, timeout=REQUEST_TIMEOUT)
         if r.status_code == 429:
-            break  # épuisé → retourne les chunks déjà collectés
+            break  # épuisé après plusieurs tentatives → retourne les chunks déjà collectés
         r.raise_for_status()
         data = r.json()
         if data.get("status") == "error" or "values" not in data:
@@ -509,7 +514,10 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
                 # Ne pas cacher si la couverture est insuffisante (rate limit partiel)
                 req_days = (pd.Timestamp(end, tz="UTC") - pd.Timestamp(start, tz="UTC")).days
                 got_days = (df.index.max() - df.index.min()).days if len(df) > 1 else 0
-                coverage_ok = got_days >= req_days * 0.8
+                # 95% — un rate-limit en cours de pagination coupe silencieusement le
+                # début de la période ; 80% laissait passer jusqu'à ~2.5 mois manquants
+                # sur une plage de 12 mois sans que rien ne le signale.
+                coverage_ok = got_days >= req_days * 0.95
                 if _is_range and coverage_ok:
                     _cache_save(symbol, start, end, df, "twelvedata")
                 if coverage_ok:

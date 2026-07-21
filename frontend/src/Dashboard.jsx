@@ -2857,6 +2857,12 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                                 {w.data_coverage.provider === "synthetic" ? "⚠ synthétique" : w.data_coverage.provider}
                               </div>
                             )}
+                            {w.data_coverage && w.data_coverage.full_coverage === false && (
+                              <div style={{ fontSize: 9, marginBottom: 4, color: COLORS.red }}>
+                                ⚠ couverture incomplète ({w.data_coverage.actual_start}→{w.data_coverage.actual_end}
+                                {" "}vs {w.data_coverage.requested_start} demandé)
+                              </div>
+                            )}
                             <div style={{ fontSize: 20, fontWeight: 700, color: pfColor, textAlign: "center" }}>{pf.toFixed(2)}</div>
                             <div style={{ fontSize: 10, color: COLORS.sub, textAlign: "center", marginBottom: 4 }}>PF</div>
                             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
