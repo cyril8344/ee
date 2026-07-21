@@ -2239,7 +2239,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                         <span style={{ color: COLORS.sub, fontSize: 11, flex: 1 }}>Walk-forward OOS</span>
                         <select value={wfSplits} onChange={e => setWfSplits(parseInt(e.target.value))}
                           style={{ background: COLORS.panel, color: COLORS.text, border: `1px solid ${COLORS.border}`, borderRadius: 3, padding: "1px 4px", fontSize: 11 }}>
-                          {[3,4,5,6].map(n => <option key={n} value={n}>{n}</option>)}
+                          {[3,4,5,6,7,8,9,10,12].map(n => <option key={n} value={n}>{n}</option>)}
                         </select>
                       </div>
                       <div style={{ fontSize: 10, color: COLORS.sub, marginBottom: 4 }}>
