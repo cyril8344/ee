@@ -1741,6 +1741,13 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                                     <div style={{ color: COLORS.sub }}>false BE</div>
                                     <div style={{ color: COLORS.sub, fontSize: 9 }}>SL-BE → TP2 dans 20 bougies ({pretrainStats.false_be_n ?? 0})</div>
                                   </div>
+                                  <div style={{ flex: 1, background: "#ec489922", borderRadius: 4, padding: "4px 6px", textAlign: "center" }}>
+                                    <div style={{ color: "#ec4899", fontWeight: 600, fontSize: 13 }}>
+                                      {pretrainStats.false_ee_pct != null ? `${pretrainStats.false_ee_pct}%` : "—"}
+                                    </div>
+                                    <div style={{ color: COLORS.sub }}>false early exit</div>
+                                    <div style={{ color: COLORS.sub, fontSize: 9 }}>early_exit → TP1 dans 12 bougies ({pretrainStats.false_ee_n ?? 0})</div>
+                                  </div>
                                 </div>
 
                                 {/* Grille session × direction */}

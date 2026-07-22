@@ -2108,6 +2108,11 @@ def pretrain_stats(_user: dict = Depends(get_current_user)):
     false_be_pct  = false_be_data.get("pct_false_bes", None)
     false_be_n    = false_be_data.get("n_sl_after_tp1", 0)
 
+    # ── False early exits (early_exit → prix atteint TP1 dans les 12 bougies) ──
+    false_ee_data = result.get("false_early_exits", {})
+    false_ee_pct  = false_ee_data.get("pct_false_early_exits", None)
+    false_ee_n    = false_ee_data.get("n_early_exit", 0)
+
     # ── Couverture réelle des données ──────────────────────────────────────────
     data_cov = result.get("data_coverage", {})
 
@@ -2124,6 +2129,8 @@ def pretrain_stats(_user: dict = Depends(get_current_user)):
         "false_stops_pct":     false_stops_pct,
         "false_be_pct":        false_be_pct,
         "false_be_n":          false_be_n,
+        "false_ee_pct":        false_ee_pct,
+        "false_ee_n":          false_ee_n,
         "data_coverage":       data_cov,
         "indicator_diagnostic":  result.get("indicator_diagnostic", {}),
         "wr_by_pattern":         result.get("wr_by_pattern", {}),
