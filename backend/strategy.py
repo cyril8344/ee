@@ -70,6 +70,7 @@ EMA200_MIN_DIST_LONG  = 0.3  # LONG doit être à ≥ 0.3×ATR au-dessus de EMA2
 EMA200_MIN_DIST_SHORT = 0.6  # SHORT doit être à ≥ 0.6×ATR en-dessous de EMA200 (XAUUSD uptrend)
 BAD_HOURS_CET         = set()    # configuré via le panel dashboard (persiste en DB)
 ATR_REGIME_MIN_RATIO  = 0.65     # ratio ATR_now/ATR_mean minimal pour entrer (LiveAdaptiveAgent peut ajuster)
+ATR_REGIME_MAX_RATIO  = 0.0      # ratio ATR_now/ATR_mean maximal — 0 = désactivé (test walk-forward only)
 ADX_REGIME_MIN_RATIO  = 0.0      # ratio ADX_H1_now/ADX_H1_mean minimal — 0 = désactivé (test walk-forward only)
 ADX_REGIME_LOOKBACK   = 20       # nb bougies H1 pour la moyenne glissante ADX du régime
 RSI_M5_LONG_MIN       = 49.0    # momentum M5 LONG minimal (LiveAdaptiveAgent peut ajuster)
@@ -868,6 +869,11 @@ def evaluate(
             atr_avg = float(m5["atr"].iloc[-20:].mean())
             if atr_avg > 0 and atr_val / atr_avg < ATR_REGIME_MIN_RATIO:
                 _rej(_reject_log, "atr_regime"); return None
+            # 4e) Plafond régime volatilité — désactivé par défaut (0), test walk-forward
+            # only. Bloque les entrées quand l'ATR spike anormalement au-dessus de sa
+            # moyenne récente (mèches qui chassent le stop avant que le prix reparte).
+            if ATR_REGIME_MAX_RATIO > 0 and atr_avg > 0 and atr_val / atr_avg > ATR_REGIME_MAX_RATIO:
+                _rej(_reject_log, "atr_regime_max"); return None
 
         # 4b) H1 ADX trend strength
         if h1_adx < ADX_MIN:

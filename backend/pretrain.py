@@ -366,9 +366,12 @@ def run_pretrain(
             if open_trade is not None:
                 continue
 
-            # Pré-filtrage session rapide (évite 80 % des appels evaluate)
+            # Pré-filtrage session rapide (évite 80 % des appels evaluate) — on
+            # tague quand même le rejet, sinon ces bougies (≈2/3 des heures d'une
+            # journée) disparaissent silencieusement du diagnostic rejection_counts.
             sess = active_session(ts.to_pydatetime())
             if sess is None:
+                rejection_counts["session"] = rejection_counts.get("session", 0) + 1
                 continue
 
             m15_s = m15_full.iloc[:m15_full.index.searchsorted(ts, side="right")]
