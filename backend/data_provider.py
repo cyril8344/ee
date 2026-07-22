@@ -283,9 +283,12 @@ def _fetch_twelvedata_range(start: str, end: str, symbol: str = "XAUUSD") -> pd.
         r = requests.get("https://api.twelvedata.com/time_series",
                          params=params, timeout=REQUEST_TIMEOUT)
         # Plusieurs tentatives avec backoff croissant — un seul retry à 30s laissait
-        # trop souvent tomber la couverture sous le seuil (durci à 95%) sur un rate
+        # trop souvent tomber la couverture sous le seuil (durci à 99%) sur un rate
         # limit un peu long, faisant basculer silencieusement sur un autre provider.
-        for _backoff in (30, 60, 90):
+        # Une plage de plusieurs années = des dizaines d'appels paginés, donc plus
+        # de chances de croiser un rate-limit ; on privilégie la complétude à la
+        # vitesse ici (backtest hors-ligne, pas de contrainte temps réel).
+        for _backoff in (30, 60, 90, 120, 150):
             if r.status_code != 429:
                 break
             _time_mod.sleep(_backoff)
@@ -514,10 +517,10 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
                 # Ne pas cacher si la couverture est insuffisante (rate limit partiel)
                 req_days = (pd.Timestamp(end, tz="UTC") - pd.Timestamp(start, tz="UTC")).days
                 got_days = (df.index.max() - df.index.min()).days if len(df) > 1 else 0
-                # 95% — un rate-limit en cours de pagination coupe silencieusement le
-                # début de la période ; 80% laissait passer jusqu'à ~2.5 mois manquants
-                # sur une plage de 12 mois sans que rien ne le signale.
-                coverage_ok = got_days >= req_days * 0.95
+                # 99% — 95% laissait encore jusqu'à ~9 jours manquants sur une fenêtre
+                # de 6 mois sans déclencher l'alerte, assez pour faire bouger un résultat
+                # de walk-forward d'un run à l'autre sur les mêmes dates demandées.
+                coverage_ok = got_days >= req_days * 0.99
                 if _is_range and coverage_ok:
                     _cache_save(symbol, start, end, df, "twelvedata")
                 if coverage_ok:
