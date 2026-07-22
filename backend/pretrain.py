@@ -202,6 +202,8 @@ def run_pretrain(
         n_sl_for_false_check = 0   # total SL directs analysés
         n_false_bes          = 0   # sl_after_tp1 → prix aurait atteint TP2 dans les 20 bougies suivantes
         n_be_for_false_check = 0   # total sl_after_tp1 analysés
+        n_false_early_exits         = 0   # early_exit → prix aurait quand même atteint TP1 dans les 12 bougies suivantes
+        n_early_exit_for_false_check = 0  # total early_exit analysés
         pnl_wins   = []   # PnL $ des trades gagnants
         pnl_losses = []   # PnL $ (abs) des trades perdants
         mae_wins   = []   # MAE en R des trades gagnants
@@ -305,6 +307,23 @@ def run_pretrain(
                         if false_be:
                             n_false_bes += 1
 
+                    # ---- Analyse false early exit ----
+                    # Sur un early_exit (sorti à 15 min faute de conviction) : est-ce que
+                    # le prix aurait quand même atteint TP1 dans les 12 bougies suivantes
+                    # (60 min — le temps qu'il restait avant MAX_TRADE_MINUTES) ?
+                    false_early_exit = False
+                    if exit_reason == "early_exit":
+                        n_early_exit_for_false_check += 1
+                        tp1_level = open_trade["tp1"]
+                        direction = open_trade["direction"]
+                        future_ee = m5.iloc[i + 1 : i + 13]
+                        if direction == "long":
+                            false_early_exit = bool((future_ee["high"] >= tp1_level).any())
+                        else:
+                            false_early_exit = bool((future_ee["low"] <= tp1_level).any())
+                        if false_early_exit:
+                            n_false_early_exits += 1
+
                     _snap = open_trade.get("ind_snap", {})
                     trades_log.append({
                         "entry_ts":      open_trade["entry_time"].isoformat(),
@@ -321,6 +340,7 @@ def run_pretrain(
                         "false_stop":           false_stop,
                         "false_stop_spike_atr": false_stop_spike_atr,
                         "false_be":             false_be,
+                        "false_early_exit":     false_early_exit,
                         "rsi_m5":        _snap.get("rsi_m5", 50),
                         "rsi_m15":       _snap.get("rsi_m15", 50),
                         "adx_h1":        _snap.get("adx_h1", 0),
@@ -782,6 +802,14 @@ def run_pretrain(
                 "pct_false_bes": round(
                     n_false_bes / n_be_for_false_check * 100, 1
                 ) if n_be_for_false_check else 0.0,
+            },
+            "false_early_exits": {
+                "n_early_exit":          n_early_exit_for_false_check,
+                "n_false_early_exits":   n_false_early_exits,
+                # % d'early_exit où le prix aurait quand même atteint TP1 dans les 12 bougies suivantes
+                "pct_false_early_exits": round(
+                    n_false_early_exits / n_early_exit_for_false_check * 100, 1
+                ) if n_early_exit_for_false_check else 0.0,
             },
             "indicator_diagnostic":   indicator_diagnostic,
             "wr_by_session":          wr_by_session,
