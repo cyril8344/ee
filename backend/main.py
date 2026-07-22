@@ -1829,6 +1829,7 @@ class WalkForwardRequest(BaseModel):
     strategy_mode: str = "A"
     adx_min_override: Optional[float] = None
     adx_regime_ratio_override: Optional[float] = None
+    atr_regime_max_ratio_override: Optional[float] = None
 
 
 @app.post("/api/pretrain/walkforward")
@@ -1846,6 +1847,8 @@ def start_walkforward(req: WalkForwardRequest, _user: dict = Depends(get_current
                 _overrides["ADX_MIN"] = req.adx_min_override
             if req.adx_regime_ratio_override is not None:
                 _overrides["ADX_REGIME_MIN_RATIO"] = req.adx_regime_ratio_override
+            if req.atr_regime_max_ratio_override is not None:
+                _overrides["ATR_REGIME_MAX_RATIO"] = req.atr_regime_max_ratio_override
             _overrides = _overrides or None
             r = _pretrain_module.run_walk_forward(
                 start=req.start, end=req.end,
