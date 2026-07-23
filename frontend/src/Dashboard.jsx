@@ -2936,6 +2936,11 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                                   {w.bars != null && (
                                     <div style={{ fontSize: 9, color: COLORS.sub, marginTop: 2 }}>{w.bars} bougies chargées</div>
                                   )}
+                                  {w.efficiency_ratio_h1 != null && (
+                                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: COLORS.sub, marginTop: 2 }}>
+                                      <span>Efficacité H1 (0=chop, 1=trend)</span><span>{w.efficiency_ratio_h1}</span>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })()}

@@ -649,6 +649,22 @@ def run_pretrain(
             for _dir, _v in _by_dir.items() if _v["n"] >= 3
         }
 
+        # ---- Ratio d'efficacité directionnelle (Kaufman) sur H1 ----
+        # Contrairement à avg_adx_h1 (moyenné seulement sur les trades pris), ceci
+        # mesure le PRIX lui-même sur toute la fenêtre, trades ou pas : 1.0 = aller
+        # simple (tendance pure), proche de 0 = aller-retour (range/chop). Sert à
+        # distinguer un "mauvais régime" (chop) d'un simple manque de chance sur
+        # un petit échantillon de trades.
+        _h1_close = h1_full["close"].dropna()
+        if len(_h1_close) >= 2:
+            _path_len = _h1_close.diff().abs().sum()
+            efficiency_ratio_h1 = (
+                round(float(abs(_h1_close.iloc[-1] - _h1_close.iloc[0]) / _path_len), 3)
+                if _path_len else 0.0
+            )
+        else:
+            efficiency_ratio_h1 = None
+
         # ---- Signature de régime (tous trades confondus, pas juste SL/TP2) ----
         # Sert à comparer les fenêtres walk-forward entre elles : une fenêtre à
         # PF bas a-t-elle un ADX H1 moyen plus faible, un biais directionnel, etc.
@@ -666,6 +682,7 @@ def run_pretrain(
                 "pct_long":    round(_n_long / _n * 100, 1),
                 "wr_long":     round(_wins_long / _n_long * 100, 1) if _n_long else None,
                 "wr_short":    round(_wins_short / _n_short * 100, 1) if _n_short else None,
+                "efficiency_ratio_h1": efficiency_ratio_h1,
             }
 
         # ---- Diagnostic indicateurs par outcome ----
@@ -824,6 +841,7 @@ def run_pretrain(
             "diag_by_dow":            diag_by_dow,
             "diag_by_direction":      diag_by_direction,
             "regime_signature":       regime_signature,
+            "efficiency_ratio_h1":    efficiency_ratio_h1,
             "rejection_counts":       dict(sorted(rejection_counts.items(), key=lambda x: -x[1])),
             "sl_atr_mult":            SL_ATR_MULT,
         }
@@ -941,6 +959,7 @@ def run_walk_forward(
                 # (une fenêtre à PF bas a-t-elle un ADX H1 plus faible, un biais
                 # directionnel plus marqué, etc.)
                 "regime_signature": r.get("regime_signature"),
+                "efficiency_ratio_h1": r.get("efficiency_ratio_h1"),
                 # SL_direct vs TP2 — quelles conditions séparent les trades perdants des
                 # gagnants sur CETTE fenêtre (pas de moyenne globale multi-fenêtres).
                 "indicator_diagnostic": r.get("indicator_diagnostic"),
