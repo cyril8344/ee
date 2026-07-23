@@ -29,6 +29,24 @@ MAX_LOT = 100.0
 LOT_STEP = 0.01
 
 
+def drawdown_adjusted_risk_pct(base_risk_pct: float, equity: float, equity_peak: float,
+                               enabled: bool, threshold_pct: float, factor: float) -> float:
+    """
+    Réduit risk_pct une fois que l'equity a reculé de threshold_pct% depuis son
+    plus haut (drawdown glissant). Réactif (basé sur la performance déjà mesurée),
+    pas prédictif — contrairement aux filtres de régime (ADX/ATR) testés en amont
+    et qui n'ont pas séparé proprement les bonnes et mauvaises fenêtres walk-forward.
+    Désactivé par défaut (`enabled=False`) : ne change rien tant que ce n'est pas
+    explicitement activé et validé en walk-forward.
+    """
+    if not enabled or equity_peak <= 0:
+        return base_risk_pct
+    drawdown_pct = max(0.0, (equity_peak - equity) / equity_peak * 100.0)
+    if drawdown_pct < threshold_pct:
+        return base_risk_pct
+    return base_risk_pct * factor
+
+
 @dataclass
 class RiskDecision:
     allowed: bool
@@ -52,9 +70,14 @@ class RiskManager:
     blocked: bool = False
     block_reason: str = ""
 
+    # plus haut d'equity jamais atteint (all-time), pour le sizing dynamique en drawdown
+    equity_peak: float = field(default=None)  # type: ignore
+
     def __post_init__(self):
         if self.start_equity_today is None:
             self.start_equity_today = self.capital
+        if self.equity_peak is None:
+            self.equity_peak = self.capital
 
     # ------------------------------------------------------------------ #
     # Configuration
@@ -113,7 +136,7 @@ class RiskManager:
         Volume sized so that hitting the stop loses exactly risk_per_trade_pct.
         """
         stop_distance = abs(entry - stop)
-        risk_amount = self.capital * (self.risk_per_trade_pct / 100.0)
+        risk_amount = self.capital * (self._effective_risk_pct() / 100.0)
         if stop_distance <= 0:
             return 0.0, risk_amount, 0.0
         # $ loss per lot if stop hit = stop_distance * contract_size
@@ -164,7 +187,21 @@ class RiskManager:
     def register_close(self, pnl: float) -> None:
         self.realised_pnl_today += float(pnl)
         self.capital += float(pnl)
+        self.equity_peak = max(self.equity_peak, self.capital)
         self._reevaluate_block()
+
+    def _effective_risk_pct(self) -> float:
+        try:
+            import strategy as _st
+            enabled   = bool(getattr(_st, "DRAWDOWN_SIZING_ENABLED", False))
+            threshold = float(getattr(_st, "DRAWDOWN_SIZING_THRESHOLD_PCT", 5.0))
+            factor    = float(getattr(_st, "DRAWDOWN_SIZING_FACTOR", 0.5))
+        except Exception:
+            return self.risk_per_trade_pct
+        return drawdown_adjusted_risk_pct(
+            self.risk_per_trade_pct, self.capital, self.equity_peak,
+            enabled, threshold, factor,
+        )
 
     def _daily_loss_exceeded(self) -> bool:
         try:
@@ -188,12 +225,19 @@ class RiskManager:
         return abs(self.start_equity_today * (self.daily_stop_pct / 100.0))
 
     def status(self) -> Dict[str, Any]:
+        effective_risk_pct = self._effective_risk_pct()
         return {
             "capital": round(self.capital, 2),
             "risk_per_trade_pct": self.risk_per_trade_pct,
+            "effective_risk_pct": round(effective_risk_pct, 3),
+            "equity_peak": round(self.equity_peak, 2),
+            "drawdown_pct": round(
+                max(0.0, (self.equity_peak - self.capital) / self.equity_peak * 100.0)
+                if self.equity_peak else 0.0, 2
+            ),
             "daily_stop_pct": self.daily_stop_pct,
             "risk_amount_usd": round(
-                self.capital * (self.risk_per_trade_pct / 100.0), 2
+                self.capital * (effective_risk_pct / 100.0), 2
             ),
             "trades_today": self.trades_today,
             "max_trades_per_day": self.max_trades_per_day,

@@ -35,6 +35,7 @@ from backtest import load_m5_data, resample, _try_exit
 import database as db
 import data_provider as _dp
 from ml_gate import AdaptiveThresholds
+from risk_manager import drawdown_adjusted_risk_pct
 
 # --------------------------------------------------------------------------- #
 # État de progression (partagé avec l'API)
@@ -197,6 +198,7 @@ def run_pretrain(
         n_trades     = 0
         n_wins       = 0
         equity       = float(capital)
+        equity_peak  = float(capital)   # plus haut d'equity — sizing dynamique en drawdown
         equity_curve = [{"ts": m5.index[warmup].isoformat(), "equity": equity}]
         n_false_stops        = 0   # SL direct → prix aurait atteint TP1 dans les 10 bougies suivantes
         n_sl_for_false_check = 0   # total SL directs analysés
@@ -237,6 +239,7 @@ def run_pretrain(
                     won = pnl > 0
                     n_trades += 1
                     equity += pnl
+                    equity_peak = max(equity_peak, equity)
                     equity_curve.append({"ts": ts.isoformat(), "equity": round(equity, 2)})
                     if won:
                         n_wins += 1
@@ -420,7 +423,13 @@ def run_pretrain(
             if sig.direction == "short" and sig.take_profit1 >= sig.entry - _roundtrip:
                 continue
             sl_dist = abs(fill - sig.stop_loss)
-            volume = _size_lots(equity, risk_pct, sl_dist, contract_size)
+            effective_risk_pct = drawdown_adjusted_risk_pct(
+                risk_pct, equity, equity_peak,
+                strategy.DRAWDOWN_SIZING_ENABLED,
+                strategy.DRAWDOWN_SIZING_THRESHOLD_PCT,
+                strategy.DRAWDOWN_SIZING_FACTOR,
+            )
+            volume = _size_lots(equity, effective_risk_pct, sl_dist, contract_size)
             h1_cur  = h1_s.iloc[-1]  if len(h1_s)  > 0 else pd.Series(dtype=float)
             m15_cur = m15_s.iloc[-1] if len(m15_s) > 0 else pd.Series(dtype=float)
             open_trade = {

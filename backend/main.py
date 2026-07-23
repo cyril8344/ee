@@ -1830,6 +1830,8 @@ class WalkForwardRequest(BaseModel):
     adx_min_override: Optional[float] = None
     adx_regime_ratio_override: Optional[float] = None
     atr_regime_max_ratio_override: Optional[float] = None
+    drawdown_sizing_threshold_override: Optional[float] = None
+    drawdown_sizing_factor_override: Optional[float] = None
 
 
 @app.post("/api/pretrain/walkforward")
@@ -1849,6 +1851,12 @@ def start_walkforward(req: WalkForwardRequest, _user: dict = Depends(get_current
                 _overrides["ADX_REGIME_MIN_RATIO"] = req.adx_regime_ratio_override
             if req.atr_regime_max_ratio_override is not None:
                 _overrides["ATR_REGIME_MAX_RATIO"] = req.atr_regime_max_ratio_override
+            if req.drawdown_sizing_threshold_override is not None or req.drawdown_sizing_factor_override is not None:
+                _overrides["DRAWDOWN_SIZING_ENABLED"] = True
+                if req.drawdown_sizing_threshold_override is not None:
+                    _overrides["DRAWDOWN_SIZING_THRESHOLD_PCT"] = req.drawdown_sizing_threshold_override
+                if req.drawdown_sizing_factor_override is not None:
+                    _overrides["DRAWDOWN_SIZING_FACTOR"] = req.drawdown_sizing_factor_override
             _overrides = _overrides or None
             r = _pretrain_module.run_walk_forward(
                 start=req.start, end=req.end,
