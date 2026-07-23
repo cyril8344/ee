@@ -408,6 +408,8 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [wfAdxOverride, setWfAdxOverride]     = useState("");
   const [wfAdxRegimeOverride, setWfAdxRegimeOverride] = useState("");
   const [wfAtrRegimeMaxOverride, setWfAtrRegimeMaxOverride] = useState("");
+  const [wfDdSizingThreshold, setWfDdSizingThreshold] = useState("");
+  const [wfDdSizingFactor, setWfDdSizingFactor] = useState("");
   const [optunaTrials, setOptunaTrials]       = useState(30);
   const [pretrainTrades, setPretrainTrades]   = useState(null);
   const [pretrainFilter, setPretrainFilter]   = useState("losses");
@@ -788,7 +790,9 @@ export default function Dashboard({ onLogout, onNavigateES }) {
       body: JSON.stringify({ start: wfStart, end: wfEnd, n_splits: wfSplits, symbol: activeMarket, capital: pretrainCapital, risk_pct: pretrainRiskPct, strategy_mode: strategyMode,
         adx_min_override: wfAdxOverride !== "" ? parseFloat(wfAdxOverride) : null,
         adx_regime_ratio_override: wfAdxRegimeOverride !== "" ? parseFloat(wfAdxRegimeOverride) : null,
-        atr_regime_max_ratio_override: wfAtrRegimeMaxOverride !== "" ? parseFloat(wfAtrRegimeMaxOverride) : null }),
+        atr_regime_max_ratio_override: wfAtrRegimeMaxOverride !== "" ? parseFloat(wfAtrRegimeMaxOverride) : null,
+        drawdown_sizing_threshold_override: wfDdSizingThreshold !== "" ? parseFloat(wfDdSizingThreshold) : null,
+        drawdown_sizing_factor_override: wfDdSizingFactor !== "" ? parseFloat(wfDdSizingFactor) : null }),
     }).then(() => setWfLoading(false)).catch(() => setWfLoading(false));
   };
 
@@ -2309,7 +2313,25 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                           style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
-                      {(wfAdxOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "") && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          Sizing drawdown — seuil % (vide = désactivé)
+                        </span>
+                        <input type="number" step="0.5" placeholder="5" value={wfDdSizingThreshold}
+                          onChange={e => setWfDdSizingThreshold(e.target.value)}
+                          style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          Sizing drawdown — facteur risk_pct (vide = 0.5 par défaut)
+                        </span>
+                        <input type="number" step="0.05" placeholder="0.5" value={wfDdSizingFactor}
+                          onChange={e => setWfDdSizingFactor(e.target.value)}
+                          style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
+                      {(wfAdxOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "") && (
                         <div style={{ fontSize: 9, color: COLORS.amber, marginBottom: 4 }}>
                           ⚠ Test isolé — ne modifie pas le réglage live tant que tu ne le forces pas ailleurs.
                         </div>

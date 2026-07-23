@@ -73,6 +73,9 @@ ATR_REGIME_MIN_RATIO  = 0.65     # ratio ATR_now/ATR_mean minimal pour entrer (L
 ATR_REGIME_MAX_RATIO  = 0.0      # ratio ATR_now/ATR_mean maximal — 0 = désactivé (test walk-forward only)
 ADX_REGIME_MIN_RATIO  = 0.0      # ratio ADX_H1_now/ADX_H1_mean minimal — 0 = désactivé (test walk-forward only)
 ADX_REGIME_LOOKBACK   = 20       # nb bougies H1 pour la moyenne glissante ADX du régime
+DRAWDOWN_SIZING_ENABLED       = False  # réduit risk_pct en drawdown — False = désactivé (test walk-forward only)
+DRAWDOWN_SIZING_THRESHOLD_PCT = 5.0    # % de recul depuis le plus haut d'equity qui déclenche la réduction
+DRAWDOWN_SIZING_FACTOR        = 0.5    # multiplicateur appliqué à risk_pct une fois le seuil dépassé
 RSI_M5_LONG_MIN       = 49.0    # momentum M5 LONG minimal (LiveAdaptiveAgent peut ajuster)
 RSI_M5_SHORT_MAX      = 57.0    # momentum M5 SHORT maximal (LiveAdaptiveAgent peut ajuster)
 RSI_H1_LONG_MIN       = 40.0    # RSI H1 minimal pour LONG — H1 pas trop bearish
