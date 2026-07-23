@@ -535,6 +535,20 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
             df = _PROVIDERS[name](start, end, bars, symbol)
             if df is not None and len(df) > 0:
                 if _is_range:
+                    # Un provider en page unique (ex: TwelveData plafonné à 5000
+                    # bougies, ~17j) peut renvoyer des données réelles mais hors de
+                    # la fenêtre demandée sur un range plus long. On applique le même
+                    # seuil de couverture que le fetch paginé (99%) avant d'accepter
+                    # — sinon on affiche silencieusement une mauvaise période comme
+                    # si c'était la bonne, ce qui fausse le walk-forward.
+                    req_days = (pd.Timestamp(end, tz="UTC") - pd.Timestamp(start, tz="UTC")).days
+                    got_days = (df.index.max() - df.index.min()).days if len(df) > 1 else 0
+                    if req_days > 0 and got_days < req_days * 0.99:
+                        last_err = RuntimeError(
+                            f"{name}: couverture insuffisante ({got_days}j obtenus / {req_days}j demandés)"
+                        )
+                        _last_errors[f"{symbol}:{name}"] = str(last_err)
+                        continue
                     _cache_save(symbol, start, end, df, name)
                 # Clear error on success
                 _last_errors.pop(f"{symbol}:{name}", None)
