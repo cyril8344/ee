@@ -134,12 +134,29 @@ class LiveAdaptiveAgent:
     def force_params(self, overrides: Dict[str, float]) -> Dict[str, float]:
         """Force-apply specific params, persist to DB. Returns updated params."""
         with self._lock:
+            applied = {}
             for k, v in overrides.items():
                 if k in self._params and k in BOUNDS:
                     lo, hi = BOUNDS[k]
-                    self._params[k] = max(lo, min(hi, float(v)))
+                    old = self._params[k]
+                    new = max(lo, min(hi, float(v)))
+                    if new != old:
+                        self._params[k] = new
+                        applied[k] = {"from": round(old, 3), "to": round(new, 3)}
             self._apply_to_strategy()
             self._save()
+            if applied:
+                window = self._trade_log[-WINDOW:]
+                wr = sum(1 for t in window if t["won"]) / len(window) if window else 0.0
+                record = {"trades": self._total_trades, "wr": round(wr, 3),
+                          "changes": applied, "manual": True}
+                self._adjustments.append(record)
+                try:
+                    import database as db
+                    db.live_agent_log_adjustment(self.symbol, self._total_trades, wr, applied)
+                except Exception as e:
+                    logger.warning("[LiveAgent:%s] erreur journalisation forçage manuel: %s", self.symbol, e)
+                logger.info("[LiveAgent:%s] forçage manuel: %s", self.symbol, applied)
         return dict(self._params)
 
     # ------------------------------------------------------------------ #

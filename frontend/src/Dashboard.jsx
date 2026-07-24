@@ -430,6 +430,10 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [agentHistory, setAgentHistory] = useState([]);
   const [liveAgentStatus, setLiveAgentStatus] = useState(null);
   const [liveAgentReverting, setLiveAgentReverting] = useState(false);
+  const [liveAgentForceInputs, setLiveAgentForceInputs] = useState({
+    RSI_M5_LONG_MIN: "", RSI_M5_SHORT_MAX: "", ADX_MIN: "", ATR_REGIME_MIN_RATIO: "",
+  });
+  const [liveAgentForcing, setLiveAgentForcing] = useState(false);
   const [rlStatus, setRlStatus] = useState(null);
   const [rlHistory, setRlHistory] = useState([]);
   const [rlLoading, setRlLoading] = useState(false);
@@ -2615,6 +2619,58 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                   <Row k="RSI_M5_SHORT_MAX" v={liveAgentStatus.params?.RSI_M5_SHORT_MAX} />
                   <Row k="ADX_MIN" v={liveAgentStatus.params?.ADX_MIN} />
                   <Row k="ATR_REGIME" v={liveAgentStatus.params?.ATR_REGIME_MIN_RATIO} />
+
+                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${COLORS.border}` }}>
+                    <div style={{ fontSize: 10, color: COLORS.sub, marginBottom: 4 }}>
+                      Forcer une valeur (vide = ne pas toucher)
+                    </div>
+                    {[
+                      ["RSI_M5_LONG_MIN", "RSI_M5_LONG_MIN"],
+                      ["RSI_M5_SHORT_MAX", "RSI_M5_SHORT_MAX"],
+                      ["ADX_MIN", "ADX_MIN"],
+                      ["ATR_REGIME_MIN_RATIO", "ATR_REGIME"],
+                    ].map(([key, label]) => (
+                      <div key={key} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>{label}</span>
+                        <input type="number" step="0.5"
+                          placeholder={String(liveAgentStatus.params?.[key] ?? "")}
+                          value={liveAgentForceInputs[key]}
+                          onChange={e => setLiveAgentForceInputs(s => ({ ...s, [key]: e.target.value }))}
+                          style={{ width: 60, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
+                    ))}
+                    <button
+                      disabled={liveAgentForcing || Object.values(liveAgentForceInputs).every(v => v === "")}
+                      onClick={() => {
+                        const params = {};
+                        Object.entries(liveAgentForceInputs).forEach(([k, v]) => {
+                          if (v !== "") params[k] = parseFloat(v);
+                        });
+                        if (Object.keys(params).length === 0) return;
+                        setLiveAgentForcing(true);
+                        fetch(`${API}/api/live-agent/params`, {
+                          method: "POST",
+                          headers: { ...authHeaders(), "Content-Type": "application/json" },
+                          body: JSON.stringify({ params }),
+                        })
+                          .then(r => r.json())
+                          .then(d => {
+                            setLiveAgentStatus(s => ({ ...s, params: d.applied }));
+                            setLiveAgentForceInputs({ RSI_M5_LONG_MIN: "", RSI_M5_SHORT_MAX: "", ADX_MIN: "", ATR_REGIME_MIN_RATIO: "" });
+                          })
+                          .catch(() => {})
+                          .finally(() => setLiveAgentForcing(false));
+                      }}
+                      style={{
+                        width: "100%", marginTop: 2, padding: "4px 0", fontSize: 11,
+                        border: `1px solid ${COLORS.blue}`, borderRadius: 4,
+                        background: "transparent", color: COLORS.blue, cursor: "pointer",
+                      }}
+                    >
+                      {liveAgentForcing ? "..." : "Forcer les paramètres"}
+                    </button>
+                  </div>
                   {liveAgentStatus.last_adj && (
                     <div style={{ marginTop: 6, fontSize: 11, color: COLORS.amber }}>
                       Dernier ajust. ({liveAgentStatus.n_adjustments}) — WR {(liveAgentStatus.last_adj.wr * 100).toFixed(0)}%
