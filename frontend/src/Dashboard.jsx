@@ -444,9 +444,6 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [aiReport, setAiReport] = useState(null);
   const [aiReportLoading, setAiReportLoading] = useState(false);
   const [aiReportError, setAiReportError] = useState(null);
-  const [adaptiveRunning, setAdaptiveRunning] = useState(false);
-  const [adaptiveResult, setAdaptiveResult] = useState(null);
-  const [adaptiveError, setAdaptiveError] = useState(null);
   const beep = useBeep();
   const lastAlertTs = useRef(null);
 
@@ -3652,75 +3649,6 @@ export default function Dashboard({ onLogout, onNavigateES }) {
               </div>
             </div>
           )}
-          </div>
-
-          {/* ===== agent adaptatif autonome ===== */}
-          <div className="dashboard-panel section-gap" style={{ ...panel(), marginTop: 14 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <h3 style={{ margin: 0, fontSize: 14 }}>Agent Adaptatif — Contrôle autonome</h3>
-              <button
-                onClick={() => {
-                  setAdaptiveRunning(true);
-                  setAdaptiveError(null);
-                  fetch(`${API}/api/adaptive-agent/run`, { method: "POST", headers: authHeaders() })
-                    .then((r) => { if (!r.ok) return r.json().then(d => { throw new Error(d.detail || `HTTP ${r.status}`); }); return r.json(); })
-                    .then((d) => { setAdaptiveResult(d); setAdaptiveRunning(false); })
-                    .catch((e) => { setAdaptiveError(e.message); setAdaptiveRunning(false); });
-                }}
-                disabled={adaptiveRunning}
-                style={{ background: "#22c55e", color: "#000", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: adaptiveRunning ? "wait" : "pointer", opacity: adaptiveRunning ? 0.7 : 1 }}
-              >
-                {adaptiveRunning ? "Analyse en cours..." : "Lancer l'agent"}
-              </button>
-            </div>
-            {adaptiveError && (
-              <div style={{ fontSize: 12, color: COLORS.red, marginBottom: 8 }}>Erreur : {adaptiveError}</div>
-            )}
-            {!adaptiveResult && !adaptiveRunning && !adaptiveError && (
-              <div style={{ fontSize: 12, color: COLORS.sub }}>
-                L'agent analyse les stats de trades et ajuste automatiquement les paramètres (heures bloquées, RSI, ADX). Tourne aussi automatiquement toutes les 6h hors session.
-              </div>
-            )}
-            {adaptiveResult && (
-              <div>
-                <div style={{ fontSize: 10, color: COLORS.sub, marginBottom: 6 }}>
-                  Run le {new Date(adaptiveResult.timestamp).toLocaleString("fr-FR")} · {adaptiveResult.trades_analyzed} trades analysés
-                </div>
-                {adaptiveResult.skipped && (
-                  <div style={{ fontSize: 12, color: COLORS.sub }}>{adaptiveResult.skipped}</div>
-                )}
-                {adaptiveResult.analysis && (
-                  <div style={{ fontSize: 12, color: COLORS.text, marginBottom: 8, lineHeight: 1.5 }}>
-                    {adaptiveResult.analysis}
-                  </div>
-                )}
-                {(adaptiveResult.actions_taken || []).length > 0 ? (
-                  <div>
-                    <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 4 }}>Actions appliquées :</div>
-                    {(adaptiveResult.actions_taken || []).map((a, i) => (
-                      <div key={i} style={{ fontSize: 12, color: "#22c55e", fontFamily: "monospace" }}>✓ {a}</div>
-                    ))}
-                  </div>
-                ) : (
-                  !adaptiveResult.skipped && <div style={{ fontSize: 12, color: COLORS.sub }}>Aucune action nécessaire.</div>
-                )}
-              </div>
-            )}
-            {/* Historique des runs automatiques depuis le state WebSocket */}
-            {(state?.adaptive?.history || []).length > 0 && (
-              <div style={{ marginTop: 12, borderTop: `1px solid ${COLORS.border}`, paddingTop: 8 }}>
-                <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 4 }}>Historique automatique :</div>
-                {(state.adaptive.history).slice().reverse().slice(0, 3).map((run, i) => (
-                  <div key={i} style={{ fontSize: 11, marginBottom: 6 }}>
-                    <span style={{ color: COLORS.sub }}>{new Date(run.timestamp).toLocaleString("fr-FR")} — </span>
-                    {(run.actions_taken || []).length > 0
-                      ? <span style={{ color: "#22c55e" }}>{run.actions_taken.join(" · ")}</span>
-                      : <span style={{ color: COLORS.sub }}>aucune action</span>
-                    }
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
 
           {/* ===== agent IA analyse ===== */}
