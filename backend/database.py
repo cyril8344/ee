@@ -178,6 +178,15 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS live_agent_adjustments (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol     TEXT NOT NULL,
+                trades     INTEGER NOT NULL,
+                wr         REAL NOT NULL,
+                changes    TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS instrument_settings (
                 symbol     TEXT PRIMARY KEY,
                 data       TEXT NOT NULL,
@@ -726,6 +735,36 @@ def live_agent_save(symbol: str, params: dict, trade_log: list) -> None:
             (symbol, json.dumps(params), json.dumps(trade_log), now,
              json.dumps(params), json.dumps(trade_log), now),
         )
+
+
+def live_agent_log_adjustment(symbol: str, trades: int, wr: float, changes: dict) -> None:
+    """Journal persistant de chaque ajustement de l'agent adaptatif live — survit aux
+    redémarrages/redéploiements, contrairement à la liste en mémoire de LiveAdaptiveAgent."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO live_agent_adjustments (symbol, trades, wr, changes, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (symbol, trades, wr, json.dumps(changes), _utcnow_iso()),
+        )
+
+
+def live_agent_adjustments_history(symbol: str, limit: int = 50) -> list:
+    """Derniers ajustements de l'agent adaptatif live, du plus récent au plus ancien."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT trades, wr, changes, created_at FROM live_agent_adjustments "
+            "WHERE symbol = ? ORDER BY id DESC LIMIT ?",
+            (symbol, limit),
+        ).fetchall()
+    return [
+        {
+            "trades":     r["trades"],
+            "wr":         r["wr"],
+            "changes":    json.loads(r["changes"]),
+            "created_at": r["created_at"],
+        }
+        for r in rows
+    ]
 
 
 # --------------------------------------------------------------------------- #

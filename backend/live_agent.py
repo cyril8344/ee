@@ -111,6 +111,10 @@ class LiveAdaptiveAgent:
                 self._apply_to_strategy()
                 logger.info("[LiveAgent:%s] état chargé — %d trades, params=%s",
                             self.symbol, self._total_trades, self._params)
+            # Historique des ajustements — persistant, survit aux redémarrages/redéploiements
+            # (contrairement à trade_log/params ci-dessus qui ne gardent que l'état courant).
+            history = db.live_agent_adjustments_history(self.symbol)
+            self._adjustments = list(reversed(history))  # plus ancien → plus récent
         except Exception as e:
             logger.warning("[LiveAgent:%s] erreur chargement: %s", self.symbol, e)
 
@@ -211,6 +215,11 @@ class LiveAdaptiveAgent:
                 "wr": round(wr, 3),
                 "changes": applied,
             })
+            try:
+                import database as db
+                db.live_agent_log_adjustment(self.symbol, self._total_trades, wr, applied)
+            except Exception as e:
+                logger.warning("[LiveAgent:%s] erreur journalisation ajustement: %s", self.symbol, e)
             logger.info("[LiveAgent:%s] ajustements: %s", self.symbol, applied)
             # Notifier ResearcherAgent pour valider ces params via pretrain
             self._notify_researcher()
@@ -240,6 +249,7 @@ class LiveAdaptiveAgent:
                 "params":           {k: round(v, 3) for k, v in self._params.items()},
                 "last_adj":         self._adjustments[-1] if self._adjustments else None,
                 "n_adjustments":    len(self._adjustments),
+                "adjustment_history": list(reversed(self._adjustments[-20:])),  # plus récent d'abord
                 "bootstrap_mode":   st.BOOTSTRAP_MODE,
                 "trades_to_exit":   max(0, BOOTSTRAP_EXIT_TRADES - self._total_trades),
             }

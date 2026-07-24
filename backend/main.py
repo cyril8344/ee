@@ -89,8 +89,11 @@ import agent_memory
 from ml_gate import AdaptiveThresholds
 import pretrain as _pretrain_module
 import pretrain_es as _pretrain_es_module
-from researcher_agent import ResearcherAgent
-from adaptive_agent import AdaptiveAgent
+# researcher_agent / adaptive_agent désactivés (juillet 2026) — voir CLAUDE.md
+# "Agents autonomes désactivés" : appliquaient des changements de strategy.* en
+# live sans coordination avec live_agent.py ni entre eux, et sans walk-forward
+# (researcher_agent validait sur 1 mois in-sample seul). Fichiers conservés mais
+# non importés, même principe que llm_gate.py.
 
 
 MARKET_CONFIG = {
@@ -219,11 +222,9 @@ class BotState:
         # Agent live adaptatif — apprend uniquement des vrais trades paper XAUUSD
         self.live_agent = LiveAdaptiveAgent(symbol="XAUUSD")
 
-        # Chercheur de paramètres — optimise RSI/ADX en arrière-plan hors session
-        self.researcher = ResearcherAgent(capital=self.risk.capital)
-
-        # Agent adaptatif autonome — analyse les trades et ajuste strategy.* à chaud
-        self.adaptive = AdaptiveAgent()
+        # researcher / adaptive désactivés — voir note d'import plus haut et CLAUDE.md
+        self.researcher = None
+        self.adaptive = None
 
         # En BOOTSTRAP_MODE : débloquer le risk au démarrage (stop journalier non pertinent)
         if strategy.BOOTSTRAP_MODE and self.risk.blocked:
@@ -643,10 +644,7 @@ def trading_tick() -> Dict[str, Any]:
         else:
             state.bot_status = "ACTIF"
 
-        # Chercheur de paramètres — appel périodique hors session sans position active
-        state.researcher.maybe_run(has_active_position=any_active)
-        # Agent adaptatif — analyse et ajuste les paramètres toutes les 6h
-        state.adaptive.maybe_run(has_active_position=any_active)
+        # researcher / adaptive désactivés (voir CLAUDE.md) — plus d'appel périodique ici
 
         return _public_state(session, news_status)
 
@@ -940,8 +938,8 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
         "news": news_status,
         "macro": state.macro.status(),
         "live_agent": state.live_agent.status(),
-        "researcher": state.researcher.status(),
-        "adaptive": state.adaptive.status(),
+        "researcher": None,
+        "adaptive": None,
         "alerts": state.alerts[-8:],
         "settings": {
             "session_filter": state.settings.get("session_filter", True),
@@ -1234,7 +1232,7 @@ def get_ai_report(_user: dict = Depends(get_current_user)):
         client = _anthropic.Anthropic(api_key=api_key)
 
         trade_report = db.get_trade_report(limit=500)
-        researcher_status = state.researcher.status()
+        researcher_status = state.researcher.status() if state.researcher else {}
         risk_status = state.risk.status()
 
         researcher_text = ""
@@ -1284,17 +1282,14 @@ def get_ai_report(_user: dict = Depends(get_current_user)):
 
 @app.get("/api/adaptive-agent/status")
 def adaptive_status(_user: dict = Depends(get_current_user)):
-    """Retourne l'historique des runs de l'agent adaptatif."""
-    return state.adaptive.status()
+    """Agent désactivé (juillet 2026) — voir CLAUDE.md."""
+    return {"disabled": True, "reason": "researcher/adaptive désactivés — voir CLAUDE.md"}
 
 
 @app.post("/api/adaptive-agent/run")
 def adaptive_run_now(_user: dict = Depends(get_current_user)):
-    """Force un run immédiat de l'agent adaptatif."""
-    result = state.adaptive.run_now()
-    if "error" in result:
-        raise HTTPException(400, detail=result["error"])
-    return result
+    """Agent désactivé (juillet 2026) — voir CLAUDE.md."""
+    raise HTTPException(400, detail="Agent adaptatif désactivé — voir CLAUDE.md")
 
 
 @app.post("/api/admin/reset-history")

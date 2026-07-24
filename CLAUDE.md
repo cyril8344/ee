@@ -120,7 +120,8 @@ After merging to `main`:
 ## Key Architecture Decisions
 
 - **LLM Gate supprimée** (juillet 2026) — ajoutait une latence API Anthropic externe dans la boucle de trading, pouvait bloquer silencieusement des signaux. Fichier `llm_gate.py` conservé mais non importé.
-- **Agent adaptatif live** (`live_agent.py`) — ajuste RSI_M5_LONG_MIN et ADX_MIN automatiquement tous les 10 trades. `_load()` prend `min(saved, default)` pour éviter une dérive excessive. Le bouton "↩ Revenir en arrière" dans le dashboard annule le dernier ajustement.
+- **Agent adaptatif live** (`live_agent.py`) — ajuste RSI_M5_LONG_MIN et ADX_MIN automatiquement tous les 10 trades. `_load()` prend `min(saved, default)` pour éviter une dérive excessive. Le bouton "↩ Revenir en arrière" dans le dashboard annule le dernier ajustement. Historique des ajustements persisté en base (`live_agent_adjustments`) — survit aux redéploiements.
+- **Agents autonomes désactivés** (juillet 2026) — `researcher_agent.py` (grid-search RSI/ADX sur 1 mois de backtest **in-sample seul**, appliqué au live toutes les 4h sans walk-forward — violait directement les règles anti-overfitting ci-dessous) et `adaptive_agent.py` (LLM Claude Haiku en boucle toutes les 6h, faisait doublon avec `live_agent.py` sur les mêmes paramètres, avec des bornes différentes — même risque que le LLM Gate déjà retiré). Les trois agents modifiaient `strategy.RSI_M5_LONG_MIN`/`RSI_M5_SHORT_MAX`/`ADX_MIN` sans coordination ni verrou entre eux, ce qui rendait toute dérive impossible à expliquer. Fichiers conservés mais non importés dans `main.py`. Seul `live_agent.py` reste actif.
 - **BacktestPanel removed from nav** — only the pretrain panel is exposed in the dashboard
 - **Synthetic data** uses `vol=0.0004` (realistic for XAU/USD) — avoid drawing conclusions from synthetic backtest results
 - **Volume filter removed** — unreliable across data sources
