@@ -56,6 +56,12 @@ _progress: Dict[str, Any] = {
 _last_by_strategy: Dict[str, Any] = {"A": None, "B": None}
 _lock = threading.Lock()
 
+# Sérialise tout run touchant aux attributs globaux de `strategy` (override/restore) —
+# walk-forward, Optuna et pretrain simple peuvent tourner dans des threads différents
+# et mutent tous le même module partagé. Sans ce verrou leurs runs peuvent interleaver
+# et corrompre silencieusement les résultats des deux côtés (voir run_pretrain).
+_STRATEGY_OVERRIDE_LOCK = threading.Lock()
+
 
 def get_progress() -> Dict[str, Any]:
     with _lock:
@@ -113,30 +119,6 @@ def run_pretrain(
     _set(running=True, pct=0, bars_done=0, trades=0, wins=0,
          status="running", error=None, last_result=None, strategy_mode=strategy_mode)
 
-    # Pendant le pretrain : désactiver BOOTSTRAP_MODE ET restaurer les seuils réels.
-    # Sans ça, tous les filtres sont à 0 (valeurs bootstrap) → 5000+ trades bruités
-    # → ML Gate apprend du bruit au lieu de vrais signaux de qualité (~200-300 trades).
-    _PRETRAIN_OVERRIDES = {
-        "BOOTSTRAP_MODE":        False,
-        "ATR_MIN":               2.5,
-        "ADX_MIN":               20.0,
-        "RSI_M5_LONG_MIN":       45.0,
-        "RSI_M5_SHORT_MAX":      55.0,
-        "PATTERN_FLOOR":         0.67,
-        "MIN_WEIGHT_SUM_LONG":   1.0,
-        "ATR_REGIME_MIN_RATIO":  0.65,
-        "TREND_BIAS_DISTANCE":   0.5,
-        "M15_FILTER_ENABLED":    True,
-        "EMA9_FILTER_ENABLED":   True,
-        "VWAP_FILTER_ENABLED":   True,
-        "BAD_HOURS_CET":         {8, 10, 14},
-    }
-    if extra_overrides:
-        _PRETRAIN_OVERRIDES.update(extra_overrides)
-    _saved_strategy = {k: getattr(strategy, k) for k in _PRETRAIN_OVERRIDES}
-    for k, v in _PRETRAIN_OVERRIDES.items():
-        setattr(strategy, k, v)
-
     contract_size = 100.0   if symbol == "XAUUSD" else 100000.0
     pip_size      = 0.1     if symbol == "XAUUSD" else 0.0001
     default_atr   = 3.0     if symbol == "XAUUSD" else 0.00030
@@ -148,7 +130,39 @@ def run_pretrain(
         spread   = 0.2  * pip_size   # 0.2 pips EUR/USD = 0.00002 (identique broker live)
         slippage = 0.05 * pip_size   # 0.05 pips EUR/USD = 0.000005
 
+    # `strategy` est un module global mutable partagé par TOUS les runs (walk-forward,
+    # Optuna, pretrain simple). Sans ce verrou, deux runs concurrents (ex: Optuna en
+    # cours + walk-forward lancé depuis le panel) peuvent interleaver leurs setattr /
+    # restore sur les mêmes attributs et corrompre silencieusement les résultats des
+    # deux côtés (constaté : un walk-forward lancé pendant un Optuna en cours a vu
+    # son nombre de trades s'effondrer sur une fenêtre sans raison liée aux données).
+    _STRATEGY_OVERRIDE_LOCK.acquire()
+    _saved_strategy: Dict[str, Any] = {}
     try:
+        # Pendant le pretrain : désactiver BOOTSTRAP_MODE ET restaurer les seuils réels.
+        # Sans ça, tous les filtres sont à 0 (valeurs bootstrap) → 5000+ trades bruités
+        # → ML Gate apprend du bruit au lieu de vrais signaux de qualité (~200-300 trades).
+        _PRETRAIN_OVERRIDES = {
+            "BOOTSTRAP_MODE":        False,
+            "ATR_MIN":               2.5,
+            "ADX_MIN":               20.0,
+            "RSI_M5_LONG_MIN":       45.0,
+            "RSI_M5_SHORT_MAX":      55.0,
+            "PATTERN_FLOOR":         0.67,
+            "MIN_WEIGHT_SUM_LONG":   1.0,
+            "ATR_REGIME_MIN_RATIO":  0.65,
+            "TREND_BIAS_DISTANCE":   0.5,
+            "M15_FILTER_ENABLED":    True,
+            "EMA9_FILTER_ENABLED":   True,
+            "VWAP_FILTER_ENABLED":   True,
+            "BAD_HOURS_CET":         {8, 10, 14},
+        }
+        if extra_overrides:
+            _PRETRAIN_OVERRIDES.update(extra_overrides)
+        _saved_strategy = {k: getattr(strategy, k) for k in _PRETRAIN_OVERRIDES}
+        for k, v in _PRETRAIN_OVERRIDES.items():
+            setattr(strategy, k, v)
+
         # ---- Charger et préparer les données ----
         _set(status="Chargement des données…")
         m5_raw   = load_m5_data(start, end, symbol=symbol)
@@ -865,8 +879,11 @@ def run_pretrain(
         raise
 
     finally:
-        for k, v in _saved_strategy.items():
-            setattr(strategy, k, v)
+        try:
+            for k, v in _saved_strategy.items():
+                setattr(strategy, k, v)
+        finally:
+            _STRATEGY_OVERRIDE_LOCK.release()
 
 
 # --------------------------------------------------------------------------- #
