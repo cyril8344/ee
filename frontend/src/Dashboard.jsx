@@ -2653,6 +2653,32 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                       </button>
                     </div>
                   )}
+                  {liveAgentStatus.adjustment_history?.length > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 4, fontWeight: 600 }}>
+                        Historique ajustements ({liveAgentStatus.n_adjustments})
+                      </div>
+                      <div style={{ maxHeight: 140, overflowY: "auto", fontSize: 10 }}>
+                        {liveAgentStatus.adjustment_history.map((a, i) => (
+                          <div key={i} style={{
+                            padding: "3px 0", borderBottom: `1px solid ${COLORS.border}`,
+                          }}>
+                            <div style={{ display: "flex", justifyContent: "space-between" }}>
+                              <span style={{ color: COLORS.sub }}>
+                                {a.created_at ? new Date(a.created_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : `${a.trades} trades`}
+                              </span>
+                              <span style={{ color: a.wr < 0.42 ? COLORS.red : COLORS.green }}>
+                                WR {(a.wr * 100).toFixed(0)}%
+                              </span>
+                            </div>
+                            {Object.entries(a.changes || {}).map(([k, v]) => (
+                              <div key={k} style={{ color: COLORS.sub }}>{k}: {v.from} → {v.to}</div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
