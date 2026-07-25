@@ -53,6 +53,59 @@ STEP = {
     "ADX_MIN":              2.0,
 }
 
+# Distance à la borne (en fraction de la plage BOUNDS) en dessous de laquelle on
+# considère qu'un paramètre est "coincé" en bout de course — signal qu'il a dérivé
+# au maximum permis sans qu'on s'en rende compte (cas vécu : ADX_MIN à 17, presque
+# au plancher 15, resté invisible plusieurs jours faute d'alerte).
+_NEAR_BOUND_FRACTION = 0.20
+
+# Paramètres dont une valeur BASSE est la direction permissive/risquée (seuils
+# plancher) — cohérent avec la logique déjà utilisée dans _load(). Les autres
+# (RSI_M5_SHORT_MAX, RSI_HIGH) ont leur direction risquée du côté haut. On
+# n'alerte que dans la direction permissive : une valeur proche de la borne
+# STRICTE (ex. ADX_MIN proche de 30) n'est pas un problème, l'inverse si.
+_LOWER_IS_LOOSER = {"RSI_M5_LONG_MIN", "RSI_LOW", "ATR_REGIME_MIN_RATIO", "ADX_MIN"}
+
+
+def _near_bound(key: str, value: float) -> Optional[str]:
+    """Retourne 'min'/'max' si value est à moins de _NEAR_BOUND_FRACTION de la borne
+    du côté permissif, None sinon (y compris si elle est proche de la borne stricte —
+    ce n'est pas un problème). Ignore les clés sans bornes connues."""
+    bounds = BOUNDS.get(key)
+    if not bounds:
+        return None
+    lo, hi = bounds
+    span = hi - lo
+    if span <= 0:
+        return None
+    looser_side = "min" if key in _LOWER_IS_LOOSER else "max"
+    if looser_side == "min" and value - lo <= _NEAR_BOUND_FRACTION * span:
+        return "min"
+    if looser_side == "max" and hi - value <= _NEAR_BOUND_FRACTION * span:
+        return "max"
+    return None
+
+
+def _push_near_bound_alert(symbol: str, applied: Dict[str, Any]) -> None:
+    """Alerte dashboard si un des changements appliqués atterrit près d'une borne."""
+    warnings = []
+    for k, v in applied.items():
+        side = _near_bound(k, v["to"])
+        if side:
+            lo, hi = BOUNDS[k]
+            bound_val = lo if side == "min" else hi
+            warnings.append(f"{k}={v['to']} (borne {side}={bound_val})")
+    if not warnings:
+        return
+    try:
+        import main as _main
+        _main.state.push_alert(
+            "warn",
+            f"[LiveAgent:{symbol}] paramètre(s) proche de leur borne — " + ", ".join(warnings),
+        )
+    except Exception as exc:
+        logger.debug("[LiveAgent] push_alert near-bound: %s", exc)
+
 
 class LiveAdaptiveAgent:
     """
@@ -89,14 +142,12 @@ class LiveAdaptiveAgent:
             data = db.live_agent_load(self.symbol)
             if data:
                 saved = data.get("params", {})
-                # Params dont une valeur BASSE est plus permissive (seuils plancher)
-                _lower_is_looser = {"RSI_M5_LONG_MIN", "RSI_LOW", "ATR_REGIME_MIN_RATIO", "ADX_MIN"}
                 for k in self._params:
                     if k in saved:
                         saved_val = float(saved[k])
                         default_val = self._params[k]
                         # Toujours prendre la valeur la plus permissive entre sauvegardée et défaut module
-                        if k in _lower_is_looser:
+                        if k in _LOWER_IS_LOOSER:
                             new_val = min(saved_val, default_val)
                         else:  # RSI_M5_SHORT_MAX, RSI_HIGH — valeur haute = plus permissive
                             new_val = max(saved_val, default_val)
@@ -157,6 +208,7 @@ class LiveAdaptiveAgent:
                 except Exception as e:
                     logger.warning("[LiveAgent:%s] erreur journalisation forçage manuel: %s", self.symbol, e)
                 logger.info("[LiveAgent:%s] forçage manuel: %s", self.symbol, applied)
+                _push_near_bound_alert(self.symbol, applied)
         return dict(self._params)
 
     # ------------------------------------------------------------------ #
@@ -238,6 +290,7 @@ class LiveAdaptiveAgent:
             except Exception as e:
                 logger.warning("[LiveAgent:%s] erreur journalisation ajustement: %s", self.symbol, e)
             logger.info("[LiveAgent:%s] ajustements: %s", self.symbol, applied)
+            _push_near_bound_alert(self.symbol, applied)
             # Notifier ResearcherAgent pour valider ces params via pretrain
             self._notify_researcher()
 
@@ -259,11 +312,16 @@ class LiveAdaptiveAgent:
         with self._lock:
             window = self._trade_log[-WINDOW:]
             wr = sum(1 for t in window if t["won"]) / len(window) if window else None
+            near_bounds = {
+                k: _near_bound(k, v) for k, v in self._params.items()
+                if _near_bound(k, v) is not None
+            }
             return {
                 "symbol":           self.symbol,
                 "total_trades":     self._total_trades,
                 "rolling_wr":       round(wr, 3) if wr is not None else None,
                 "params":           {k: round(v, 3) for k, v in self._params.items()},
+                "near_bounds":      near_bounds,
                 "last_adj":         self._adjustments[-1] if self._adjustments else None,
                 "n_adjustments":    len(self._adjustments),
                 "adjustment_history": list(reversed(self._adjustments[-20:])),  # plus récent d'abord
