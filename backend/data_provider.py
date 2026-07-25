@@ -14,6 +14,15 @@ Resolution order when XAU_DATA_PROVIDER is unset ("auto"):
     twelvedata -> polygon -> alphavantage -> yfinance -> synthetic
 (only providers whose API key is present are attempted).
 
+TwelveData live vs backtest key pools:
+    Live trading (broker.py, recent bars, no start/end) and backtest/walk-
+    forward/Optuna (pretrain.py, explicit start/end range) previously shared
+    one key pool and one throttle — heavy backtesting could rate-limit live
+    price fetches and vice versa. Set TWELVEDATA_API_KEY_BACKTEST (+ _2 for
+    rotation) to dedicate separate key(s) and a separate throttle to
+    range/backtest requests. Optional: falls back to the live pool
+    (TWELVEDATA_API_KEY[_2/_3]) if unset, so this is opt-in.
+
 All providers return a tz-aware (UTC) DataFrame indexed by time with columns:
     open, high, low, close, volume
 
@@ -35,27 +44,38 @@ import requests
 REQUEST_TIMEOUT = 12
 
 # --------------------------------------------------------------------------- #
-# Throttle global des appels TwelveData
-# Le plan gratuit autorise ~8 requêtes/min. On espace TOUS les appels (live +
-# workers d'arrière-plan) d'un intervalle minimum pour ne jamais dépasser le
-# quota et éviter les replis en données synthétiques.
+# Throttle des appels TwelveData
+# Le plan gratuit autorise ~8 requêtes/min *par clé*. Live (broker.py, prix
+# temps réel) et backtest (walk-forward/Optuna/pretrain, gros volumes paginés)
+# utilisent des pools de clés séparés (voir _get_twelvedata_keys) pour ne pas
+# se marcher dessus — donc chaque pool a son propre throttle indépendant :
+# une rafale de backtest ne doit plus retarder ni faire échouer les appels
+# temps réel du bot live, et inversement.
 # --------------------------------------------------------------------------- #
 import threading as _threading
 import time as _time_mod
 
-_TD_MIN_INTERVAL = float(os.environ.get("TWELVEDATA_MIN_INTERVAL", "8.0"))  # secondes
-_td_throttle_lock = _threading.Lock()
-_td_last_call = [0.0]
+_TD_MIN_INTERVAL = float(os.environ.get("TWELVEDATA_MIN_INTERVAL", "8.0"))  # secondes, pool live
+_TD_MIN_INTERVAL_BACKTEST = float(
+    os.environ.get("TWELVEDATA_MIN_INTERVAL_BACKTEST", str(_TD_MIN_INTERVAL))
+)
+_td_throttle_state = {
+    "live":     {"lock": _threading.Lock(), "last_call": [0.0]},
+    "backtest": {"lock": _threading.Lock(), "last_call": [0.0]},
+}
 
 
-def _td_throttle() -> None:
-    """Bloque jusqu'à ce que l'intervalle minimum depuis le dernier appel soit écoulé."""
-    with _td_throttle_lock:
+def _td_throttle(backtest: bool = False) -> None:
+    """Bloque jusqu'à ce que l'intervalle minimum depuis le dernier appel (de ce pool) soit écoulé."""
+    pool = "backtest" if backtest else "live"
+    interval = _TD_MIN_INTERVAL_BACKTEST if backtest else _TD_MIN_INTERVAL
+    state = _td_throttle_state[pool]
+    with state["lock"]:
         now = _time_mod.monotonic()
-        wait = _TD_MIN_INTERVAL - (now - _td_last_call[0])
+        wait = interval - (now - state["last_call"][0])
         if wait > 0:
             _time_mod.sleep(wait)
-        _td_last_call[0] = _time_mod.monotonic()
+        state["last_call"][0] = _time_mod.monotonic()
 
 # --------------------------------------------------------------------------- #
 # Cache OHLCV dans SQLite (Railway Volume /data/xau_bot.db)
@@ -175,8 +195,23 @@ def _normalise(df: pd.DataFrame) -> pd.DataFrame:
 # --------------------------------------------------------------------------- #
 # Provider implementations
 # --------------------------------------------------------------------------- #
-def _get_twelvedata_keys() -> List[str]:
-    """Return all configured TwelveData API keys (primary + rotation keys)."""
+def _get_twelvedata_keys(backtest: bool = False) -> List[str]:
+    """Return configured TwelveData API keys for the given pool.
+
+    Live (broker.py, prix temps réel) et backtest (walk-forward/Optuna/pretrain)
+    utilisent des pools séparés — TWELVEDATA_API_KEY_BACKTEST[_2] pour le backtest,
+    sinon repli sur le pool live si aucune clé dédiée n'est configurée (comportement
+    inchangé par défaut, opt-in via les nouvelles variables Railway).
+    """
+    if backtest:
+        keys = []
+        for var in ("TWELVEDATA_API_KEY_BACKTEST", "TWELVEDATA_API_KEY_BACKTEST_2"):
+            k = os.environ.get(var, "").strip()
+            if k:
+                keys.append(k)
+        if keys:
+            return keys
+        # Pas de clé backtest dédiée configurée → repli sur le pool live.
     keys = []
     for var in ("TWELVEDATA_API_KEY", "TWELVEDATA_API_KEY_2", "TWELVEDATA_API_KEY_3"):
         k = os.environ.get(var, "").strip()
@@ -185,23 +220,25 @@ def _get_twelvedata_keys() -> List[str]:
     return keys
 
 
-# Index of the currently active key (rotates on 429)
-_td_key_index = [0]
+# Index de la clé active par pool (tourne sur 429), séparé live/backtest
+_td_key_index = {"live": [0], "backtest": [0]}
 _td_key_lock = _threading.Lock()
 
 
-def _next_td_key_on_429() -> Optional[str]:
+def _next_td_key_on_429(backtest: bool = False) -> Optional[str]:
     """Rotate to the next available key after a 429 error. Returns new key or None."""
-    keys = _get_twelvedata_keys()
+    pool = "backtest" if backtest else "live"
+    keys = _get_twelvedata_keys(backtest=backtest)
     with _td_key_lock:
-        _td_key_index[0] = (_td_key_index[0] + 1) % max(len(keys), 1)
-        idx = _td_key_index[0]
+        _td_key_index[pool][0] = (_td_key_index[pool][0] + 1) % max(len(keys), 1)
+        idx = _td_key_index[pool][0]
     return keys[idx] if idx < len(keys) else None
 
 
 def _fetch_twelvedata(start: Optional[str], end: Optional[str], bars: int,
-                      symbol: str = "XAUUSD") -> pd.DataFrame:
-    keys = _get_twelvedata_keys()
+                      symbol: str = "XAUUSD", backtest: bool = False) -> pd.DataFrame:
+    pool = "backtest" if backtest else "live"
+    keys = _get_twelvedata_keys(backtest=backtest)
     if not keys:
         raise RuntimeError("TWELVEDATA_API_KEY not set")
 
@@ -220,15 +257,15 @@ def _fetch_twelvedata(start: Optional[str], end: Optional[str], bars: int,
     # Try each key once (rotate on 429)
     for _ in range(len(keys)):
         with _td_key_lock:
-            key = keys[_td_key_index[0] % len(keys)]
+            key = keys[_td_key_index[pool][0] % len(keys)]
         params["apikey"] = key
-        _td_throttle()
+        _td_throttle(backtest=backtest)
         try:
             r = requests.get("https://api.twelvedata.com/time_series",
                              params=params, timeout=REQUEST_TIMEOUT)
             if r.status_code == 429:
                 # Rate limited on this key — try next
-                _next_td_key_on_429()
+                _next_td_key_on_429(backtest=backtest)
                 last_exc = RuntimeError(f"429 Too Many Requests (key rotated)")
                 continue
             r.raise_for_status()
@@ -259,10 +296,10 @@ def _fetch_twelvedata_range(start: str, end: str, symbol: str = "XAUUSD") -> pd.
     """
     import time as _time
 
-    keys = _get_twelvedata_keys()
+    keys = _get_twelvedata_keys(backtest=True)
     if not keys:
         raise RuntimeError("TWELVEDATA_API_KEY not set")
-    key = keys[_td_key_index[0] % len(keys)]
+    key = keys[_td_key_index["backtest"][0] % len(keys)]
 
     td_symbol = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"])["twelvedata"]
 
@@ -279,7 +316,7 @@ def _fetch_twelvedata_range(start: str, end: str, symbol: str = "XAUUSD") -> pd.
             "outputsize": 5000,
             "end_date": cursor.strftime("%Y-%m-%d %H:%M:%S"),
         }
-        _td_throttle()
+        _td_throttle(backtest=True)
         r = requests.get("https://api.twelvedata.com/time_series",
                          params=params, timeout=REQUEST_TIMEOUT)
         # Plusieurs tentatives avec backoff croissant — un seul retry à 30s laissait
@@ -508,7 +545,7 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
     _use_td_range = (
         start and end
         and (pd.Timestamp(end, tz="UTC") - pd.Timestamp(start, tz="UTC")).days > 30
-        and (chosen == "twelvedata" or (chosen == "auto" and os.environ.get("TWELVEDATA_API_KEY")))
+        and (chosen == "twelvedata" or (chosen == "auto" and _get_twelvedata_keys(backtest=True)))
     )
     if _use_td_range and "twelvedata" in order:
         try:
@@ -532,7 +569,12 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
     last_err = None
     for name in order:
         try:
-            df = _PROVIDERS[name](start, end, bars, symbol)
+            if name == "twelvedata":
+                # Route vers le pool de clés backtest pour les requêtes par plage
+                # (walk-forward/Optuna/pretrain), pool live sinon — voir _get_twelvedata_keys.
+                df = _fetch_twelvedata(start, end, bars, symbol, backtest=_is_range)
+            else:
+                df = _PROVIDERS[name](start, end, bars, symbol)
             if df is not None and len(df) > 0:
                 if _is_range:
                     # Un provider en page unique (ex: TwelveData plafonné à 5000
