@@ -85,6 +85,7 @@ import correlations as corr_engine
 import finnhub_feed as _fh_module
 from agent_manager import AgentManager
 from live_agent import LiveAdaptiveAgent
+from wf_monitor import WalkForwardMonitor
 import agent_memory
 from ml_gate import AdaptiveThresholds
 import pretrain as _pretrain_module
@@ -221,6 +222,10 @@ class BotState:
 
         # Agent live adaptatif — apprend uniquement des vrais trades paper XAUUSD
         self.live_agent = LiveAdaptiveAgent(symbol="XAUUSD")
+
+        # Walk-forward automatique périodique — diagnostic seul, ne modifie jamais
+        # strategy.* (contrairement aux agents désactivés ci-dessous)
+        self.wf_monitor = WalkForwardMonitor(symbol="XAUUSD")
 
         # researcher / adaptive désactivés — voir note d'import plus haut et CLAUDE.md
         self.researcher = None
@@ -645,6 +650,8 @@ def trading_tick() -> Dict[str, Any]:
             state.bot_status = "ACTIF"
 
         # researcher / adaptive désactivés (voir CLAUDE.md) — plus d'appel périodique ici
+        # Walk-forward automatique — diagnostic seul (ne modifie jamais strategy.*)
+        state.wf_monitor.maybe_run(has_active_position=any_active)
 
         return _public_state(session, news_status)
 
@@ -938,6 +945,7 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
         "news": news_status,
         "macro": state.macro.status(),
         "live_agent": state.live_agent.status(),
+        "wf_monitor": state.wf_monitor.status(),
         "researcher": None,
         "adaptive": None,
         "alerts": state.alerts[-8:],
@@ -1290,6 +1298,21 @@ def adaptive_status(_user: dict = Depends(get_current_user)):
 def adaptive_run_now(_user: dict = Depends(get_current_user)):
     """Agent désactivé (juillet 2026) — voir CLAUDE.md."""
     raise HTTPException(400, detail="Agent adaptatif désactivé — voir CLAUDE.md")
+
+
+@app.get("/api/wf-monitor/status")
+def wf_monitor_status(_user: dict = Depends(get_current_user)):
+    """Statut du dernier walk-forward automatique périodique (diagnostic seul)."""
+    return state.wf_monitor.status()
+
+
+@app.post("/api/wf-monitor/run")
+def wf_monitor_run_now(_user: dict = Depends(get_current_user)):
+    """Force un run immédiat du walk-forward automatique (12 fenêtres, ~24 mois)."""
+    result = state.wf_monitor.run_now()
+    if "error" in result:
+        raise HTTPException(400, detail=result["error"])
+    return result
 
 
 @app.post("/api/admin/reset-history")
