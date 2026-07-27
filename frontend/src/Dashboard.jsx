@@ -417,6 +417,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [pretrainStats, setPretrainStats]     = useState(null);
   const [pretrainDiag, setPretrainDiag]       = useState(false);
   const [pretrainResetML, setPretrainResetML] = useState(false);
+  const [vwapSessionAnchored, setVwapSessionAnchored] = useState(false);
   const [cacheClearing, setCacheClearing]     = useState(false);
   const [cacheClearMsg, setCacheClearMsg]     = useState(null);
   const [pretrainCapital, setPretrainCapital] = useState(1000);
@@ -773,7 +774,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
     fetch(`${API}/api/pretrain`, {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ start: pretrainStart, end: pretrainEnd, symbol: sym, reset: pretrainResetML, strategy_mode: strategyMode, capital: pretrainCapital, risk_pct: pretrainRiskPct }),
+      body: JSON.stringify({ start: pretrainStart, end: pretrainEnd, symbol: sym, reset: pretrainResetML, strategy_mode: strategyMode, capital: pretrainCapital, risk_pct: pretrainRiskPct, vwap_session_anchored_override: vwapSessionAnchored }),
     })
       .then(r => r.json())
       .then(d => { if (d.progress) setPretrainStatus(d.progress); setPretrainLoading(false); })
@@ -793,7 +794,8 @@ export default function Dashboard({ onLogout, onNavigateES }) {
         adx_regime_ratio_override: wfAdxRegimeOverride !== "" ? parseFloat(wfAdxRegimeOverride) : null,
         atr_regime_max_ratio_override: wfAtrRegimeMaxOverride !== "" ? parseFloat(wfAtrRegimeMaxOverride) : null,
         drawdown_sizing_threshold_override: wfDdSizingThreshold !== "" ? parseFloat(wfDdSizingThreshold) : null,
-        drawdown_sizing_factor_override: wfDdSizingFactor !== "" ? parseFloat(wfDdSizingFactor) : null }),
+        drawdown_sizing_factor_override: wfDdSizingFactor !== "" ? parseFloat(wfDdSizingFactor) : null,
+        vwap_session_anchored_override: vwapSessionAnchored }),
     }).then(() => setWfLoading(false)).catch(() => setWfLoading(false));
   };
 
@@ -1486,6 +1488,13 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                             style={{ accentColor: COLORS.amber }} />
                           <span style={{ fontSize: 10, color: pretrainResetML ? COLORS.amber : COLORS.sub }}>
                             Réinitialiser ML {pretrainResetML ? "(repart de zéro)" : "(cumule avec sessions précédentes)"}
+                          </span>
+                        </label>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, cursor: "pointer" }}>
+                          <input type="checkbox" checked={vwapSessionAnchored} onChange={e => setVwapSessionAnchored(e.target.checked)}
+                            style={{ accentColor: COLORS.amber }} />
+                          <span style={{ fontSize: 10, color: vwapSessionAnchored ? COLORS.amber : COLORS.sub }}>
+                            VWAP ancré session (test) {vwapSessionAnchored ? "— reset 8h/14h CET" : "— désactivé, reset minuit UTC (défaut)"}
                           </span>
                         </label>
                         <button
