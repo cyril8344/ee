@@ -137,7 +137,7 @@ After merging to `main`:
 - **MAX_TRADE_MINUTES = 45** (was 30) — more time for TP targets to be reached
 - **TP1 = 0.7R**, **TP2 = 1.8R** — gap TP1→TP2 = 1.1R; TP2=1.4R testé mais moins bon, 1.8R optimal confirmé
 - **SL → entrée (BE 0R) après TP1** — déplacé à l'entrée sur les bougies suivantes (pas de vérification intrabar). Pire cas : +0.7R×50% + 0×50% = +0.35R net. À comparer via pretrain avec "pas de déplacement" (−0.35R pire cas mais plus de trades TP2).
-- **Strategy B (EUR/USD) Order Block only** (June 2026) : biais H1 (EMA50 vs EMA200) + OB M5 non mitiguée + retest → TP1=0.7R, TP2=1.8R. Supprimé : AMD, FVG, Asian range, sweep, accumulation.
+- **Strategy B (EUR/USD) Order Block only** (June 2026) : biais H1 (EMA50 vs EMA200) + ADX H1 ≥ 20 + OB M5 non mitiguée + retest → TP1=0.7R, **TP2=1.0R** (était 1.8R, quasi jamais atteint sur les rebonds OB EUR/USD — abaissé le 13/07, PR #243). Supprimé : AMD, FVG, Asian range, sweep, accumulation.
 - **Strategy A (XAU/USD)** : EMA/patterns, toujours actif sur XAUUSD, non modifiable depuis le dashboard
 - **Strategy B (EUR/USD)** : Order Block M5 via `strategy_ict.py`, toujours actif sur EURUSD, non modifiable depuis le dashboard
 - **ATR M5 pour EUR/USD** : `snapshot()` utilise 5 décimales pour `atr_m5` et `atr_avg` (ATR EUR/USD ≈ 0.0003 — 3 décimales donnait 0.0). `AtrGauge` adapte automatiquement l'affichage (< 1 → 5 décimales).

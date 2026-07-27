@@ -698,9 +698,12 @@ def run_pretrain(
             _n_short = _n - _n_long
             _wins_long  = sum(1 for t in trades_log if t.get("direction") == "long"  and t["won"])
             _wins_short = sum(1 for t in trades_log if t.get("direction") == "short" and t["won"])
+            _avg_atr_raw = sum(t.get("atr", 0) for t in trades_log) / _n
             regime_signature = {
                 "avg_adx_h1":  round(sum(t.get("adx_h1", 0) for t in trades_log) / _n, 1),
-                "avg_atr":     round(sum(t.get("atr", 0) for t in trades_log) / _n, 3),
+                # EUR/USD ATR (~0.0003) arrondi à 3 décimales affiche 0.0 — même correctif
+                # que l'AtrGauge live (CLAUDE.md), adapté ici sur la magnitude de la valeur.
+                "avg_atr":     round(_avg_atr_raw, 5 if abs(_avg_atr_raw) < 1 else 3),
                 "avg_rsi_h1":  round(sum(t.get("h1_rsi", 50) for t in trades_log) / _n, 1),
                 "pct_long":    round(_n_long / _n * 100, 1),
                 "wr_long":     round(_wins_long / _n_long * 100, 1) if _n_long else None,
