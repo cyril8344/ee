@@ -436,6 +436,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
     RSI_M5_LONG_MIN: "", RSI_M5_SHORT_MAX: "", ADX_MIN: "", ATR_REGIME_MIN_RATIO: "",
   });
   const [liveAgentForcing, setLiveAgentForcing] = useState(false);
+  const [liveAgentForceError, setLiveAgentForceError] = useState(null);
   const [rlStatus, setRlStatus] = useState(null);
   const [rlHistory, setRlHistory] = useState([]);
   const [rlLoading, setRlLoading] = useState(false);
@@ -2680,17 +2681,24 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                         });
                         if (Object.keys(params).length === 0) return;
                         setLiveAgentForcing(true);
+                        setLiveAgentForceError(null);
                         fetch(`${API}/api/live-agent/params`, {
                           method: "POST",
                           headers: { ...authHeaders(), "Content-Type": "application/json" },
                           body: JSON.stringify({ params }),
                         })
-                          .then(r => r.json())
+                          .then(async r => {
+                            const d = await r.json().catch(() => null);
+                            if (!r.ok) {
+                              throw new Error(d?.detail ? String(d.detail) : `Erreur serveur (${r.status})`);
+                            }
+                            return d;
+                          })
                           .then(d => {
-                            setLiveAgentStatus(s => ({ ...s, params: d.applied }));
+                            setLiveAgentStatus(s => ({ ...s, params: d.applied, near_bounds: {} }));
                             setLiveAgentForceInputs({ RSI_M5_LONG_MIN: "", RSI_M5_SHORT_MAX: "", ADX_MIN: "", ATR_REGIME_MIN_RATIO: "" });
                           })
-                          .catch(() => {})
+                          .catch(err => setLiveAgentForceError(err.message || "Échec de la requête (réseau ?)"))
                           .finally(() => setLiveAgentForcing(false));
                       }}
                       style={{
@@ -2701,6 +2709,11 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                     >
                       {liveAgentForcing ? "..." : "Forcer les paramètres"}
                     </button>
+                    {liveAgentForceError && (
+                      <div style={{ fontSize: 10, color: COLORS.red, marginTop: 4 }}>
+                        ✗ {liveAgentForceError}
+                      </div>
+                    )}
                   </div>
                   {liveAgentStatus.last_adj && (
                     <div style={{ marginTop: 6, fontSize: 11, color: COLORS.amber }}>
