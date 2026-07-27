@@ -1808,6 +1808,7 @@ class PretrainRequest(BaseModel):
     capital:       float = 10_000.0
     risk_pct:      float = 5.0
     strategy_mode: str = "A"
+    vwap_session_anchored_override: Optional[bool] = None
 
 
 @app.post("/api/pretrain")
@@ -1816,11 +1817,15 @@ def start_pretrain(req: PretrainRequest, _user: dict = Depends(get_current_user)
     prog = _pretrain_module.get_progress()
     if prog["running"]:
         return {"ok": False, "message": "Pré-entraînement déjà en cours", "progress": prog}
+    _overrides = {}
+    if req.vwap_session_anchored_override is not None:
+        _overrides["VWAP_SESSION_ANCHORED"] = req.vwap_session_anchored_override
     _pretrain_module.launch_pretrain(
         start=req.start, end=req.end,
         symbol=req.symbol, atr_min=req.atr_min, reset=req.reset,
         capital=req.capital, risk_pct=req.risk_pct,
         strategy_mode=req.strategy_mode,
+        extra_overrides=_overrides or None,
     )
     return {"ok": True, "message": "Pré-entraînement lancé", "progress": _pretrain_module.get_progress()}
 
@@ -1850,6 +1855,7 @@ class WalkForwardRequest(BaseModel):
     atr_regime_max_ratio_override: Optional[float] = None
     drawdown_sizing_threshold_override: Optional[float] = None
     drawdown_sizing_factor_override: Optional[float] = None
+    vwap_session_anchored_override: Optional[bool] = None
 
 
 @app.post("/api/pretrain/walkforward")
@@ -1875,6 +1881,8 @@ def start_walkforward(req: WalkForwardRequest, _user: dict = Depends(get_current
                     _overrides["DRAWDOWN_SIZING_THRESHOLD_PCT"] = req.drawdown_sizing_threshold_override
                 if req.drawdown_sizing_factor_override is not None:
                     _overrides["DRAWDOWN_SIZING_FACTOR"] = req.drawdown_sizing_factor_override
+            if req.vwap_session_anchored_override is not None:
+                _overrides["VWAP_SESSION_ANCHORED"] = req.vwap_session_anchored_override
             _overrides = _overrides or None
             r = _pretrain_module.run_walk_forward(
                 start=req.start, end=req.end,
