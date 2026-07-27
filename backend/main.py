@@ -1856,6 +1856,7 @@ class WalkForwardRequest(BaseModel):
     drawdown_sizing_threshold_override: Optional[float] = None
     drawdown_sizing_factor_override: Optional[float] = None
     vwap_session_anchored_override: Optional[bool] = None
+    bad_hours_cet_override: Optional[List[int]] = None
 
 
 @app.post("/api/pretrain/walkforward")
@@ -1883,6 +1884,8 @@ def start_walkforward(req: WalkForwardRequest, _user: dict = Depends(get_current
                     _overrides["DRAWDOWN_SIZING_FACTOR"] = req.drawdown_sizing_factor_override
             if req.vwap_session_anchored_override is not None:
                 _overrides["VWAP_SESSION_ANCHORED"] = req.vwap_session_anchored_override
+            if req.bad_hours_cet_override is not None:
+                _overrides["BAD_HOURS_CET"] = {h for h in req.bad_hours_cet_override if 0 <= h <= 23}
             _overrides = _overrides or None
             r = _pretrain_module.run_walk_forward(
                 start=req.start, end=req.end,

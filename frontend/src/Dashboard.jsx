@@ -410,6 +410,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [wfAtrRegimeMaxOverride, setWfAtrRegimeMaxOverride] = useState("");
   const [wfDdSizingThreshold, setWfDdSizingThreshold] = useState("");
   const [wfDdSizingFactor, setWfDdSizingFactor] = useState("");
+  const [wfBadHoursOverride, setWfBadHoursOverride] = useState("");
   const [optunaTrials, setOptunaTrials]       = useState(30);
   const [pretrainTrades, setPretrainTrades]   = useState(null);
   const [pretrainFilter, setPretrainFilter]   = useState("losses");
@@ -795,7 +796,10 @@ export default function Dashboard({ onLogout, onNavigateES }) {
         atr_regime_max_ratio_override: wfAtrRegimeMaxOverride !== "" ? parseFloat(wfAtrRegimeMaxOverride) : null,
         drawdown_sizing_threshold_override: wfDdSizingThreshold !== "" ? parseFloat(wfDdSizingThreshold) : null,
         drawdown_sizing_factor_override: wfDdSizingFactor !== "" ? parseFloat(wfDdSizingFactor) : null,
-        vwap_session_anchored_override: vwapSessionAnchored }),
+        vwap_session_anchored_override: vwapSessionAnchored,
+        bad_hours_cet_override: wfBadHoursOverride !== ""
+          ? wfBadHoursOverride.split(",").map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n))
+          : null }),
     }).then(() => setWfLoading(false)).catch(() => setWfLoading(false));
   };
 
@@ -2341,7 +2345,16 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                           style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
-                      {(wfAdxOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "") && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          Heures bloquées CET à tester (vide = 8,10,14 par défaut)
+                        </span>
+                        <input type="text" placeholder="8,10,14" value={wfBadHoursOverride}
+                          onChange={e => setWfBadHoursOverride(e.target.value)}
+                          style={{ width: 70, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
+                      {(wfAdxOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "") && (
                         <div style={{ fontSize: 9, color: COLORS.amber, marginBottom: 4 }}>
                           ⚠ Test isolé — ne modifie pas le réglage live tant que tu ne le forces pas ailleurs.
                         </div>
