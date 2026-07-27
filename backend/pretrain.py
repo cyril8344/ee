@@ -30,6 +30,7 @@ from strategy import (
     add_indicators, evaluate, active_session, compute_bias,
     MAX_TRADE_MINUTES, SL_ATR_MULT, CET,
 )
+import strategy_ict
 from strategy_ict import evaluate_ict
 from backtest import load_m5_data, resample, _try_exit
 import database as db
@@ -138,6 +139,7 @@ def run_pretrain(
     # son nombre de trades s'effondrer sur une fenêtre sans raison liée aux données).
     _STRATEGY_OVERRIDE_LOCK.acquire()
     _saved_strategy: Dict[str, Any] = {}
+    _saved_ict: Dict[str, Any] = {}
     try:
         # Pendant le pretrain : désactiver BOOTSTRAP_MODE ET restaurer les seuils réels.
         # Sans ça, tous les filtres sont à 0 (valeurs bootstrap) → 5000+ trades bruités
@@ -159,9 +161,16 @@ def run_pretrain(
         }
         if extra_overrides:
             _PRETRAIN_OVERRIDES.update(extra_overrides)
-        _saved_strategy = {k: getattr(strategy, k) for k in _PRETRAIN_OVERRIDES}
+        # Certains overrides ne concernent qu'un seul module (ex: OB_REQUIRE_BOS n'existe
+        # que sur strategy_ict, pas strategy) — appliqués/sauvegardés uniquement là où
+        # l'attribut existe réellement.
+        _saved_strategy = {k: getattr(strategy, k) for k in _PRETRAIN_OVERRIDES if hasattr(strategy, k)}
+        _saved_ict = {k: getattr(strategy_ict, k) for k in _PRETRAIN_OVERRIDES if hasattr(strategy_ict, k)}
         for k, v in _PRETRAIN_OVERRIDES.items():
-            setattr(strategy, k, v)
+            if k in _saved_strategy:
+                setattr(strategy, k, v)
+            if k in _saved_ict:
+                setattr(strategy_ict, k, v)
 
         # ---- Charger et préparer les données ----
         _set(status="Chargement des données…")
@@ -885,6 +894,8 @@ def run_pretrain(
         try:
             for k, v in _saved_strategy.items():
                 setattr(strategy, k, v)
+            for k, v in _saved_ict.items():
+                setattr(strategy_ict, k, v)
         finally:
             _STRATEGY_OVERRIDE_LOCK.release()
 

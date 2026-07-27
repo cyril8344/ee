@@ -411,6 +411,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [wfDdSizingThreshold, setWfDdSizingThreshold] = useState("");
   const [wfDdSizingFactor, setWfDdSizingFactor] = useState("");
   const [wfBadHoursOverride, setWfBadHoursOverride] = useState("");
+  const [obRequireBos, setObRequireBos] = useState(false);
   const [optunaTrials, setOptunaTrials]       = useState(30);
   const [pretrainTrades, setPretrainTrades]   = useState(null);
   const [pretrainFilter, setPretrainFilter]   = useState("losses");
@@ -800,7 +801,8 @@ export default function Dashboard({ onLogout, onNavigateES }) {
         vwap_session_anchored_override: vwapSessionAnchored,
         bad_hours_cet_override: wfBadHoursOverride !== ""
           ? wfBadHoursOverride.split(",").map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n))
-          : null }),
+          : null,
+        ob_require_bos_override: obRequireBos }),
     }).then(() => setWfLoading(false)).catch(() => setWfLoading(false));
   };
 
@@ -2355,7 +2357,14 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                           style={{ width: 70, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
-                      {(wfAdxOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "") && (
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, cursor: "pointer" }}>
+                        <input type="checkbox" checked={obRequireBos} onChange={e => setObRequireBos(e.target.checked)}
+                          style={{ accentColor: COLORS.amber }} />
+                        <span style={{ fontSize: 9, color: obRequireBos ? COLORS.amber : COLORS.sub }}>
+                          Strat B — exiger cassure de structure (BOS) sur l'OB
+                        </span>
+                      </label>
+                      {(wfAdxOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "" || obRequireBos) && (
                         <div style={{ fontSize: 9, color: COLORS.amber, marginBottom: 4 }}>
                           ⚠ Test isolé — ne modifie pas le réglage live tant que tu ne le forces pas ailleurs.
                         </div>
