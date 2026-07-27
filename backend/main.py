@@ -2333,6 +2333,10 @@ def data_provider_status():
         "current_per_market": current,
         "live_test": test_results,
         "twelvedata_key_set": bool(os.environ.get("TWELVEDATA_API_KEY", "").strip()),
+        "twelvedata_backtest_keys_set": {
+            "TWELVEDATA_API_KEY_BACKTEST":   bool(os.environ.get("TWELVEDATA_API_KEY_BACKTEST", "").strip()),
+            "TWELVEDATA_API_KEY_BACKTEST_2": bool(os.environ.get("TWELVEDATA_API_KEY_BACKTEST_2", "").strip()),
+        },
         "last_errors": data_provider.get_last_errors(),
     }
 
