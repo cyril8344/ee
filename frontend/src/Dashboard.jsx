@@ -2615,10 +2615,19 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                     <Row k="WR glissant" v={`${(liveAgentStatus.rolling_wr * 100).toFixed(0)}%`}
                          color={liveAgentStatus.rolling_wr >= 0.52 ? COLORS.green : liveAgentStatus.rolling_wr < 0.42 ? COLORS.red : COLORS.text} />
                   )}
-                  <Row k="RSI_M5_LONG_MIN" v={liveAgentStatus.params?.RSI_M5_LONG_MIN} />
-                  <Row k="RSI_M5_SHORT_MAX" v={liveAgentStatus.params?.RSI_M5_SHORT_MAX} />
-                  <Row k="ADX_MIN" v={liveAgentStatus.params?.ADX_MIN} />
-                  <Row k="ATR_REGIME" v={liveAgentStatus.params?.ATR_REGIME_MIN_RATIO} />
+                  {[
+                    ["RSI_M5_LONG_MIN", "RSI_M5_LONG_MIN"],
+                    ["RSI_M5_SHORT_MAX", "RSI_M5_SHORT_MAX"],
+                    ["ADX_MIN", "ADX_MIN"],
+                    ["ATR_REGIME_MIN_RATIO", "ATR_REGIME"],
+                  ].map(([key, label]) => {
+                    const nearSide = liveAgentStatus.near_bounds?.[key];
+                    return (
+                      <Row key={key} k={label}
+                        v={nearSide ? `⚠ ${liveAgentStatus.params?.[key]} (borne ${nearSide})` : liveAgentStatus.params?.[key]}
+                        color={nearSide ? COLORS.red : undefined} />
+                    );
+                  })}
 
                   <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${COLORS.border}` }}>
                     <div style={{ fontSize: 10, color: COLORS.sub, marginBottom: 4 }}>
@@ -2945,6 +2954,38 @@ export default function Dashboard({ onLogout, onNavigateES }) {
               </div>
             </div>
           )}
+
+          {/* ===== Walk-forward automatique périodique (diagnostic seul) ===== */}
+          <div className="dashboard-panel section-gap" style={{ ...panel(), marginTop: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <h3 style={{ margin: 0, fontSize: 13 }}>Walk-Forward auto (surveillance)</h3>
+              <button
+                onClick={() => fetch(`${API}/api/wf-monitor/run`, { method: "POST", headers: authHeaders() }).catch(() => {})}
+                disabled={state?.wf_monitor?.running}
+                style={{ fontSize: 10, background: "transparent", border: `1px solid ${COLORS.border}`,
+                  borderRadius: 4, color: COLORS.sub, padding: "2px 8px", cursor: "pointer" }}
+              >
+                {state?.wf_monitor?.running ? "⏳ En cours…" : "Lancer maintenant"}
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 4 }}>
+              Tourne automatiquement toutes les {state?.wf_monitor?.interval_hours ?? 168}h hors session — ne modifie jamais la stratégie, alerte seulement si hors critères.
+            </div>
+            {state?.wf_monitor?.last_run ? (
+              <div style={{ fontSize: 12 }}>
+                <span style={{ color: state.wf_monitor.last_run.is_robust ? COLORS.green : COLORS.red, fontWeight: 600 }}>
+                  {state.wf_monitor.last_run.is_robust ? "✓ Robuste" : "⚠ Fragile"}
+                </span>
+                <span style={{ color: COLORS.sub }}>
+                  {" "}· PF moy {state.wf_monitor.last_run.avg_pf} ± {state.wf_monitor.last_run.std_pf}
+                  · {state.wf_monitor.last_run.pct_profitable}% fenêtres rentables
+                  · {new Date(state.wf_monitor.last_run.timestamp).toLocaleString("fr-FR")}
+                </span>
+              </div>
+            ) : (
+              <div style={{ fontSize: 11, color: COLORS.sub }}>Pas encore de run automatique.</div>
+            )}
+          </div>
 
           {/* ===== Walk-forward résultats ===== */}
           {(wfStatus?.running || wfStatus?.result) && (

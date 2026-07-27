@@ -93,6 +93,7 @@ M15_FILTER_ENABLED    = True    # confirmation M15 EMA9/21 + RSI
 ADX_SLOPE_ENABLED     = False   # ADX doit être en hausse (momentum non épuisé)
 EMA9_FILTER_ENABLED   = True    # close M5 aligné avec EMA9
 VWAP_FILTER_ENABLED   = True    # close du bon côté du VWAP
+VWAP_SESSION_ANCHORED = False   # True = VWAP reset à l'ouverture de session (8h/14h CET) au lieu de minuit UTC
 BODY_FILTER_ENABLED   = False   # corps bougie ≥ 40% de la range
 
 CET = pytz.timezone("Europe/Paris")  # CET/CEST
@@ -171,6 +172,28 @@ def vwap(df: pd.DataFrame) -> pd.Series:
     return (cum_tpv / cum_vol).fillna(typical)
 
 
+def vwap_session(df: pd.DataFrame) -> pd.Series:
+    """Intraday VWAP anchored to session open (London 8h / New York 14h CET) instead of
+    midnight UTC — avoids carrying volume/price from one session into the next across
+    the London→NY gap. Bars outside a session (never seen by evaluate()) are tagged
+    individually so they don't blend across the gap either."""
+    idx_utc = df.index if df.index.tz is not None else df.index.tz_localize("UTC")
+    local = idx_utc.tz_convert(CET)
+    hour = local.hour
+    in_london = (hour >= LONDON[0].hour) & (hour < LONDON[1].hour)
+    in_newyork = (hour >= NEWYORK[0].hour) & (hour < NEWYORK[1].hour)
+    session = np.where(in_london, "L", np.where(in_newyork, "N", "X"))
+    group = pd.Series(local.strftime("%Y-%m-%d"), index=df.index) + "_" + session
+    out_of_session = session == "X"
+    group = group.mask(out_of_session, pd.Series(range(len(df)), index=df.index).astype(str))
+
+    typical = (df["high"] + df["low"] + df["close"]) / 3
+    tpv = typical * df["volume"]
+    cum_tpv = tpv.groupby(group).cumsum()
+    cum_vol = df["volume"].groupby(group).cumsum().replace(0, np.nan)
+    return (cum_tpv / cum_vol).fillna(typical)
+
+
 def asian_session_range(df: pd.DataFrame) -> Optional[Dict[str, float]]:
     """Return high/low/mid of the Asian session (22:00-07:00 UTC) ending before London."""
     if df.index.tz is None:
@@ -242,7 +265,7 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     else:
         out["volume"] = 0.0
         out["vol_avg"] = 0.0
-    out["vwap"] = vwap(out)
+    out["vwap"] = vwap_session(out) if VWAP_SESSION_ANCHORED else vwap(out)
     return out
 
 
