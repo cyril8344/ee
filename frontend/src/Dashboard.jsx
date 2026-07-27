@@ -2672,6 +2672,11 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
                     ))}
+                    {Object.values(liveAgentForceInputs).every(v => v === "") && (
+                      <div style={{ fontSize: 9, color: COLORS.sub, marginBottom: 4 }}>
+                        Les chiffres ci-dessus sont juste indicatifs (valeurs actuelles) — tape une nouvelle valeur dans une case pour l'activer.
+                      </div>
+                    )}
                     <button
                       disabled={liveAgentForcing || Object.values(liveAgentForceInputs).every(v => v === "")}
                       onClick={() => {
@@ -2704,7 +2709,9 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                       style={{
                         width: "100%", marginTop: 2, padding: "4px 0", fontSize: 11,
                         border: `1px solid ${COLORS.blue}`, borderRadius: 4,
-                        background: "transparent", color: COLORS.blue, cursor: "pointer",
+                        background: "transparent", color: COLORS.blue,
+                        opacity: (liveAgentForcing || Object.values(liveAgentForceInputs).every(v => v === "")) ? 0.35 : 1,
+                        cursor: (liveAgentForcing || Object.values(liveAgentForceInputs).every(v => v === "")) ? "not-allowed" : "pointer",
                       }}
                     >
                       {liveAgentForcing ? "..." : "Forcer les paramètres"}
