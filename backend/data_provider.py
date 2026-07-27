@@ -325,12 +325,22 @@ def _fetch_twelvedata_range(start: str, end: str, symbol: str = "XAUUSD") -> pd.
         # Une plage de plusieurs années = des dizaines d'appels paginés, donc plus
         # de chances de croiser un rate-limit ; on privilégie la complétude à la
         # vitesse ici (backtest hors-ligne, pas de contrainte temps réel).
-        for _backoff in (30, 60, 90, 120, 150):
+        # Sur 429 : tourne d'abord sur les autres clés backtest disponibles (une 2e
+        # clé a de bonnes chances d'avoir un quota frais immédiatement) avant
+        # d'attendre le prochain palier — la boucle ne ré-essayait auparavant que
+        # la clé déjà rate-limitée, sans jamais utiliser TWELVEDATA_API_KEY_BACKTEST_2.
+        for _backoff in (0, 30, 60, 90, 120, 150):
             if r.status_code != 429:
                 break
-            _time_mod.sleep(_backoff)
-            r = requests.get("https://api.twelvedata.com/time_series",
-                             params=params, timeout=REQUEST_TIMEOUT)
+            if _backoff:
+                _time_mod.sleep(_backoff)
+            for _ in range(len(keys)):
+                key = _next_td_key_on_429(backtest=True) or key
+                params["apikey"] = key
+                r = requests.get("https://api.twelvedata.com/time_series",
+                                 params=params, timeout=REQUEST_TIMEOUT)
+                if r.status_code != 429:
+                    break
         if r.status_code == 429:
             break  # épuisé après plusieurs tentatives → retourne les chunks déjà collectés
         r.raise_for_status()
