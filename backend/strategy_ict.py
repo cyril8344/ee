@@ -34,6 +34,11 @@ OB_MAX_BARS       = 50   # fenêtre de recherche OBs (50 M5 ≈ 4h)
 OB_MIN_BODY_ATR   = 0.2  # corps minimum bougie OB (filtre dojis)
 OB_MAX_HEIGHT_ATR = 1.5  # hauteur maximale OB (OBs larges → R:R défavorable)
 ADX_MIN_H1        = 20   # ADX H1 minimum — EUR/USD typique 18-26, 28 trop strict
+OB_REQUIRE_BOS    = False  # True = exige une vraie cassure de structure (swing préalable)
+                            # en plus de l'impulsion ATR — filtre les faux OB (littérature
+                            # ICT/SMC : un OB doit précéder un break of structure confirmé,
+                            # pas juste une bougie large dans un range). Désactivé par défaut.
+BOS_LOOKBACK      = 15   # bougies avant l'OB où chercher le swing high/low à casser
 RSI_LONG_MIN      = 46   # RSI M5 minimum pour LONG (identique strategy A, validé Optuna)
 RSI_SHORT_MAX     = 57   # RSI M5 maximum pour SHORT
 RSI_M15_LONG_MIN  = 45   # RSI M15 minimum pour LONG (momentum M15 dans le bon sens)
@@ -120,6 +125,17 @@ def _find_order_blocks(
             if b_close <= b_open:
                 continue
             if b_low - float(after["low"].min()) < min_impulse:
+                continue
+
+        # BOS (Break of Structure) — l'impulsion doit casser un swing préalable,
+        # pas juste bouger de min_impulse dans un range déjà établi.
+        if OB_REQUIRE_BOS:
+            pre = recent.iloc[max(0, i - BOS_LOOKBACK): i]
+            if len(pre) == 0:
+                continue
+            if direction == "LONG" and float(after["high"].max()) <= float(pre["high"].max()):
+                continue
+            if direction == "SHORT" and float(after["low"].min()) >= float(pre["low"].min()):
                 continue
 
         # OB non mitiguée
