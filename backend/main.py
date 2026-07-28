@@ -90,6 +90,7 @@ import agent_memory
 from ml_gate import AdaptiveThresholds
 import pretrain as _pretrain_module
 import pretrain_es as _pretrain_es_module
+import pretrain_es_h1 as _pretrain_es_h1_module
 # researcher_agent / adaptive_agent désactivés (juillet 2026) — voir CLAUDE.md
 # "Agents autonomes désactivés" : appliquaient des changements de strategy.* en
 # live sans coordination avec live_agent.py ni entre eux, et sans walk-forward
@@ -2613,6 +2614,100 @@ async def get_es_dom_signal(_user: dict = Depends(get_current_user)):
 async def post_es_dom_signal(body: Dict[str, Any]):
     logger.info("[ES DOM] signal reçu: %s", body)
     return {"ok": True, "received": body}
+
+
+# --------------------------------------------------------------------------- #
+# ES H1 (S&P 500 E-mini, bougies 1 heure) — endpoints indépendants
+# Voir strategy_es_h1.py / pretrain_es_h1.py — signal + gestion de trade
+# entièrement H1, SL/TP en multiples d'ATR/R, flatten forcé avant clôture RTH.
+# --------------------------------------------------------------------------- #
+
+class ESH1PretrainRequest(BaseModel):
+    start:    str
+    end:      str
+    capital:  float = 50_000.0
+    risk_pct: float = 1.0
+    params:   Optional[Dict[str, Any]] = None
+
+
+_es_h1_settings: Dict[str, Any] = dict(_pretrain_es_h1_module.strat.DEFAULTS)
+_es_h1_settings_lock = threading.Lock()
+
+
+@app.get("/api/es-h1/settings")
+def get_es_h1_settings(_user: dict = Depends(get_current_user)):
+    with _es_h1_settings_lock:
+        return dict(_es_h1_settings)
+
+
+@app.post("/api/es-h1/settings")
+def update_es_h1_settings(body: Dict[str, Any], _user: dict = Depends(get_current_user)):
+    with _es_h1_settings_lock:
+        for k, v in body.items():
+            _es_h1_settings[k] = v
+        return dict(_es_h1_settings)
+
+
+@app.post("/api/es-h1/pretrain")
+def start_es_h1_pretrain(req: ESH1PretrainRequest, _user: dict = Depends(get_current_user)):
+    prog = _pretrain_es_h1_module.get_progress_es_h1()
+    if prog["running"]:
+        return {"ok": False, "message": "Pré-entraînement ES H1 déjà en cours", "progress": prog}
+    with _es_h1_settings_lock:
+        base_params = dict(_es_h1_settings)
+    if req.params:
+        base_params.update(req.params)
+    _pretrain_es_h1_module.launch_pretrain_es_h1(
+        start=req.start, end=req.end,
+        params=base_params,
+        capital=req.capital, risk_pct=req.risk_pct,
+    )
+    return {"ok": True, "message": "Pré-entraînement ES H1 lancé", "progress": _pretrain_es_h1_module.get_progress_es_h1()}
+
+
+@app.get("/api/es-h1/pretrain/status")
+def get_es_h1_pretrain_status(_user: dict = Depends(get_current_user)):
+    return _pretrain_es_h1_module.get_progress_es_h1()
+
+
+@app.get("/api/es-h1/pretrain/result")
+def get_es_h1_pretrain_result(_user: dict = Depends(get_current_user)):
+    prog = _pretrain_es_h1_module.get_progress_es_h1()
+    result = prog.get("last_result")
+    if result is None:
+        return {"ok": False, "message": "Aucun résultat disponible"}
+    return result
+
+
+class ESH1WalkForwardRequest(BaseModel):
+    start:    str
+    end:      str
+    n_splits: int   = 4
+    capital:  float = 50_000.0
+    risk_pct: float = 1.0
+    params:   Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/es-h1/pretrain/walkforward")
+def start_es_h1_walkforward(req: ESH1WalkForwardRequest, _user: dict = Depends(get_current_user)):
+    wf = _pretrain_es_h1_module.get_wf_progress_es_h1()
+    if wf["running"] or _pretrain_es_h1_module.get_progress_es_h1()["running"]:
+        return {"ok": False, "message": "Un prétrain ES H1 est déjà en cours"}
+    with _es_h1_settings_lock:
+        base_params = dict(_es_h1_settings)
+    if req.params:
+        base_params.update(req.params)
+    _pretrain_es_h1_module.launch_walkforward_es_h1(
+        start=req.start, end=req.end,
+        n_splits=req.n_splits, params=base_params,
+        capital=req.capital, risk_pct=req.risk_pct,
+    )
+    return {"ok": True, "message": f"Walk-forward ES H1 lancé ({req.n_splits} fenêtres)"}
+
+
+@app.get("/api/es-h1/pretrain/walkforward")
+def get_es_h1_walkforward(_user: dict = Depends(get_current_user)):
+    return _pretrain_es_h1_module.get_wf_progress_es_h1()
 
 
 # SPA fallback — any unknown path serves index.html so React Router can handle it
