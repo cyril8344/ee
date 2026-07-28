@@ -270,8 +270,16 @@ function WFResults({ wf }) {
   if (!wf?.result) return null;
   const r = wf.result;
   const robust = r.robust;
+  const nSynthetic = r.synthetic_windows || 0;
   return (
     <div>
+      {nSynthetic > 0 && (
+        <div style={{ background: "rgba(234,57,67,0.1)", border: `1px solid ${C.red}`, borderRadius: 6,
+                      padding: "8px 12px", marginBottom: 10, fontSize: 12, color: C.red, fontWeight: 600 }}>
+          ⚠ {nSynthetic} fenêtre{nSynthetic > 1 ? "s" : ""} retombée{nSynthetic > 1 ? "s" : ""} sur des données
+          synthétiques (échec/rate-limit yfinance) — résultat non représentatif, à relancer.
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 12 }}>
         <KpiTile label="PF moyen" value={fmt(r.mean_pf, 2)}
                  color={r.mean_pf >= 1.15 ? C.green : r.mean_pf >= 1.0 ? C.amber : C.red} />
@@ -280,13 +288,14 @@ function WFResults({ wf }) {
         <KpiTile label="Fenêtres profitables" value={`${r.pct_profitable}%`}
                  color={r.pct_profitable >= 75 ? C.green : C.red} sub="objectif ≥ 75%" />
         <KpiTile label="Robuste" value={robust ? "OUI" : "NON"}
-                 color={robust ? C.green : C.red} sub={robust ? "Critères OK" : "Curve-fit?"} />
+                 color={robust ? C.green : C.red}
+                 sub={robust ? "Critères OK" : nSynthetic > 0 ? "Données synthétiques" : "Curve-fit?"} />
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
           <thead>
             <tr>
-              {["Fenêtre", "Période", "Trades", "WR %", "PF", "P&L", "SL direct"].map(h => (
+              {["Fenêtre", "Période", "Trades", "WR %", "PF", "P&L", "SL direct", "Données"].map(h => (
                 <th key={h} style={{ padding: "4px 10px", textAlign: "left", color: C.sub,
                                       borderBottom: `1px solid ${C.border}` }}>{h}</th>
               ))}
@@ -295,9 +304,10 @@ function WFResults({ wf }) {
           <tbody>
             {r.windows.map((w, i) => {
               const pfCol = w.profit_factor >= 1.15 ? C.green : w.profit_factor >= 1.0 ? C.amber : C.red;
+              const synthetic = w.data_source === "synthetic";
               return (
                 <tr key={i} style={{ borderBottom: `1px solid ${C.border}`,
-                                      background: i % 2 ? "rgba(255,255,255,0.02)" : "transparent" }}>
+                                      background: synthetic ? "rgba(234,57,67,0.06)" : i % 2 ? "rgba(255,255,255,0.02)" : "transparent" }}>
                   <td style={{ padding: "4px 10px", color: C.blue, fontWeight: 600 }}>#{w.window}</td>
                   <td style={{ padding: "4px 10px", color: C.sub }}>{w.start?.slice(0, 10)} → {w.end?.slice(0, 10)}</td>
                   <td style={{ padding: "4px 10px" }}>{w.n_trades}</td>
@@ -306,6 +316,9 @@ function WFResults({ wf }) {
                   <td style={{ padding: "4px 10px", color: w.total_pnl >= 0 ? C.green : C.red }}>{fmtUSD(w.total_pnl)}</td>
                   <td style={{ padding: "4px 10px", color: w.sl_direct_pct <= 32 ? C.green : w.sl_direct_pct <= 38 ? C.amber : C.red }}>
                     {fmt(w.sl_direct_pct, 1)}%
+                  </td>
+                  <td style={{ padding: "4px 10px", color: synthetic ? C.red : C.green, fontWeight: synthetic ? 700 : 400 }}>
+                    {synthetic ? "synthétique" : "réel"}
                   </td>
                 </tr>
               );
@@ -718,6 +731,13 @@ export default function DashboardES({ onBack, token }) {
                       {r.data_start} → {r.data_end} ({r.bars_total?.toLocaleString()} barres {tf})
                     </span>}
                   </div>
+
+                  {r.data_source === "synthetic" && (
+                    <div style={{ background: "rgba(234,57,67,0.1)", border: `1px solid ${C.red}`, borderRadius: 6,
+                                  padding: "8px 12px", marginBottom: 10, fontSize: 12, color: C.red, fontWeight: 600 }}>
+                      ⚠ Données synthétiques (échec/rate-limit yfinance) — résultat non représentatif, à relancer.
+                    </div>
+                  )}
 
                   <div style={{ ...g(5), marginBottom: 10 }}>
                     <KpiTile label="Trades"        value={r.n_trades}  sub={`${r.n_wins}W / ${r.n_losses}L`} />

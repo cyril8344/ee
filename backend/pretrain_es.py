@@ -16,7 +16,9 @@ Usage :
 
 from __future__ import annotations
 
+import hashlib
 import threading
+import time as _time_mod
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, Callable
 
@@ -76,28 +78,43 @@ def _set_wf(**kwargs):
 # --------------------------------------------------------------------------- #
 # Chargement des données ES=F
 # --------------------------------------------------------------------------- #
-def _load_es_data(start: str, end: str) -> pd.DataFrame:
-    """Télécharge ES=F depuis yfinance, fallback synthétique."""
-    try:
-        tk = yf.Ticker("ES=F")
-        df = tk.history(start=start, end=end, interval="5m", auto_adjust=True)
-        if df is not None and len(df) > 100:
-            df = df.rename(columns=str.lower)
-            df = df[["open", "high", "low", "close", "volume"]].copy()
-            df = df.dropna()
-            if df.index.tz is None:
-                df.index = df.index.tz_localize("UTC")
-            else:
-                df.index = df.index.tz_convert("UTC")
-            df.index.name = "time"
-            return df
-    except Exception:
-        pass
-    return _synthetic_es(start, end)
+def _load_es_data(start: str, end: str) -> tuple[pd.DataFrame, str]:
+    """Télécharge ES=F depuis yfinance (avec 1 retry après backoff — Yahoo
+    rate-limite volontiers les appels rapprochés, ex. plusieurs fenêtres de
+    walk-forward enchaînées), fallback synthétique sinon.
+
+    Retourne (df, source) avec source "yfinance" ou "synthetic" — le walk-
+    forward doit pouvoir distinguer une vraie fenêtre OOS d'un fallback, sans
+    quoi un rate-limit silencieux se fait passer pour un résultat réel.
+    """
+    for attempt in range(2):
+        try:
+            tk = yf.Ticker("ES=F")
+            df = tk.history(start=start, end=end, interval="5m", auto_adjust=True)
+            if df is not None and len(df) > 100:
+                df = df.rename(columns=str.lower)
+                df = df[["open", "high", "low", "close", "volume"]].copy()
+                df = df.dropna()
+                if df.index.tz is None:
+                    df.index = df.index.tz_localize("UTC")
+                else:
+                    df.index = df.index.tz_convert("UTC")
+                df.index.name = "time"
+                return df, "yfinance"
+        except Exception:
+            pass
+        if attempt == 0:
+            _time_mod.sleep(2.0)
+    return _synthetic_es(start, end), "synthetic"
 
 
 def _synthetic_es(start: str, end: str) -> pd.DataFrame:
-    """Données synthétiques ES pour les tests offline."""
+    """Données synthétiques ES pour les tests offline / fallback réseau.
+
+    Graine dérivée de (start, end) plutôt que fixe — deux fenêtres de walk-
+    forward de même durée retombant toutes deux en fallback ne doivent pas
+    produire un chemin de prix identique (ça a caché un rate-limit Yahoo
+    qui se faisait passer pour deux fenêtres OOS réelles et cohérentes)."""
     start_dt = pd.Timestamp(start, tz="UTC")
     end_dt   = pd.Timestamp(end,   tz="UTC")
     if end_dt <= start_dt:
@@ -105,7 +122,8 @@ def _synthetic_es(start: str, end: str) -> pd.DataFrame:
     idx = pd.date_range(start_dt, end_dt, freq="5min", tz="UTC")
     idx = idx[idx.weekday < 5]
     n   = len(idx)
-    rng = np.random.default_rng(99)
+    seed = int(hashlib.md5(f"{start}_{end}".encode()).hexdigest()[:8], 16)
+    rng = np.random.default_rng(seed)
     price0 = 5800.0
     rets   = rng.normal(0, 0.0003, n)
     # Volatilité renforcée en session RTH (14h30–21h UTC = 9h30–16h ET)
@@ -241,7 +259,7 @@ def run_pretrain_es(
            status="running", error=None, last_result=None)
     try:
         set_fn(status="Chargement données ES=F…")
-        raw = _load_es_data(start, end)
+        raw, data_source = _load_es_data(start, end)
         if len(raw) < 250:
             raise ValueError("Pas assez de données pour la période sélectionnée.")
 
@@ -481,6 +499,7 @@ def run_pretrain_es(
             "data_start":    data_start,
             "data_end":      data_end,
             "bars_total":    bars_total,
+            "data_source":   data_source,
             "params":        {**strat.DEFAULTS, **(params or {})},
         }
 
@@ -523,6 +542,12 @@ def run_walkforward_es(
         w_end   = (start_dt + pd.Timedelta(days=min((i + 1) * window_days, total_days))).strftime("%Y-%m-%d")
         _set_wf(window=i + 1)
 
+        # Léger délai entre fenêtres — Yahoo rate-limite volontiers des appels
+        # yfinance enchaînés, ce qui ferait retomber une fenêtre sur le
+        # fallback synthétique sans avertissement si on enchaîne trop vite.
+        if i > 0:
+            _time_mod.sleep(1.5)
+
         # Prétrain isolé pour cette fenêtre (sans modifier _progress global)
         _local: Dict[str, Any] = {}
         def _noop(**kw): _local.update(kw)
@@ -538,19 +563,24 @@ def run_walkforward_es(
             "profit_factor": r.get("profit_factor", 0.0),
             "total_pnl":     r.get("total_pnl", 0.0),
             "sl_direct_pct": r.get("sl_direct_pct", 0.0),
+            "data_source":   r.get("data_source", "unknown"),
         })
 
     pfs = [w["profit_factor"] for w in windows if w.get("profit_factor") is not None]
     mean_pf  = round(sum(pfs) / len(pfs), 2) if pfs else 0
     std_pf   = round(float(pd.Series(pfs).std()), 2) if len(pfs) > 1 else 0
     pct_prof = round(sum(1 for p in pfs if p >= 1.0) / len(pfs) * 100, 0) if pfs else 0
+    synthetic_windows = sum(1 for w in windows if w.get("data_source") == "synthetic")
 
     result = {
-        "windows":         windows,
-        "mean_pf":         mean_pf,
-        "std_pf":          std_pf,
-        "pct_profitable":  pct_prof,
-        "robust":          pct_prof >= 75 and std_pf < 0.30,
+        "windows":           windows,
+        "mean_pf":           mean_pf,
+        "std_pf":            std_pf,
+        "pct_profitable":    pct_prof,
+        "synthetic_windows": synthetic_windows,
+        # Une fenêtre retombée en synthétique invalide la validation OOS,
+        # même si les critères PF/std_pf sont par ailleurs remplis.
+        "robust":            pct_prof >= 75 and std_pf < 0.30 and synthetic_windows == 0,
     }
     _set_wf(running=False, window=n_splits, result=result)
     return result
