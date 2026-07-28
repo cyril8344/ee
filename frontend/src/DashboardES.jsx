@@ -222,8 +222,10 @@ function TradeTable({ trades }) {
       Aucun trade
     </div>
   );
-  const EXIT_COLOR = { tp2: C.green, tp_direct: C.green, sl_after_tp1: C.amber, timeout_tp1: C.amber, sl: C.red, timeout: C.sub };
-  const EXIT_LABEL = { tp2: "TP2", tp_direct: "TP↑", sl_after_tp1: "SL/BE", timeout_tp1: "TO+TP1", sl: "SL", timeout: "TO" };
+  const EXIT_COLOR = { tp2: C.green, tp_direct: C.green, sl_after_tp1: C.amber, timeout_tp1: C.amber, sl: C.red, timeout: C.sub,
+                        session_close: C.sub, session_close_tp1: C.amber };
+  const EXIT_LABEL = { tp2: "TP2", tp_direct: "TP↑", sl_after_tp1: "SL/BE", timeout_tp1: "TO+TP1", sl: "SL", timeout: "TO",
+                        session_close: "Clôture", session_close_tp1: "Clôture+TP1" };
   return (
     <div style={{ overflowX: "auto", maxHeight: 340, overflowY: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
@@ -319,6 +321,10 @@ function WFResults({ wf }) {
  * Main component
  * ========================================================================== */
 export default function DashboardES({ onBack, token }) {
+  // "M5" (Order Flow existant) ou "H1" (native, voir strategy_es_h1.py)
+  const [tf, setTf] = useState("M5");
+  const apiPrefix = tf === "H1" ? "/api/es-h1" : "/api/es";
+
   const [settings,       setSettings]       = useState(null);
   const [settingsDirty,  setSettingsDirty]  = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -341,20 +347,32 @@ export default function DashboardES({ onBack, token }) {
   const pollRef   = useRef(null);
   const wfPollRef = useRef(null);
 
+  /* ── Reset à chaque bascule M5 / H1 (évite d'afficher des résultats de
+   * l'autre timeframe pendant le rechargement) ────────────────────────── */
+  const switchTf = (next) => {
+    if (next === tf) return;
+    setTf(next);
+    setSettings(null);
+    setResult(null);
+    setWfData(null);
+    setProgress(null);
+    setSettingsDirty(false);
+  };
+
   /* ── Fetch initial ─────────────────────────────────────────────────────── */
   useEffect(() => {
-    apiGet("/api/es/settings", token).then(d => { if (d) setSettings(d); });
-    apiGet("/api/es/pretrain/result", token).then(d => { if (d?.ok) setResult(d); });
-    apiGet("/api/es/pretrain/walkforward", token).then(d => {
+    apiGet(`${apiPrefix}/settings`, token).then(d => { if (d) setSettings(d); });
+    apiGet(`${apiPrefix}/pretrain/result`, token).then(d => { if (d?.ok) setResult(d); });
+    apiGet(`${apiPrefix}/pretrain/walkforward`, token).then(d => {
       if (d?.result) setWfData(d);
     });
-  }, [token]);
+  }, [token, apiPrefix]);
 
   /* ── Poll prétrain ─────────────────────────────────────────────────────── */
   useEffect(() => {
     if (!polling) return;
     pollRef.current = setInterval(async () => {
-      const p = await apiGet("/api/es/pretrain/status", token);
+      const p = await apiGet(`${apiPrefix}/pretrain/status`, token);
       if (!p) return;
       setProgress(p);
       if (!p.running && (p.status === "done" || p.status === "error")) {
@@ -364,13 +382,13 @@ export default function DashboardES({ onBack, token }) {
       }
     }, 1400);
     return () => clearInterval(pollRef.current);
-  }, [polling, token]);
+  }, [polling, token, apiPrefix]);
 
   /* ── Poll walk-forward ─────────────────────────────────────────────────── */
   useEffect(() => {
     if (!wfPolling) return;
     wfPollRef.current = setInterval(async () => {
-      const d = await apiGet("/api/es/pretrain/walkforward", token);
+      const d = await apiGet(`${apiPrefix}/pretrain/walkforward`, token);
       if (!d) return;
       setWfData(d);
       if (!d.running) {
@@ -380,7 +398,7 @@ export default function DashboardES({ onBack, token }) {
       }
     }, 2000);
     return () => clearInterval(wfPollRef.current);
-  }, [wfPolling, token]);
+  }, [wfPolling, token, apiPrefix]);
 
   /* ── Handlers ──────────────────────────────────────────────────────────── */
   const handleParam = (k, v) => {
@@ -397,7 +415,7 @@ export default function DashboardES({ onBack, token }) {
 
   const saveSettings = async () => {
     setSavingSettings(true);
-    await apiPost("/api/es/settings", token, settings);
+    await apiPost(`${apiPrefix}/settings`, token, settings);
     setSavingSettings(false);
     setSettingsDirty(false);
   };
@@ -406,7 +424,7 @@ export default function DashboardES({ onBack, token }) {
     if (!settings) return;
     setResult(null);
     setProgress({ running: true, pct: 0, status: "Lancement…", trades: 0, wins: 0 });
-    await apiPost("/api/es/pretrain", token, {
+    await apiPost(`${apiPrefix}/pretrain`, token, {
       start: startDate, end: endDate,
       capital: Number(capital), risk_pct: Number(riskPct),
       params: settings,
@@ -417,7 +435,7 @@ export default function DashboardES({ onBack, token }) {
   const launchWF = async () => {
     setWfRunning(true);
     setWfData({ running: true, window: 0, n_splits: wfSplits, result: null });
-    await apiPost("/api/es/pretrain/walkforward", token, {
+    await apiPost(`${apiPrefix}/pretrain/walkforward`, token, {
       start: startDate, end: endDate,
       n_splits: Number(wfSplits),
       capital: Number(capital), risk_pct: Number(riskPct),
@@ -455,6 +473,17 @@ export default function DashboardES({ onBack, token }) {
           <span style={{ fontSize: 17, fontWeight: 700 }}>ES</span>
           <span style={{ color: C.sub, fontSize: 12 }}>S&P 500 E-mini — Order Flow</span>
         </div>
+        <div style={{ display: "flex", gap: 4, marginLeft: 10 }}>
+          {["M5", "H1"].map(t => (
+            <button key={t} onClick={() => switchTf(t)}
+              style={{ ...S.btn, padding: "4px 12px", fontSize: 11,
+                       background: tf === t ? C.blue : "transparent",
+                       border: `1px solid ${tf === t ? C.blue : C.border}`,
+                       color: tf === t ? "#fff" : C.sub }}>
+              {t}
+            </button>
+          ))}
+        </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           {running && <span style={{ color: C.amber, fontSize: 11 }}>⬤ Prétrain en cours</span>}
           {wfRunning && <span style={{ color: C.purple, fontSize: 11 }}>⬤ Walk-forward {wfData?.window || 0}/{wfSplits}</span>}
@@ -464,20 +493,36 @@ export default function DashboardES({ onBack, token }) {
       {/* ── Content ──────────────────────────────────────────────────────── */}
       <div style={{ maxWidth: 1280, margin: "0 auto", padding: "16px 14px" }}>
 
-        {/* Info NinjaTrader */}
-        <div style={{ ...S.section, borderLeft: `3px solid ${C.blue}`, background: "rgba(59,130,246,0.04)", marginBottom: 14 }}>
-          <div style={{ color: C.blue, fontWeight: 600, fontSize: 12, marginBottom: 4 }}>
-            DOMScanner NinjaTrader — intégration live via POST /api/es/dom
+        {/* Info stratégie */}
+        {tf === "M5" ? (
+          <div style={{ ...S.section, borderLeft: `3px solid ${C.blue}`, background: "rgba(59,130,246,0.04)", marginBottom: 14 }}>
+            <div style={{ color: C.blue, fontWeight: 600, fontSize: 12, marginBottom: 4 }}>
+              DOMScanner NinjaTrader — intégration live via POST /api/es/dom
+            </div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 11 }}>
+              {[["Tick", "0.25 pts"], ["Valeur tick", "$12.50/ctr"], ["Point", "$50/ctr"],
+                ["Session RTH", "9h30–16h ET"], ["Timeout", "9 bougies (45 min)"]].map(([l, v]) => (
+                <span key={l} style={{ background: C.panel2, padding: "3px 8px", borderRadius: 5 }}>
+                  <span style={{ color: C.sub }}>{l}: </span><b>{v}</b>
+                </span>
+              ))}
+            </div>
           </div>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 11 }}>
-            {[["Tick", "0.25 pts"], ["Valeur tick", "$12.50/ctr"], ["Point", "$50/ctr"],
-              ["Session RTH", "9h30–16h ET"], ["Timeout", "9 bougies (45 min)"]].map(([l, v]) => (
-              <span key={l} style={{ background: C.panel2, padding: "3px 8px", borderRadius: 5 }}>
-                <span style={{ color: C.sub }}>{l}: </span><b>{v}</b>
-              </span>
-            ))}
+        ) : (
+          <div style={{ ...S.section, borderLeft: `3px solid ${C.teal}`, background: "rgba(20,184,166,0.05)", marginBottom: 14 }}>
+            <div style={{ color: C.teal, fontWeight: 600, fontSize: 12, marginBottom: 4 }}>
+              Signal H1 natif — SL/TP en multiples d'ATR/R, flatten forcé avant clôture RTH (pas de position overnight)
+            </div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 11 }}>
+              {[["Tick", "0.25 pts"], ["Valeur tick", "$12.50/ctr"], ["Point", "$50/ctr"],
+                ["Session RTH", "9h30–16h ET"], ["Timeout", `${settings?.max_trade_hours ?? "?"} bougies (heures)`]].map(([l, v]) => (
+                <span key={l} style={{ background: C.panel2, padding: "3px 8px", borderRadius: 5 }}>
+                  <span style={{ color: C.sub }}>{l}: </span><b>{v}</b>
+                </span>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         <div style={{ display: "grid", gridTemplateColumns: "310px 1fr", gap: 14 }}>
 
@@ -499,7 +544,9 @@ export default function DashboardES({ onBack, token }) {
             <div style={S.section}>
               <div style={S.h2}>Filtres avancés</div>
               <ParamToggle label="VWAP alignment"   k="vwap_filter" settings={settings} onChange={handleParam} />
-              <ParamToggle label="H1 bias (EMA200)" k="h1_filter"   settings={settings} onChange={handleParam} />
+              {tf === "M5" && (
+                <ParamToggle label="H1 bias (EMA200)" k="h1_filter" settings={settings} onChange={handleParam} />
+              )}
               <div style={{ marginTop: 4, marginBottom: 7 }}>
                 <div style={{ color: C.sub, fontSize: 12, marginBottom: 3 }}>Heures bloquées ET (ex: 10,11)</div>
                 <input
@@ -512,33 +559,63 @@ export default function DashboardES({ onBack, token }) {
               </div>
             </div>
 
-            {/* Volume absorption */}
-            <div style={S.section}>
-              <div style={S.h2}>Volume absorption</div>
-              <ParamNum label="Multiplicateur vol" k="vol_multiplier"  settings={settings} onChange={handleParam} step={0.1} />
-              <ParamNum label="Lookback (barres)"  k="vol_lookback"   settings={settings} onChange={handleParam} />
-              <ParamNum label="Close % range LONG ≥" k="close_pct_long"  settings={settings} onChange={handleParam} step={0.05} />
-              <ParamNum label="Close % range SHORT ≤" k="close_pct_short" settings={settings} onChange={handleParam} step={0.05} />
-              <ParamNum label="Corps/ATR min"       k="body_ratio_min" settings={settings} onChange={handleParam} step={0.05} />
-            </div>
+            {tf === "M5" ? (
+              <>
+                {/* Volume absorption (M5 uniquement) */}
+                <div style={S.section}>
+                  <div style={S.h2}>Volume absorption</div>
+                  <ParamNum label="Multiplicateur vol" k="vol_multiplier"  settings={settings} onChange={handleParam} step={0.1} />
+                  <ParamNum label="Lookback (barres)"  k="vol_lookback"   settings={settings} onChange={handleParam} />
+                  <ParamNum label="Close % range LONG ≥" k="close_pct_long"  settings={settings} onChange={handleParam} step={0.05} />
+                  <ParamNum label="Close % range SHORT ≤" k="close_pct_short" settings={settings} onChange={handleParam} step={0.05} />
+                  <ParamNum label="Corps/ATR min"       k="body_ratio_min" settings={settings} onChange={handleParam} step={0.05} />
+                </div>
 
-            {/* SL/TP */}
-            <div style={S.section}>
-              <div style={S.h2}>SL / TP (ticks)</div>
-              <ParamNum label="Stop Loss"  k="sl_ticks"  settings={settings} onChange={handleParam} />
-              <ParamNum label="TP1"        k="tp1_ticks" settings={settings} onChange={handleParam} />
-              <ParamNum label="TP2"        k="tp2_ticks" settings={settings} onChange={handleParam} />
-              <div style={{ marginTop: 8, padding: "7px 10px", background: C.panel2, borderRadius: 5,
-                            fontSize: 11, color: C.sub, lineHeight: 1.8 }}>
-                SL {settings.sl_ticks}t = {(settings.sl_ticks * 0.25).toFixed(2)}pts
-                  = <b style={{ color: C.red }}>${(settings.sl_ticks * 12.5).toFixed(0)}/ctr</b><br />
-                TP1 {settings.tp1_ticks}t = {(settings.tp1_ticks * 0.25).toFixed(2)}pts
-                  = <b style={{ color: C.green }}>${(settings.tp1_ticks * 12.5).toFixed(0)}/ctr</b><br />
-                TP2 {settings.tp2_ticks}t = {(settings.tp2_ticks * 0.25).toFixed(2)}pts
-                  = <b style={{ color: C.green }}>${(settings.tp2_ticks * 12.5).toFixed(0)}/ctr</b><br />
-                R:R = 1 : {(settings.tp2_ticks / settings.sl_ticks).toFixed(2)}
-              </div>
-            </div>
+                {/* SL/TP en ticks fixes (M5 uniquement) */}
+                <div style={S.section}>
+                  <div style={S.h2}>SL / TP (ticks)</div>
+                  <ParamNum label="Stop Loss"  k="sl_ticks"  settings={settings} onChange={handleParam} />
+                  <ParamNum label="TP1"        k="tp1_ticks" settings={settings} onChange={handleParam} />
+                  <ParamNum label="TP2"        k="tp2_ticks" settings={settings} onChange={handleParam} />
+                  <div style={{ marginTop: 8, padding: "7px 10px", background: C.panel2, borderRadius: 5,
+                                fontSize: 11, color: C.sub, lineHeight: 1.8 }}>
+                    SL {settings.sl_ticks}t = {(settings.sl_ticks * 0.25).toFixed(2)}pts
+                      = <b style={{ color: C.red }}>${(settings.sl_ticks * 12.5).toFixed(0)}/ctr</b><br />
+                    TP1 {settings.tp1_ticks}t = {(settings.tp1_ticks * 0.25).toFixed(2)}pts
+                      = <b style={{ color: C.green }}>${(settings.tp1_ticks * 12.5).toFixed(0)}/ctr</b><br />
+                    TP2 {settings.tp2_ticks}t = {(settings.tp2_ticks * 0.25).toFixed(2)}pts
+                      = <b style={{ color: C.green }}>${(settings.tp2_ticks * 12.5).toFixed(0)}/ctr</b><br />
+                    R:R = 1 : {(settings.tp2_ticks / settings.sl_ticks).toFixed(2)}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* SL/TP en multiples d'ATR/R (H1 natif uniquement) */}
+                <div style={S.section}>
+                  <div style={S.h2}>SL / TP (multiples ATR / R)</div>
+                  <ParamNum label="SL = ATR ×"   k="sl_atr_mult" settings={settings} onChange={handleParam} step={0.1} />
+                  <ParamNum label="TP1 = R ×"    k="tp1_r"       settings={settings} onChange={handleParam} step={0.1} />
+                  <ParamNum label="TP2 = R ×"    k="tp2_r"       settings={settings} onChange={handleParam} step={0.1} />
+                  <div style={{ marginTop: 8, padding: "7px 10px", background: C.panel2, borderRadius: 5,
+                                fontSize: 11, color: C.sub, lineHeight: 1.8 }}>
+                    R:R = 1 : {(settings.tp2_r / (settings.tp1_r || 1)).toFixed(2)} (TP2/TP1)<br />
+                    SL/TP calculés dynamiquement selon l'ATR H1 courant — pas de valeur fixe.
+                  </div>
+                </div>
+
+                {/* Fenêtre de clôture (H1 natif uniquement) */}
+                <div style={S.section}>
+                  <div style={S.h2}>Clôture de session</div>
+                  <ParamNum label="Pas d'entrée si < N h avant clôture" k="flatten_before_close_h1" settings={settings} onChange={handleParam} step={0.5} />
+                  <ParamNum label="Durée max trade (bougies H1)"        k="max_trade_hours"          settings={settings} onChange={handleParam} />
+                  <div style={{ marginTop: 8, padding: "7px 10px", background: C.panel2, borderRadius: 5,
+                                fontSize: 11, color: C.sub, lineHeight: 1.6 }}>
+                    Toute position encore ouverte à la clôture RTH est flattenée au marché — jamais de gap overnight/weekend.
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Session */}
             <div style={S.section}>
@@ -567,7 +644,9 @@ export default function DashboardES({ onBack, token }) {
           <div>
             {/* Prétrain config */}
             <div style={S.section}>
-              <div style={S.h2}>Prétrain ES — données ES=F (yfinance + H1 multi-TF)</div>
+              <div style={S.h2}>
+                Prétrain ES — données ES=F (yfinance{tf === "M5" ? ", M5 + H1 multi-TF" : ", H1 natif"})
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
                 {[["Début", "date", startDate, setStartDate],
                   ["Fin",   "date", endDate,   setEndDate]].map(([l, t, v, set]) => (
@@ -636,7 +715,7 @@ export default function DashboardES({ onBack, token }) {
                 <div style={S.section}>
                   <div style={S.h2}>Résultats prétrain
                     {r.data_start && <span style={{ color: C.sub, marginLeft: 8, fontWeight: 400 }}>
-                      {r.data_start} → {r.data_end} ({r.bars_total?.toLocaleString()} barres M5)
+                      {r.data_start} → {r.data_end} ({r.bars_total?.toLocaleString()} barres {tf})
                     </span>}
                   </div>
 
@@ -700,8 +779,13 @@ export default function DashboardES({ onBack, token }) {
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
                       <div style={S.h2}>Derniers trades</div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        {[["tp2","TP2",C.green],["tp_direct","TP↑",C.green],["timeout_tp1","TO+TP1",C.amber],
-                          ["sl_after_tp1","SL/BE",C.amber],["sl","SL",C.red],["timeout","TO",C.sub]].map(([k, l, col]) => {
+                        {(tf === "H1"
+                          ? [["tp2","TP2",C.green],["tp_direct","TP↑",C.green],["timeout_tp1","TO+TP1",C.amber],
+                             ["sl_after_tp1","SL/BE",C.amber],["sl","SL",C.red],["timeout","TO",C.sub],
+                             ["session_close_tp1","Clôture+TP1",C.amber],["session_close","Clôture",C.sub]]
+                          : [["tp2","TP2",C.green],["tp_direct","TP↑",C.green],["timeout_tp1","TO+TP1",C.amber],
+                             ["sl_after_tp1","SL/BE",C.amber],["sl","SL",C.red],["timeout","TO",C.sub]]
+                        ).map(([k, l, col]) => {
                           const n = r.trades.filter(t => t.exit_reason === k).length;
                           return (
                             <span key={k} style={{ background: C.panel2, borderRadius: 5, padding: "2px 8px", fontSize: 10 }}>
