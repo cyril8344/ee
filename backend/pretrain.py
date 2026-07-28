@@ -117,8 +117,14 @@ def run_pretrain(
     reset=True  : repart de zéro (recommandé la 1ère fois)
     reset=False : accumule sur l'historique existant
     """
-    _set(running=True, pct=0, bars_done=0, trades=0, wins=0,
-         status="running", error=None, last_result=None, strategy_mode=strategy_mode)
+    # `write_to_db=False` signale un run isolé (fenêtre walk-forward, essai Optuna) —
+    # sans cette garde, chaque fenêtre écrasait le résultat affiché dans le panneau
+    # "Pré-entraînement" avec ses propres dates/chiffres, remplacé au fil des fenêtres
+    # jusqu'à ne laisser que celui de la dernière — aucun rapport avec un vrai pretrain
+    # lancé sur la période sélectionnée dans le panneau.
+    if write_to_db:
+        _set(running=True, pct=0, bars_done=0, trades=0, wins=0,
+             status="running", error=None, last_result=None, strategy_mode=strategy_mode)
 
     contract_size = 100.0   if symbol == "XAUUSD" else 100000.0
     pip_size      = 0.1     if symbol == "XAUUSD" else 0.0001
@@ -173,7 +179,8 @@ def run_pretrain(
                 setattr(strategy_ict, k, v)
 
         # ---- Charger et préparer les données ----
-        _set(status="Chargement des données…")
+        if write_to_db:
+            _set(status="Chargement des données…")
         m5_raw   = load_m5_data(start, end, symbol=symbol)
         if len(m5_raw) < 300:
             raise ValueError("Pas assez de données pour la période sélectionnée.")
@@ -242,7 +249,8 @@ def run_pretrain(
         max_trades_day = 10
         _day_trades: Dict[str, int] = {}  # date_str → nb trades ce jour
 
-        _set(bars_total=total, status="Analyse des trades historiques…")
+        if write_to_db:
+            _set(bars_total=total, status="Analyse des trades historiques…")
 
         for i in range(warmup, len(m5)):
             ts  = m5.index[i]
@@ -250,7 +258,7 @@ def run_pretrain(
 
             # Progression
             done = i - warmup
-            if done % 200 == 0:
+            if write_to_db and done % 200 == 0:
                 _set(pct=round(done / total * 100), bars_done=done,
                      trades=n_trades, wins=n_wins)
 
@@ -880,14 +888,16 @@ def run_pretrain(
             "rejection_counts":       dict(sorted(rejection_counts.items(), key=lambda x: -x[1])),
             "sl_atr_mult":            SL_ATR_MULT,
         }
-        with _lock:
-            _last_by_strategy[strategy_mode] = result
-        _set(running=False, pct=100, bars_done=total, trades=n_trades,
-             wins=n_wins, status="done", last_result=result)
+        if write_to_db:
+            with _lock:
+                _last_by_strategy[strategy_mode] = result
+            _set(running=False, pct=100, bars_done=total, trades=n_trades,
+                 wins=n_wins, status="done", last_result=result)
         return result
 
     except Exception as exc:
-        _set(running=False, status="error", error=str(exc))
+        if write_to_db:
+            _set(running=False, status="error", error=str(exc))
         raise
 
     finally:
