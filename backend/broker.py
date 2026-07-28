@@ -30,6 +30,7 @@ import numpy as np
 import pandas as pd
 
 from risk_manager import CONTRACT_SIZE
+import strategy
 
 
 # --------------------------------------------------------------------------- #
@@ -250,7 +251,10 @@ class PaperBroker(BaseBroker):
                 pos.realised += pnl_for(pos.take_profit1 - self.slippage * sign, lots50)
                 pos.remaining = round(pos.remaining - lots50, 2)
                 pos.tp1_done = True
-                pos.stop_loss = pos.entry  # BE : SL à l'entrée, vérifié sur bougies suivantes
+                # BE : SL à l'entrée (+ marge optionnelle BE_BUFFER_R×R, 0 par défaut),
+                # vérifié sur bougies suivantes
+                be_buffer = strategy.BE_BUFFER_R * abs(pos.entry - pos.stop_loss)
+                pos.stop_loss = pos.entry - be_buffer * sign
                 if pos.remaining < 0.01:
                     return {"closed": True, "reason": "tp1",
                             "exit_price": pos.take_profit1, "pnl": pos.realised}
@@ -399,7 +403,9 @@ class MT5Broker(BaseBroker):
                 pos.realised += (fill_price - pos.entry) * sign * CONTRACT_SIZE * lots50
                 pos.remaining = round(pos.remaining - lots50, 2)
                 pos.tp1_done = True
-                pos.stop_loss = pos.entry  # BE : SL à l'entrée
+                # BE : SL à l'entrée (+ marge optionnelle BE_BUFFER_R×R, 0 par défaut)
+                be_buffer = strategy.BE_BUFFER_R * abs(pos.entry - pos.stop_loss)
+                pos.stop_loss = pos.entry - be_buffer * sign
                 self._update_sl(pos, pos.stop_loss)
                 if pos.remaining < 0.01:
                     return {"closed": True, "reason": "tp1",

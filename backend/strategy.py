@@ -57,6 +57,12 @@ SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
 SL_ATR_MULT      = 1.8      # multiplicateur SL normal (plafond max)
 SL_ATR_MULT_HIGH = 2.0      # multiplicateur SL haute volatilité (ATR > ATR_HIGH)
 SL_MIN_ATR_MULT  = 1.2      # plancher SL minimal — < 1.2×ATR → 70% faux stops
+BE_BUFFER_R      = 0.0      # marge (en R) sous/sur l'entrée pour le SL breakeven après TP1
+                             # — 0.0 = comportement actuel (SL exactement à l'entrée).
+                             # Diagnostic pretrain : 47.3% des sorties "SL après TP1" auraient
+                             # atteint TP2 dans les 20 bougies suivantes (false_be) — un peu
+                             # de marge pourrait laisser respirer ces trades sans réintroduire
+                             # tout le risque initial.
 SWING_LOOKBACK = 5          # bars each side for swing detection
 
 # SMC parameters (optimised by Agent IA)

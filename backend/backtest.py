@@ -27,6 +27,7 @@ from typing import Dict, Any, List, Optional
 import numpy as np
 import pandas as pd
 
+import strategy
 from strategy import (
     add_indicators, evaluate, active_session,
     MAX_TRADE_MINUTES, batch_signals,
@@ -375,10 +376,12 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
             t["tp1_done"] = True
             if t["remaining"] < MIN_LOT:
                 return t["realised"], t["tp1"], "tp1"
-            # Déplacer SL à l'entrée (breakeven) si demandé par la stratégie
-            # Return None pour ne pas checker le SL sur la même bougie que TP1
+            # Déplacer SL à l'entrée (breakeven, + marge optionnelle BE_BUFFER_R×R) si
+            # demandé par la stratégie. Return None pour ne pas checker le SL sur la
+            # même bougie que TP1.
             if t.get("be_after_tp1"):
-                t["stop_loss"] = t["entry"]
+                be_buffer = strategy.BE_BUFFER_R * t.get("risk", 0.0)
+                t["stop_loss"] = t["entry"] - be_buffer * sign
                 return None
 
     # 2) Stop loss
