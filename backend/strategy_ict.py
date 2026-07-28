@@ -39,6 +39,13 @@ OB_REQUIRE_BOS    = False  # True = exige une vraie cassure de structure (swing 
                             # ICT/SMC : un OB doit précéder un break of structure confirmé,
                             # pas juste une bougie large dans un range). Désactivé par défaut.
 BOS_LOOKBACK      = 15   # bougies avant l'OB où chercher le swing high/low à casser
+OB_REQUIRE_LIQUIDITY   = False  # True = exige que l'OB soit proche d'une poche de liquidité
+                                 # (Equal Highs pour SHORT, Equal Lows pour LONG) — un OB "pur"
+                                 # peut se former n'importe où ; ça n'exige pas qu'il corresponde
+                                 # à un vrai sweep de stops. Désactivé par défaut.
+EQUAL_LEVEL_LOOKBACK   = 50      # bougies analysées pour détecter des swings égaux
+EQUAL_LEVEL_TOLERANCE_ATR = 0.15 # deux swings à moins de 0.15×ATR l'un de l'autre = "égaux"
+OB_LIQUIDITY_PROXIMITY_ATR = 0.3 # distance max entre l'extrême de l'OB et le niveau de liquidité
 RSI_LONG_MIN      = 46   # RSI M5 minimum pour LONG (identique strategy A, validé Optuna)
 RSI_SHORT_MAX     = 57   # RSI M5 maximum pour SHORT
 RSI_M15_LONG_MIN  = 45   # RSI M15 minimum pour LONG (momentum M15 dans le bon sens)
@@ -76,6 +83,59 @@ def _h1_bias(h1: pd.DataFrame) -> Optional[str]:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Poches de liquidité — Equal Highs / Equal Lows
+# ──────────────────────────────────────────────────────────────────────────────
+def _find_equal_levels(
+    df: pd.DataFrame,
+    direction: str,
+    atr_val: float,
+    lookback: int = EQUAL_LEVEL_LOOKBACK,
+    tol_atr: float = EQUAL_LEVEL_TOLERANCE_ATR,
+) -> List[float]:
+    """
+    Détecte les poches de liquidité par swings égaux :
+    - direction "SHORT" -> Equal Highs (stops des vendeurs à découvert au-dessus)
+    - direction "LONG"  -> Equal Lows  (stops des acheteurs en dessous)
+
+    Un swing = extrême local (k=2 bougies de chaque côté). Deux swings ou plus à
+    moins de tol_atr×ATR l'un de l'autre forment un cluster = une poche de
+    liquidité. Retourne le niveau moyen de chaque cluster (≥2 swings).
+    """
+    if atr_val <= 0:
+        return []
+    sub = df.tail(lookback)
+    n = len(sub)
+    k = 2
+    if n < 2 * k + 1:
+        return []
+    tol = tol_atr * atr_val
+
+    highs = sub["high"].values
+    lows = sub["low"].values
+    swings: List[float] = []
+    for i in range(k, n - k):
+        if direction == "SHORT":
+            if highs[i] == max(highs[i - k: i + k + 1]):
+                swings.append(float(highs[i]))
+        else:
+            if lows[i] == min(lows[i - k: i + k + 1]):
+                swings.append(float(lows[i]))
+
+    if len(swings) < 2:
+        return []
+
+    swings.sort()
+    clusters: List[List[float]] = []
+    for lv in swings:
+        if clusters and abs(lv - clusters[-1][-1]) <= tol:
+            clusters[-1].append(lv)
+        else:
+            clusters.append([lv])
+
+    return [sum(c) / len(c) for c in clusters if len(c) >= 2]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # 2. Détection des Order Blocks M5
 # ──────────────────────────────────────────────────────────────────────────────
 def _find_order_blocks(
@@ -100,6 +160,10 @@ def _find_order_blocks(
     min_impulse = OB_IMPULSE_ATR * atr_val
     min_body    = OB_MIN_BODY_ATR * atr_val
     obs: List[Dict[str, Any]] = []
+
+    liquidity_levels = (
+        _find_equal_levels(recent, direction, atr_val) if OB_REQUIRE_LIQUIDITY else []
+    )
 
     for i in range(n - 4):
         bar    = recent.iloc[i]
@@ -144,6 +208,16 @@ def _find_order_blocks(
             continue
         if direction == "SHORT" and float(post["high"].max()) > b_high:
             continue
+
+        # Poche de liquidité — l'OB doit avoir sweepé un Equal High (SHORT) /
+        # Equal Low (LONG), pas juste s'être formé n'importe où dans le range.
+        if OB_REQUIRE_LIQUIDITY:
+            if not liquidity_levels:
+                continue
+            ob_extreme = b_high if direction == "SHORT" else b_low
+            tol = OB_LIQUIDITY_PROXIMITY_ATR * atr_val
+            if not any(abs(ob_extreme - lv) <= tol for lv in liquidity_levels):
+                continue
 
         obs.append({"low": b_low, "high": b_high, "ts": recent.index[i]})
 

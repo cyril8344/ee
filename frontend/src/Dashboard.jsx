@@ -429,6 +429,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [wfBadHoursOverride, setWfBadHoursOverride] = useState("");
   const [obRequireBos, setObRequireBos] = useState(false);
   const [wfBeBufferR, setWfBeBufferR] = useState("");
+  const [obRequireLiquidity, setObRequireLiquidity] = useState(false);
   const [optunaTrials, setOptunaTrials]       = useState(30);
   const [pretrainTrades, setPretrainTrades]   = useState(null);
   const [pretrainFilter, setPretrainFilter]   = useState("losses");
@@ -820,7 +821,8 @@ export default function Dashboard({ onLogout, onNavigateES }) {
           ? wfBadHoursOverride.split(",").map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n))
           : null,
         ob_require_bos_override: obRequireBos,
-        be_buffer_r_override: wfBeBufferR !== "" ? parseFloat(wfBeBufferR) : null }),
+        be_buffer_r_override: wfBeBufferR !== "" ? parseFloat(wfBeBufferR) : null,
+        ob_require_liquidity_override: obRequireLiquidity }),
     }).then(() => setWfLoading(false)).catch(() => setWfLoading(false));
   };
 
@@ -2382,6 +2384,13 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                           Strat B — exiger cassure de structure (BOS) sur l'OB
                         </span>
                       </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, cursor: "pointer" }}>
+                        <input type="checkbox" checked={obRequireLiquidity} onChange={e => setObRequireLiquidity(e.target.checked)}
+                          style={{ accentColor: COLORS.amber }} />
+                        <span style={{ fontSize: 9, color: obRequireLiquidity ? COLORS.amber : COLORS.sub }}>
+                          Strat B — exiger poche de liquidité (Equal High/Low) sur l'OB
+                        </span>
+                      </label>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                         <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
                           Marge BE après TP1, en R (vide = 0, comportement actuel)
@@ -2391,7 +2400,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                           style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
-                      {(wfAdxOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "" || obRequireBos || wfBeBufferR !== "") && (
+                      {(wfAdxOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "" || obRequireBos || wfBeBufferR !== "" || obRequireLiquidity) && (
                         <div style={{ fontSize: 9, color: COLORS.amber, marginBottom: 4 }}>
                           ⚠ Test isolé — ne modifie pas le réglage live tant que tu ne le forces pas ailleurs.
                         </div>
