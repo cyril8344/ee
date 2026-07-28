@@ -155,7 +155,8 @@ class BaseBroker:
         dict (with 'reason','exit_price','pnl','closed') or None."""
         raise NotImplementedError
 
-    def close_position(self, pos: Position, reason: str = "manual") -> Dict[str, Any]:
+    def close_position(self, pos: Position, reason: str = "manual",
+                       price: Optional[float] = None) -> Dict[str, Any]:
         raise NotImplementedError
 
 
@@ -279,8 +280,16 @@ class PaperBroker(BaseBroker):
 
         return None
 
-    def close_position(self, pos: Position, reason: str = "manual") -> Dict[str, Any]:
-        price = self.get_price()
+    def close_position(self, pos: Position, reason: str = "manual",
+                       price: Optional[float] = None) -> Dict[str, Any]:
+        # `price`, quand fourni (ex: TP2/SL touché en temps réel par _price_tick), est le
+        # niveau qui a déclenché la clôture. Sans lui, on retombait sur self.get_price()
+        # — le dernier close M5 mis en cache, jusqu'à 300s (5min) plus vieux que le prix
+        # temps réel qui a réellement déclenché le trigger. Un TP2 touché en cours de
+        # bougie se retrouvait alors rempli à un prix bien moins favorable que la cible
+        # réelle, sous-évaluant le P&L réalisé sans aucune trace de l'écart.
+        if price is None:
+            price = self.get_price()
         sign = 1.0 if pos.direction == "long" else -1.0
         fill = price - self.slippage * sign
         pnl = pos.realised + (fill - pos.entry) * sign * self.contract_size * pos.remaining
@@ -427,7 +436,10 @@ class MT5Broker(BaseBroker):
 
         return None
 
-    def close_position(self, pos: Position, reason: str = "manual") -> Dict[str, Any]:
+    def close_position(self, pos: Position, reason: str = "manual",
+                       price: Optional[float] = None) -> Dict[str, Any]:
+        # `price` ignoré ici — le tick MT5 ci-dessous est déjà temps réel, contrairement
+        # au cache M5 de PaperBroker.get_price() (voir son close_position).
         mt5 = self._mt5
         tick = mt5.symbol_info_tick(self.symbol)
         price = tick.bid if pos.direction == "long" else tick.ask

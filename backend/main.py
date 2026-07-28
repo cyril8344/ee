@@ -1004,14 +1004,14 @@ async def _price_tick():
                     direction = pos.direction
                     if direction == "long":
                         if rt_price <= pos.stop_loss:
-                            close_info = ms.broker.close_position(pos, "sl_realtime")
+                            close_info = ms.broker.close_position(pos, "sl_realtime", price=pos.stop_loss)
                             if close_info and close_info.get("closed"):
                                 now = datetime.now(timezone.utc)
                                 _finalize_trade(ms, pos, close_info, now)
                                 ms.position = None
                                 ms.last_close_time = now
                         elif rt_price >= pos.take_profit2:
-                            close_info = ms.broker.close_position(pos, "tp2_realtime")
+                            close_info = ms.broker.close_position(pos, "tp2_realtime", price=pos.take_profit2)
                             if close_info and close_info.get("closed"):
                                 now = datetime.now(timezone.utc)
                                 _finalize_trade(ms, pos, close_info, now)
@@ -1019,14 +1019,14 @@ async def _price_tick():
                                 ms.last_close_time = now
                     else:
                         if rt_price >= pos.stop_loss:
-                            close_info = ms.broker.close_position(pos, "sl_realtime")
+                            close_info = ms.broker.close_position(pos, "sl_realtime", price=pos.stop_loss)
                             if close_info and close_info.get("closed"):
                                 now = datetime.now(timezone.utc)
                                 _finalize_trade(ms, pos, close_info, now)
                                 ms.position = None
                                 ms.last_close_time = now
                         elif rt_price <= pos.take_profit2:
-                            close_info = ms.broker.close_position(pos, "tp2_realtime")
+                            close_info = ms.broker.close_position(pos, "tp2_realtime", price=pos.take_profit2)
                             if close_info and close_info.get("closed"):
                                 now = datetime.now(timezone.utc)
                                 _finalize_trade(ms, pos, close_info, now)
