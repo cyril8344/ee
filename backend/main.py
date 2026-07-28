@@ -1858,6 +1858,7 @@ class WalkForwardRequest(BaseModel):
     vwap_session_anchored_override: Optional[bool] = None
     bad_hours_cet_override: Optional[List[int]] = None
     ob_require_bos_override: Optional[bool] = None
+    be_buffer_r_override: Optional[float] = None
 
 
 @app.post("/api/pretrain/walkforward")
@@ -1889,6 +1890,8 @@ def start_walkforward(req: WalkForwardRequest, _user: dict = Depends(get_current
                 _overrides["BAD_HOURS_CET"] = {h for h in req.bad_hours_cet_override if 0 <= h <= 23}
             if req.ob_require_bos_override is not None:
                 _overrides["OB_REQUIRE_BOS"] = req.ob_require_bos_override
+            if req.be_buffer_r_override is not None:
+                _overrides["BE_BUFFER_R"] = req.be_buffer_r_override
             _overrides = _overrides or None
             r = _pretrain_module.run_walk_forward(
                 start=req.start, end=req.end,
