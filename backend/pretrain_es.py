@@ -251,6 +251,7 @@ def run_pretrain_es(
     capital:   float = 50_000.0,
     risk_pct:  float = 1.0,
     _set_fn:   Optional[Callable] = None,   # permet d'utiliser _set_wf depuis walk-forward
+    _raw_data: Optional[tuple] = None,      # (df, source) déjà chargé — évite un refetch (voir walk-forward)
 ) -> Dict[str, Any]:
     """Lance le prétrain ES en mode bloquant."""
     set_fn = _set_fn or _set
@@ -258,8 +259,11 @@ def run_pretrain_es(
     set_fn(running=True, pct=0, bars_done=0, trades=0, wins=0,
            status="running", error=None, last_result=None)
     try:
-        set_fn(status="Chargement données ES=F…")
-        raw, data_source = _load_es_data(start, end)
+        if _raw_data is not None:
+            raw, data_source = _raw_data
+        else:
+            set_fn(status="Chargement données ES=F…")
+            raw, data_source = _load_es_data(start, end)
         if len(raw) < 250:
             raise ValueError("Pas assez de données pour la période sélectionnée.")
 
@@ -536,24 +540,28 @@ def run_walkforward_es(
     total_days  = (end_dt - start_dt).days
     window_days = max(total_days // n_splits, 15)
 
+    # Un seul appel réseau pour toute la période, puis découpage local par
+    # fenêtre — 4 fenêtres = 4 appels yfinance indépendants auparavant, ce
+    # qui déclenchait le rate-limit Yahoo dès la 3e requête enchaînée. Une
+    # fenêtre synthétique invalide déjà la robustesse (voir plus bas) ; ce
+    # fetch unique réduit fortement le risque d'en avoir ne serait-ce qu'une.
+    full_raw, full_source = _load_es_data(start, end)
+
     windows = []
     for i in range(n_splits):
         w_start = (start_dt + pd.Timedelta(days=i * window_days)).strftime("%Y-%m-%d")
         w_end   = (start_dt + pd.Timedelta(days=min((i + 1) * window_days, total_days))).strftime("%Y-%m-%d")
         _set_wf(window=i + 1)
 
-        # Léger délai entre fenêtres — Yahoo rate-limite volontiers des appels
-        # yfinance enchaînés, ce qui ferait retomber une fenêtre sur le
-        # fallback synthétique sans avertissement si on enchaîne trop vite.
-        if i > 0:
-            _time_mod.sleep(1.5)
+        window_raw = full_raw.loc[w_start:w_end]
 
         # Prétrain isolé pour cette fenêtre (sans modifier _progress global)
         _local: Dict[str, Any] = {}
         def _noop(**kw): _local.update(kw)
 
         r = run_pretrain_es(w_start, w_end, params=params,
-                            capital=capital, risk_pct=risk_pct, _set_fn=_noop)
+                            capital=capital, risk_pct=risk_pct, _set_fn=_noop,
+                            _raw_data=(window_raw, full_source))
         windows.append({
             "window":        i + 1,
             "start":         w_start,
