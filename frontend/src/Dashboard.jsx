@@ -3645,6 +3645,11 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                                 {fmtLocalTime(t.entry_time)}
                               </span>
                             ) : fmtLocalTime(t.entry_time)}
+                            {t.duration_min != null && (
+                              <div style={{ fontSize: 9, color: COLORS.sub }}>
+                                {t.duration_min < 1 ? "<1 min" : `${fmt(t.duration_min, 1)} min`}
+                              </div>
+                            )}
                           </td>
                           <td style={{ ...td, color: COLORS.sub, fontSize: 11 }}>
                             {t.symbol || "XAUUSD"}
