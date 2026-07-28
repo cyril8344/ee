@@ -37,6 +37,22 @@ const COLORS = {
   candleDown: "#ea3943",
 };
 
+// Raison de sortie stockée en base (exit_reason) → libellé court affiché dans
+// l'historique des trades, même vocabulaire que le panneau diagnostic pretrain.
+const EXIT_REASON_LABELS = {
+  tp1: "TP1 (100%)",
+  tp1_partial: "TP1 (50%)",
+  tp2: "TP2",
+  tp2_realtime: "TP2",
+  sl: "SL direct",
+  sl_realtime: "SL direct",
+  sl_after_tp1: "SL après TP1",
+  timeout: "Timeout",
+  early_exit: "Early exit (15min)",
+  emergency_stop: "Stop urgence",
+  manual: "Fermé manuellement",
+};
+
 /* ----------------------------- helpers ---------------------------------- */
 // Converts a UTC ISO string to the browser's local time (e.g. Paris = UTC+2)
 const fmtLocalTime = (isoStr, secs = false) => {
@@ -3598,6 +3614,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                             <th style={th}>Mise</th>
                             <th style={th}>Gain pot.</th>
                             <th style={th}>Résultat</th>
+                            <th style={th}>Raison</th>
                             <th style={{ ...th, width: 20 }}></th>
                           </tr>
                         </thead>
@@ -3643,6 +3660,9 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                           </td>
                           <td style={{ ...td, fontWeight: 600, color: (t.pnl || 0) >= 0 ? COLORS.green : COLORS.red }}>
                             {money(t.pnl)}
+                          </td>
+                          <td style={{ ...td, fontSize: 10, color: COLORS.sub }}>
+                            {EXIT_REASON_LABELS[t.exit_reason] || t.exit_reason || "—"}
                           </td>
                           <td style={td}>
                             <button onClick={() => handleDeleteTrade(t.id)}
