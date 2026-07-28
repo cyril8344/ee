@@ -3653,9 +3653,17 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                             {t.direction === "long" ? "LONG" : "SHORT"}
                           </td>
                           <td style={td}>{fmt(t.entry_price, dp)}</td>
-                          <td style={td}>{fmt(t.exit_price, dp)}</td>
+                          <td style={td}>
+                            {fmt(t.exit_price, dp)}
+                            <div style={{ fontSize: 9, color: COLORS.sub }}>
+                              SL: {fmt(t.stop_loss, dp + 1)}
+                            </div>
+                          </td>
                           <td style={{ ...td, color: COLORS.amber }}>
                             {t.risk_amount ? money(t.risk_amount) : "—"}
+                            <div style={{ fontSize: 9, color: COLORS.sub }}>
+                              {t.volume != null ? `${fmt(t.volume, 3)} lots` : "—"}
+                            </div>
                           </td>
                           <td style={{ ...td, fontSize: 11 }}>
                             {gTp1 != null ? (
