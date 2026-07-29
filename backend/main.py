@@ -98,6 +98,13 @@ import pretrain_es_h1 as _pretrain_es_h1_module
 # non importés, même principe que llm_gate.py.
 
 
+# Capital de paper trading dédié à ES — isolé de state.risk.capital (voir
+# BotState.__init__ / state.risk_es). En mémoire uniquement pour l'instant
+# (pas de table daily_stats/equity_points dédiée) : repart de ce montant à
+# chaque redémarrage, mais ne touche jamais au capital ni aux compteurs
+# journaliers XAU/EUR.
+ES_INITIAL_CAPITAL = 1_000.0
+
 MARKET_CONFIG = {
     "XAUUSD": {
         "name": "XAU/USD",
@@ -189,6 +196,12 @@ class BotState:
                 self.settings = db.update_settings({"bot_enabled": True})
         self.risk = RiskManager()
         self.risk.sync_from_settings(self.settings)
+        # ES : capital, compteur de trades/jour et stop journalier totalement
+        # isolés de self.risk (XAU/EUR) — une perte ES ne doit jamais réduire
+        # la taille des positions XAU/EUR ni déclencher leur blocage, et
+        # inversement. Pas de sync_from_settings() : enveloppe dédiée, pas
+        # partagée avec les réglages globaux "capital"/"risk_per_trade_pct".
+        self.risk_es = RiskManager(capital=ES_INITIAL_CAPITAL)
         self.news = NewsFilter(window_minutes=30, currencies=("USD", "EUR"))
         self.macro = MacroFilter()
         self.alerts: List[Dict[str, Any]] = []
@@ -286,7 +299,11 @@ class BotState:
     def _hydrate_today(self):
         today = db.today_utc()
         daily = db.get_or_create_daily(today, self.risk.capital)
-        trades = db.get_trades_for_day(today, mode=self.settings.get("mode"))
+        # ES exclu : sa comptabilité journalière est isolée dans self.risk_es
+        # (voir plus bas) — la laisser fuiter ici contaminerait le compteur
+        # trades_today/pnl_today partagé de XAU/EUR (self.risk).
+        trades = [t for t in db.get_trades_for_day(today, mode=self.settings.get("mode"))
+                  if t.get("symbol") != "ES"]
         closed = [t for t in trades if t["status"] == "closed"]
         pnl = sum(t.get("pnl") or 0.0 for t in closed)
         self.risk.hydrate_day(
@@ -294,6 +311,17 @@ class BotState:
             pnl_today=pnl,
             start_equity=daily["start_equity"],
             blocked=bool(daily["blocked"]),
+        )
+        # ES : compteur/jour et blocage entièrement séparés, contre un capital
+        # dédié (self.risk_es.capital) — jamais contre l'equity XAU/EUR.
+        es_trades = db.get_trades_for_day_by_symbol(today, "ES", mode=self.settings.get("mode"))
+        es_closed = [t for t in es_trades if t["status"] == "closed"]
+        es_pnl = sum(t.get("pnl") or 0.0 for t in es_closed)
+        self.risk_es.hydrate_day(
+            trades_today=len(es_trades),
+            pnl_today=es_pnl,
+            start_equity=self.risk_es.capital,
+            blocked=False,
         )
         # Per-instrument hydration
         _start_eq = daily.get("start_equity") or self.risk.capital
@@ -304,7 +332,8 @@ class BotState:
             ms.pnl_today = sum(t.get("pnl") or 0.0 for t in sym_closed)
             ms.daily_stopped = False
             _inst_stop_pct = ms.inst_settings.get("daily_stop_pct", 2.0)
-            if _start_eq > 0 and ms.pnl_today <= -abs(_start_eq * _inst_stop_pct / 100.0):
+            _base_eq = self.risk_es.capital if sym == "ES" else _start_eq
+            if _base_eq > 0 and ms.pnl_today <= -abs(_base_eq * _inst_stop_pct / 100.0):
                 ms.daily_stopped = True
         self._current_day = today
 
@@ -407,8 +436,14 @@ def _es_signal_to_dataclass(sig: dict, now: datetime, max_duration_min: int) -> 
     )
 
 
+def _risk_for(ms) -> RiskManager:
+    """Enveloppe risque isolée par marché — ES a la sienne (state.risk_es),
+    tous les autres marchés partagent state.risk (comportement inchangé)."""
+    return state.risk_es if ms.symbol == "ES" else state.risk
+
+
 def current_equity() -> float:
-    eq = state.risk.capital
+    eq = state.risk.capital + state.risk_es.capital
     for ms in state.market_states.values():
         if ms.position is not None:
             try:
@@ -466,7 +501,7 @@ def trading_tick() -> Dict[str, Any]:
                 sym_strategy = ms.config.get("default_strategy", "A")
                 _inst_bad_hours = set(ms.inst_settings.get("bad_hours_cet", []))
                 _inst_bot_enabled = ms.inst_settings.get("bot_enabled", True)
-                _inst_max_trades = ms.inst_settings.get("max_trades_per_day", state.risk.max_trades_per_day)
+                _inst_max_trades = ms.inst_settings.get("max_trades_per_day", _risk_for(ms).max_trades_per_day)
                 snap = snapshot(m5, m15, h1, atr_min_override=ms.config["atr_min"],
                                pattern_weights=state.pattern_weights,
                                adaptive_thresholds=ms.adaptive)
@@ -555,10 +590,12 @@ def trading_tick() -> Dict[str, Any]:
                 # BOOTSTRAP_MODE : lever les blocages capital/daily-stop uniquement
                 # — max_trades_per_day est respecté pour éviter les doublons
                 if strategy.BOOTSTRAP_MODE:
-                    if state.risk.blocked:
-                        state.risk.blocked = False
-                        state.risk.block_reason = ""
-                        db.update_daily(db.today_utc(), {"blocked": 0})
+                    _risk = _risk_for(ms)
+                    if _risk.blocked:
+                        _risk.blocked = False
+                        _risk.block_reason = ""
+                        if ms.symbol != "ES":
+                            db.update_daily(db.today_utc(), {"blocked": 0})
                     if ms.circuit_breaker_until is not None:
                         ms.circuit_breaker_until = None
                         ms.recent_results.clear()
@@ -622,8 +659,8 @@ def trading_tick() -> Dict[str, Any]:
                 if ms.position is None:
                     if not can_enter_session:
                         _set_loop_gate("hors_session")
-                    elif state.risk.blocked:
-                        _set_loop_gate(f"risk: {state.risk.block_reason}")
+                    elif _risk_for(ms).blocked:
+                        _set_loop_gate(f"risk: {_risk_for(ms).block_reason}")
                     elif news_status["blocked"]:
                         _set_loop_gate("actualités")
                     elif macro_blocked:
@@ -649,7 +686,7 @@ def trading_tick() -> Dict[str, Any]:
                         and _daily_limit_ok and can_enter_session
                         and not ms.daily_stopped
                         and (_bs or (
-                            not state.risk.blocked
+                            not _risk_for(ms).blocked
                             and not news_status["blocked"]
                             and not macro_blocked
                             and ms.circuit_breaker_until is None
@@ -682,18 +719,20 @@ def trading_tick() -> Dict[str, Any]:
                             logger.info("[%s] evaluate() rejet: %s", ms.symbol, _rlog)
                     if sig is not None:
                         ms.last_signal = sig.to_dict()
-                        decision = state.risk.can_open_trade(
+                        _mkt_risk = _risk_for(ms)
+                        decision = _mkt_risk.can_open_trade(
                             sig.entry, sig.stop_loss,
                             contract_size=ms.config["contract_size"],
                         )
                         # ES : lots génériques (pas de 0.01) — taille en contrats entiers,
-                        # même formule que pretrain_es.py::run_pretrain_es (walk-forward validé).
+                        # même formule que pretrain_es.py::run_pretrain_es (walk-forward validé),
+                        # contre le capital ES isolé (_mkt_risk = state.risk_es).
                         # can_open_trade() ci-dessus reste la porte (blocked / max-trades /
                         # daily-stop) ; seul le volume est recalculé.
                         if decision.allowed and sym_strategy == "ES":
                             sl_ticks = max(1, round(abs(sig.entry - sig.stop_loss) / strategy_es.TICK_SIZE))
                             contracts = strategy_es.size_contracts(
-                                state.risk.capital, state.risk._effective_risk_pct(), sl_ticks)
+                                _mkt_risk.capital, _mkt_risk._effective_risk_pct(), sl_ticks)
                             decision = RiskDecision(
                                 True, "ok", volume=float(contracts),
                                 risk_amount=sl_ticks * strategy_es.TICK_VALUE * contracts,
@@ -759,7 +798,7 @@ def _open_trade(ms: MarketState, sig, decision, now):
         session=sig.session, meta=sig.meta, risk_amount=decision.risk_amount,
     )
     ms.position = pos
-    state.risk.register_open()
+    _risk_for(ms).register_open()
     ms.trades_today += 1
 
     trade_id = db.insert_trade({
@@ -792,7 +831,8 @@ def _open_trade(ms: MarketState, sig, decision, now):
                             ts_utc=pos.open_time.isoformat(),
                             session=sig.session,
                             session_hour=round(session_hour, 2))
-    db.update_daily(db.today_utc(), {"trade_count": state.risk.trades_today})
+    if ms.symbol != "ES":  # daily_stats est la table XAU/EUR (state.risk) — ES n'y écrit pas
+        db.update_daily(db.today_utc(), {"trade_count": state.risk.trades_today})
     arrow = "🟢 LONG" if sig.direction == "long" else "🔴 SHORT"
     msg = (f"{arrow} <b>{ms.config['name']} ouvert</b>\n"
            f"Entrée : {pos.entry:.5f}\n"
@@ -804,12 +844,13 @@ def _open_trade(ms: MarketState, sig, decision, now):
 
 def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], now: datetime):
     pnl = float(close_info["pnl"])
-    state.risk.register_close(pnl)
+    _mkt_risk = _risk_for(ms)
+    _mkt_risk.register_close(pnl)
 
     # Per-instrument P&L tracking and daily stop
     ms.pnl_today += pnl
     _inst_stop_pct = ms.inst_settings.get("daily_stop_pct", 2.0)
-    _start_eq = state.risk.start_equity_today or state.risk.capital
+    _start_eq = _mkt_risk.start_equity_today or _mkt_risk.capital
     if not ms.daily_stopped and _start_eq > 0 and ms.pnl_today <= -abs(_start_eq * _inst_stop_pct / 100.0):
         ms.daily_stopped = True
         state.push_alert("warn", f"[{ms.symbol}] Stop journalier atteint ({ms.pnl_today:+.2f}$)")
@@ -863,7 +904,7 @@ def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], 
         _feat_log.log_exit(trade_id, pnl=pnl, risk_amount=risk_amount,
                            exit_reason=close_info.get("reason", ""),
                            duration_min=duration)
-    start_eq = state.risk.start_equity_today or state.risk.capital
+    start_eq = _mkt_risk.start_equity_today or _mkt_risk.capital
     _exit_patch = {
         "exit_time": now.isoformat(),
         "exit_price": close_info["exit_price"],
@@ -899,13 +940,14 @@ def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], 
                 "mode": state.settings.get("mode", "paper"),
                 "meta": pos.meta,
             })
-    today = db.today_utc()
-    daily = db.get_daily(today) or {"pnl": 0.0}
-    db.update_daily(today, {
-        "pnl": round((daily.get("pnl") or 0.0) + pnl, 2),
-        "blocked": 1 if state.risk.blocked else 0,
-    })
-    db.add_equity_point(state.risk.capital, source="live")
+    if ms.symbol != "ES":  # daily_stats/equity_points = table XAU/EUR (state.risk) uniquement
+        today = db.today_utc()
+        daily = db.get_daily(today) or {"pnl": 0.0}
+        db.update_daily(today, {
+            "pnl": round((daily.get("pnl") or 0.0) + pnl, 2),
+            "blocked": 1 if state.risk.blocked else 0,
+        })
+        db.add_equity_point(state.risk.capital, source="live")
 
     # Record trade context for agent learning
     if trade_id:
@@ -929,7 +971,7 @@ def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], 
            f"PnL : {pnl:+.2f}$  Durée : {round(duration, 1)} min\n"
            f"Raison : {close_info['reason']}")
     threading.Thread(target=_send_telegram, args=(msg,), daemon=True).start()
-    if state.risk.blocked:
+    if _mkt_risk.blocked:
         state.push_alert("danger", "🛑 Stop journalier atteint — bot bloqué jusqu'à demain")
         threading.Thread(target=_send_telegram,
                          args=("🛑 <b>Stop journalier atteint</b> — bot bloqué jusqu'à demain",),
@@ -1624,6 +1666,7 @@ def reset_day(_user: dict = Depends(get_current_user)):
         today = db.today_utc()
         db.update_daily(today, {"blocked": 0})
         state.risk.start_new_day(state.risk.capital)
+        state.risk_es.start_new_day(state.risk_es.capital)
         for ms in state.market_states.values():
             ms.daily_stopped = False
         state.bot_status = "ACTIF"
@@ -1700,6 +1743,8 @@ def unblock_risk(_user: dict = Depends(get_current_user)):
     with state.lock:
         state.risk.blocked = False
         state.risk.block_reason = ""
+        state.risk_es.blocked = False
+        state.risk_es.block_reason = ""
         today = db.today_utc()
         db.update_daily(today, {"blocked": 0})
         state.push_alert("info", "🔓 Blocage risk réinitialisé manuellement")
@@ -1750,7 +1795,7 @@ def test_signal(symbol: str = "XAUUSD", direction: str = "long",
             risk_distance=risk, timestamp=now,
             meta={"triggers": ["test_signal"], "rsi_m5": 50.0, "rsi_m15": 50.0},
         )
-        decision = state.risk.can_open_trade(entry, sl, ms.config["contract_size"])
+        decision = _risk_for(ms).can_open_trade(entry, sl, ms.config["contract_size"])
         if not decision.allowed:
             raise HTTPException(status_code=400, detail=f"Risk manager refused: {decision.reason}")
 
