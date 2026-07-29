@@ -6,8 +6,8 @@ Pré-entraînement de la stratégie Order Flow ES en bougies H1
 
 Contrairement à pretrain_es.py (M5, qui rééchantillonne en H1 pour un simple
 biais secondaire), ce module charge directement des données H1 — ce qui
-permet un historique bien plus long chez yfinance (interval="60m" couvre
-~2 ans, contre ~60 jours en interval="5m").
+permet un historique bien plus long en un seul run de pagination Twelve Data
+(interval="1h" couvre ~7 mois par appel, contre ~17 jours en interval="5min").
 
 Walk-forward : run_walkforward_es_h1() pour validation OOS (mêmes critères
 de robustesse que XAU/ES M5 : PF > 1.0 dans ≥ 75% des fenêtres, std_pf < 0.30).
@@ -21,14 +21,18 @@ from __future__ import annotations
 
 import hashlib
 import threading
-import time as _time_mod
 from typing import Dict, Any, Optional, Callable
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
 
+import data_provider as _dp
 import strategy_es_h1 as strat
+
+# SPY ≈ SPX/10 ≈ ES/10 — voir pretrain_es.py::SPY_TO_ES_SCALE (même facteur,
+# même raison : TICK_SIZE/TICK_VALUE de strategy_es.py sont calibrés pour
+# l'échelle de prix ES).
+SPY_TO_ES_SCALE = 10.0
 
 # --------------------------------------------------------------------------- #
 # État de progression — prétrain
@@ -81,32 +85,25 @@ def _set_wf(**kwargs):
 # Chargement des données ES=F en H1
 # --------------------------------------------------------------------------- #
 def _load_es_h1_data(start: str, end: str) -> tuple[pd.DataFrame, str]:
-    """Télécharge ES=F en bougies 60 minutes depuis yfinance (avec 1 retry
-    après backoff — Yahoo rate-limite volontiers des appels rapprochés, ex.
-    plusieurs fenêtres de walk-forward enchaînées), fallback synthétique sinon.
+    """Charge un proxy ES en bougies H1 via SPY (Twelve Data, interval=1h,
+    même clé/quota que XAU/EUR), prix multipliés ×10 pour retrouver l'échelle
+    ES — fallback synthétique sinon.
 
-    Retourne (df, source) avec source "yfinance" ou "synthetic" — le walk-
-    forward doit pouvoir distinguer une vraie fenêtre OOS d'un fallback, sans
-    quoi un rate-limit silencieux se fait passer pour un résultat réel.
+    Remplace l'ancien fetch yfinance (ES=F) — voir pretrain_es.py::_load_es_data
+    pour le détail des limites du proxy SPY (heures NYSE classiques, pas de
+    vraie session ~24h, pas de mécanique de contrat futures).
+
+    Retourne (df, source) avec source "twelvedata_spy" ou "synthetic".
     """
-    for attempt in range(2):
-        try:
-            tk = yf.Ticker("ES=F")
-            df = tk.history(start=start, end=end, interval="60m", auto_adjust=True)
-            if df is not None and len(df) > 100:
-                df = df.rename(columns=str.lower)
-                df = df[["open", "high", "low", "close", "volume"]].copy()
-                df = df.dropna()
-                if df.index.tz is None:
-                    df.index = df.index.tz_localize("UTC")
-                else:
-                    df.index = df.index.tz_convert("UTC")
-                df.index.name = "time"
-                return df, "yfinance"
-        except Exception:
-            pass
-        if attempt == 0:
-            _time_mod.sleep(2.0)
+    try:
+        df = _dp._fetch_twelvedata_range(start, end, symbol="SPY", interval="1h")
+        if df is not None and len(df) > 100:
+            df = df[["open", "high", "low", "close", "volume"]].copy()
+            df[["open", "high", "low", "close"]] *= SPY_TO_ES_SCALE
+            df.index.name = "time"
+            return df, "twelvedata_spy"
+    except Exception:
+        pass
     return _synthetic_es_h1(start, end), "synthetic"
 
 

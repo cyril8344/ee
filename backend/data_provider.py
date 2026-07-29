@@ -167,6 +167,17 @@ MARKET_SYMBOLS = {
         "synthetic_vol": 0.00015,
         "synthetic_spread": 0.00004,
     },
+    # SPY (ETF) — proxy gratuit pour ES quand aucun abonnement futures n'est
+    # disponible. Utilisé uniquement par pretrain_es.py::_load_es_data, qui
+    # multiplie les prix ×10 pour retrouver l'échelle ES (SPY ≈ SPX/10 ≈ ES/10).
+    "SPY": {
+        "twelvedata": "SPY",
+        "polygon": "SPY",
+        "yfinance": "SPY",
+        "synthetic_price": 580.0,
+        "synthetic_vol": 0.0003,
+        "synthetic_spread": 0.03,
+    },
 }
 
 # Keep backward-compatible alias
@@ -287,12 +298,20 @@ def _fetch_twelvedata(start: Optional[str], end: Optional[str], bars: int,
     raise last_exc or RuntimeError("All TwelveData keys exhausted")
 
 
-def _fetch_twelvedata_range(start: str, end: str, symbol: str = "XAUUSD") -> pd.DataFrame:
-    """Fetch a multi-year M5 dataset from Twelve Data using paginated requests.
+_TD_INTERVAL_STEP = {
+    "5min": pd.Timedelta(minutes=5),
+    "15min": pd.Timedelta(minutes=15),
+    "1h": pd.Timedelta(hours=1),
+}
 
-    Each API call returns at most 5000 bars (≈17 days of M5). This function
-    walks backwards in time from *end* to *start*, collecting chunks and
-    concatenating them into a single sorted, deduplicated DataFrame.
+
+def _fetch_twelvedata_range(start: str, end: str, symbol: str = "XAUUSD",
+                            interval: str = "5min") -> pd.DataFrame:
+    """Fetch a multi-year dataset from Twelve Data using paginated requests.
+
+    Each API call returns at most 5000 bars (≈17 days of M5, ≈7 months of 1h).
+    This function walks backwards in time from *end* to *start*, collecting
+    chunks and concatenating them into a single sorted, deduplicated DataFrame.
     """
     import time as _time
 
@@ -302,6 +321,7 @@ def _fetch_twelvedata_range(start: str, end: str, symbol: str = "XAUUSD") -> pd.
     key = keys[_td_key_index["backtest"][0] % len(keys)]
 
     td_symbol = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"])["twelvedata"]
+    step = _TD_INTERVAL_STEP.get(interval, pd.Timedelta(minutes=5))
 
     start_dt = pd.Timestamp(start, tz="UTC")
     end_dt = pd.Timestamp(end, tz="UTC")
@@ -311,7 +331,7 @@ def _fetch_twelvedata_range(start: str, end: str, symbol: str = "XAUUSD") -> pd.
 
     while cursor > start_dt:
         params = {
-            "symbol": td_symbol, "interval": "5min",
+            "symbol": td_symbol, "interval": interval,
             "apikey": key, "format": "JSON", "timezone": "UTC",
             "outputsize": 5000,
             "end_date": cursor.strftime("%Y-%m-%d %H:%M:%S"),
@@ -360,7 +380,7 @@ def _fetch_twelvedata_range(start: str, end: str, symbol: str = "XAUUSD") -> pd.
         earliest = chunk.index.min()
         if earliest <= start_dt:
             break
-        cursor = earliest - pd.Timedelta(minutes=5)
+        cursor = earliest - step
         _time.sleep(0.5)
 
     if not chunks:

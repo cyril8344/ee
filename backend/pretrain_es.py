@@ -18,15 +18,19 @@ from __future__ import annotations
 
 import hashlib
 import threading
-import time as _time_mod
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, Callable
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
 
+import data_provider as _dp
 import strategy_es as strat
+
+# SPY ≈ SPX/10 ≈ ES/10 — facteur pour retrouver l'échelle de prix ES (~5800-6000)
+# à partir du prix SPY (~580-600), afin que TICK_SIZE/TICK_VALUE (calibrés pour
+# ES) restent valides sans toucher au reste de strategy_es.py.
+SPY_TO_ES_SCALE = 10.0
 
 # --------------------------------------------------------------------------- #
 # État de progression — prétrain
@@ -79,32 +83,34 @@ def _set_wf(**kwargs):
 # Chargement des données ES=F
 # --------------------------------------------------------------------------- #
 def _load_es_data(start: str, end: str) -> tuple[pd.DataFrame, str]:
-    """Télécharge ES=F depuis yfinance (avec 1 retry après backoff — Yahoo
-    rate-limite volontiers les appels rapprochés, ex. plusieurs fenêtres de
-    walk-forward enchaînées), fallback synthétique sinon.
+    """Charge un proxy ES via SPY (Twelve Data, même clé/quota que XAU/EUR),
+    prix multipliés ×10 pour retrouver l'échelle ES — fallback synthétique
+    sinon.
 
-    Retourne (df, source) avec source "yfinance" ou "synthetic" — le walk-
-    forward doit pouvoir distinguer une vraie fenêtre OOS d'un fallback, sans
-    quoi un rate-limit silencieux se fait passer pour un résultat réel.
+    Remplace l'ancien fetch yfinance (ES=F) : Yahoo rate-limitait dès la 3e
+    requête enchaînée (plusieurs fenêtres de walk-forward), et aucun
+    fournisseur data généraliste ne couvre les futures CME sans abonnement
+    payant dédié (Databento, IBKR...). SPY est un proxy, pas le vrai ES :
+    ETF donc heures NYSE classiques seulement (pas de session quasi-24h),
+    mécanique de contrat différente (pas de levier futures), petits écarts
+    liés aux dividendes. Le filtre RTH de strategy_es.py (9h30-16h ET)
+    limite déjà les entrées à ces heures, donc pas de perte d'opportunité
+    de trading liée à ce changement.
+
+    Retourne (df, source) avec source "twelvedata_spy" ou "synthetic" —
+    jamais "twelvedata" seul, pour ne pas laisser croire à de vraies
+    données ES si ce label apparaît à côté de celui de XAU/EUR ailleurs
+    dans l'app.
     """
-    for attempt in range(2):
-        try:
-            tk = yf.Ticker("ES=F")
-            df = tk.history(start=start, end=end, interval="5m", auto_adjust=True)
-            if df is not None and len(df) > 100:
-                df = df.rename(columns=str.lower)
-                df = df[["open", "high", "low", "close", "volume"]].copy()
-                df = df.dropna()
-                if df.index.tz is None:
-                    df.index = df.index.tz_localize("UTC")
-                else:
-                    df.index = df.index.tz_convert("UTC")
-                df.index.name = "time"
-                return df, "yfinance"
-        except Exception:
-            pass
-        if attempt == 0:
-            _time_mod.sleep(2.0)
+    try:
+        df = _dp._fetch_twelvedata_range(start, end, symbol="SPY")
+        if df is not None and len(df) > 100:
+            df = df[["open", "high", "low", "close", "volume"]].copy()
+            df[["open", "high", "low", "close"]] *= SPY_TO_ES_SCALE
+            df.index.name = "time"
+            return df, "twelvedata_spy"
+    except Exception:
+        pass
     return _synthetic_es(start, end), "synthetic"
 
 
