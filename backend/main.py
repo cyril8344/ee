@@ -98,13 +98,6 @@ import pretrain_es_h1 as _pretrain_es_h1_module
 # non importés, même principe que llm_gate.py.
 
 
-# Capital de paper trading dédié à ES — isolé de state.risk.capital (voir
-# BotState.__init__ / state.risk_es). En mémoire uniquement pour l'instant
-# (pas de table daily_stats/equity_points dédiée) : repart de ce montant à
-# chaque redémarrage, mais ne touche jamais au capital ni aux compteurs
-# journaliers XAU/EUR.
-ES_INITIAL_CAPITAL = 1_000.0
-
 MARKET_CONFIG = {
     "XAUUSD": {
         "name": "XAU/USD",
@@ -196,12 +189,14 @@ class BotState:
                 self.settings = db.update_settings({"bot_enabled": True})
         self.risk = RiskManager()
         self.risk.sync_from_settings(self.settings)
-        # ES : capital, compteur de trades/jour et stop journalier totalement
-        # isolés de self.risk (XAU/EUR) — une perte ES ne doit jamais réduire
-        # la taille des positions XAU/EUR ni déclencher leur blocage, et
-        # inversement. Pas de sync_from_settings() : enveloppe dédiée, pas
-        # partagée avec les réglages globaux "capital"/"risk_per_trade_pct".
-        self.risk_es = RiskManager(capital=ES_INITIAL_CAPITAL)
+        # ES : mêmes réglages (capital, risk_per_trade_pct, max_trades_per_day,
+        # daily_stop_pct) que XAU/EUR — mais une instance RiskManager à part,
+        # avec son propre capital et ses propres compteurs de trades/jour et
+        # de blocage. Une perte ES ne doit jamais réduire la taille des
+        # positions XAU/EUR ni déclencher leur blocage, et inversement — voir
+        # _risk_for()/state.risk_es utilisés partout dans la boucle de trading.
+        self.risk_es = RiskManager()
+        self.risk_es.sync_from_settings(self.settings)
         self.news = NewsFilter(window_minutes=30, currencies=("USD", "EUR"))
         self.macro = MacroFilter()
         self.alerts: List[Dict[str, Any]] = []
@@ -1656,6 +1651,7 @@ def write_settings(patch: SettingsPatch, _user: dict = Depends(get_current_user)
     with state.lock:
         state.settings = db.update_settings(data)
         state.risk.sync_from_settings(state.settings)
+        state.risk_es.sync_from_settings(state.settings)  # ES suit les mêmes réglages que XAU/EUR
     return state.settings
 
 
