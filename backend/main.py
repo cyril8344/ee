@@ -421,8 +421,30 @@ def trading_tick() -> Dict[str, Any]:
                     try:
                         from strategy_ict import (_h1_bias, _find_order_blocks,
                                                    _in_ob, ADX_MIN_H1, _h1_sr_levels,
-                                                   SR_ZONE_ATR_H1)
+                                                   SR_ZONE_ATR_H1, RSI_LONG_MIN, RSI_SHORT_MAX,
+                                                   RSI_M15_LONG_MIN, RSI_M15_SHORT_MAX)
                         _bias_ict  = _h1_bias(h1)
+                        # Jauges RSI M5/M15 du panel "Statut bot" : snapshot() (Strat A) renvoie
+                        # par défaut les seuils XAU (RSI_M5_LONG_MIN/RSI_LOW, ajustés par le
+                        # LiveAdaptiveAgent XAUUSD) — sans ce correctif, l'onglet EUR/USD affiche
+                        # une zone active qui n'a rien à voir avec le vrai filtre de la Strat B.
+                        # RSI M5 : le frontend résout déjà zoneLow/zoneHigh selon h1_bias, on
+                        # lui passe juste les bons seuils bruts (long_min/short_max).
+                        # RSI M15 : filtre à sens unique (>=45 en LONG, <=55 en SHORT) — pas de
+                        # résolution par biais côté frontend pour cette jauge, donc on calcule
+                        # directement la zone effective ici selon la direction courante.
+                        if isinstance(snap.get("conditions"), dict):
+                            snap["conditions"]["rsi_m5_long_min"] = RSI_LONG_MIN
+                            snap["conditions"]["rsi_m5_short_max"] = RSI_SHORT_MAX
+                            if _bias_ict == "LONG":
+                                snap["conditions"]["rsi_m15_low"] = RSI_M15_LONG_MIN
+                                snap["conditions"]["rsi_m15_high"] = 100
+                            elif _bias_ict == "SHORT":
+                                snap["conditions"]["rsi_m15_low"] = 0
+                                snap["conditions"]["rsi_m15_high"] = RSI_M15_SHORT_MAX
+                            else:
+                                snap["conditions"]["rsi_m15_low"] = 0
+                                snap["conditions"]["rsi_m15_high"] = 100
                         _atr_ict   = float(m5.iloc[-1].get("atr", 0) or 0)
                         _dir_ict   = _bias_ict or "LONG"
                         _obs_long  = _find_order_blocks(m5, "LONG",  _atr_ict)
