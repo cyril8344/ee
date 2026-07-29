@@ -69,10 +69,11 @@ import database as db
 from risk_manager import RiskManager, RiskDecision
 from news_filter import NewsFilter
 from macro_filter import MacroFilter
-from broker import make_broker, Position
+from broker import make_broker, Position, PaperBroker, ESPaperBroker
 import strategy
 from strategy import (add_indicators, evaluate, snapshot,
                        swing_levels, active_session, find_order_blocks)
+import strategy_es
 import feature_logger as _feat_log
 from backtest import BacktestConfig, run_backtest
 from optimizer import OptimizeConfig, run_optimize
@@ -114,6 +115,18 @@ MARKET_CONFIG = {
         "slippage_pips": 0.05,
         "pip_size": 0.0001,    # 1 pip EUR/USD = 0.0001
         "default_strategy": "B",              # ICT Order Block (strategy_ict.py)
+    },
+    "ES": {
+        "name": "ES (S&P 500 futures)",
+        "atr_min": 0.0,           # filtre ATR interne désactivé par défaut (strategy_es.DEFAULTS["atr_min_pts"]=0)
+        "contract_size": strategy_es.POINT_VALUE,   # 50$/point — P&L générique = tick math ES
+        "spread_pips": 1.0,       # 1 tick d'écart (coût d'exécution, pas un paramètre de stratégie)
+        "slippage_pips": 0.5,     # 0.5 tick
+        "pip_size": strategy_es.TICK_SIZE,   # 0.25 pt = 1 tick
+        "data_symbol": "SPY",     # pas de flux ES gratuit — proxy SPY×10, voir pretrain_es.py
+        "price_scale": 10.0,
+        "default_strategy": "ES",
+        "max_duration_min": 45,   # 9 bougies M5 — cf. pretrain_es.py::MAX_TRADE_BARS
     },
 }
 
@@ -194,6 +207,9 @@ class BotState:
                 inst.get("slippage_pips", cfg["slippage_pips"]),
                 cfg["contract_size"],
                 cfg.get("pip_size", 0.1),
+                data_symbol=cfg.get("data_symbol"),
+                price_scale=cfg.get("price_scale", 1.0),
+                paper_broker_cls=ESPaperBroker if sym == "ES" else PaperBroker,
             )
             ms = MarketState(symbol=sym, config=cfg, broker=broker)
             ms.inst_settings = inst
@@ -349,6 +365,46 @@ def build_context(broker):
     h4 = add_indicators(
         m5_raw.resample("240min", label="right", closed="right").agg(agg).dropna())
     return m5, m15, h1, h4
+
+
+def build_context_es(broker):
+    """ES : mêmes noms de colonnes que build_context() mais calculées via
+    strategy_es.add_indicators() — le VWAP y reset à minuit ET (pas UTC), voir
+    le commentaire dans strategy_es.py. Réutiliser add_indicators() de la Strat
+    A donnerait un VWAP faux qui bloquerait silencieusement les LONG ES."""
+    m5_raw = broker.get_rates_m5(500)
+    m5 = strategy_es.add_indicators(m5_raw)
+    agg = {"open": "first", "high": "max", "low": "min",
+           "close": "last", "volume": "sum"}
+    h1_raw = m5_raw.resample("60min", label="right", closed="right").agg(agg).dropna()
+    h1 = strategy_es.add_indicators(h1_raw)
+    return m5, h1
+
+
+def _es_signal_to_dataclass(sig: dict, now: datetime, max_duration_min: int) -> strategy.Signal:
+    """Convertit le dict retourné par strategy_es.evaluate() en Signal générique
+    (même forme que Strat A/B) pour réutiliser _open_trade() sans changement."""
+    direction = "long" if sig["bias"] == "LONG" else "short"
+    return strategy.Signal(
+        direction=direction,
+        bias=sig["bias"],
+        session="RTH",
+        entry=float(sig["entry"]),
+        stop_loss=float(sig["stop_loss"]),
+        take_profit1=float(sig["take_profit1"]),
+        take_profit2=float(sig["take_profit2"]),
+        atr=float(sig.get("atr", 0.0)),
+        reason=sig.get("signal", "es_signal"),
+        risk_distance=abs(float(sig["entry"]) - float(sig["stop_loss"])),
+        timestamp=now,
+        max_duration_min=max_duration_min,
+        meta={
+            "strategy": "ES",
+            "rsi": sig.get("rsi"),
+            "vol_ratio": sig.get("vol_ratio"),
+            "max_duration_min": max_duration_min,
+        },
+    )
 
 
 def current_equity() -> float:
@@ -532,7 +588,8 @@ def trading_tick() -> Dict[str, Any]:
                     pos = ms.position
                     close_info = ms.broker.update_position(pos)
                     age_min = (now - pos.open_time).total_seconds() / 60.0
-                    if close_info is None and age_min >= strategy.MAX_TRADE_MINUTES:
+                    _max_duration = pos.meta.get("max_duration_min", strategy.MAX_TRADE_MINUTES)
+                    if close_info is None and age_min >= _max_duration:
                         close_info = ms.broker.close_position(pos, "timeout")
                     if close_info and close_info.get("closed"):
                         _finalize_trade(ms, pos, close_info, now)
@@ -543,7 +600,15 @@ def trading_tick() -> Dict[str, Any]:
                         state.push_alert("info", f"[{ms.symbol}] TP1 atteint — 60% clôturé")
 
                 # ---- Look for entry ----
-                can_enter_session = (session is not None) or (not session_filter)
+                # ES suit son propre calendrier RTH (9h30-16h ET), sans rapport avec
+                # les fenêtres London/NY en heure CET définies par active_session() —
+                # strategy_es.evaluate() applique déjà son propre gate de session RTH,
+                # donc le gate CET générique ne s'applique pas ici (il bloquerait
+                # quasiment tous les trades ES sinon).
+                can_enter_session = (
+                    True if sym_strategy == "ES"
+                    else (session is not None) or (not session_filter)
+                )
                 macro_blocked, macro_reason = state.macro.blocks_entry(ms.symbol, snap.get("bias", "NEUTRE"))
                 if macro_blocked:
                     state.push_alert("warn", f"[{ms.symbol}] Macro bloqué: {macro_reason}")
@@ -596,6 +661,13 @@ def trading_tick() -> Dict[str, Any]:
                                         check_session=session_filter,
                                         atr_min=ms.config["atr_min"],
                                         bad_hours=_inst_bad_hours)
+                    elif sym_strategy == "ES":
+                        m5_es, h1_es = build_context_es(ms.broker)
+                        _es_sig = strategy_es.evaluate(m5_es, ts=now, h1=h1_es)
+                        sig = (_es_signal_to_dataclass(_es_sig, now, ms.config.get("max_duration_min", 45))
+                               if _es_sig is not None else None)
+                        if sig is None:
+                            _set_loop_gate("evaluate_es: no_signal")
                     else:
                         _rlog: Dict[str, Any] = {}
                         sig = evaluate(m5, m15, h1, h4=h4, now=now, check_session=session_filter,
@@ -614,10 +686,23 @@ def trading_tick() -> Dict[str, Any]:
                             sig.entry, sig.stop_loss,
                             contract_size=ms.config["contract_size"],
                         )
+                        # ES : lots génériques (pas de 0.01) — taille en contrats entiers,
+                        # même formule que pretrain_es.py::run_pretrain_es (walk-forward validé).
+                        # can_open_trade() ci-dessus reste la porte (blocked / max-trades /
+                        # daily-stop) ; seul le volume est recalculé.
+                        if decision.allowed and sym_strategy == "ES":
+                            sl_ticks = max(1, round(abs(sig.entry - sig.stop_loss) / strategy_es.TICK_SIZE))
+                            contracts = strategy_es.size_contracts(
+                                state.risk.capital, state.risk._effective_risk_pct(), sl_ticks)
+                            decision = RiskDecision(
+                                True, "ok", volume=float(contracts),
+                                risk_amount=sl_ticks * strategy_es.TICK_VALUE * contracts,
+                                stop_distance=abs(sig.entry - sig.stop_loss),
+                            )
                         # BOOTSTRAP_MODE : si bloqué uniquement par taille de lot / capital,
                         # forcer lot minimum 0.01 pour collecter les données ML.
                         # NE PAS contourner max_trades_per_day ni daily_stop (évite les 10× même trade).
-                        if not decision.allowed and strategy.BOOTSTRAP_MODE:
+                        if not decision.allowed and strategy.BOOTSTRAP_MODE and sym_strategy != "ES":
                             sl_dist = abs(sig.entry - sig.stop_loss)
                             if (sl_dist > 0
                                     and ms.trades_today < _inst_max_trades
@@ -1576,6 +1661,9 @@ def switch_mode(req: ModeSwitch, _user: dict = Depends(get_current_user)):
                 state.settings.get("slippage_pips", cfg["slippage_pips"]),
                 cfg["contract_size"],
                 cfg.get("pip_size", 0.1),
+                data_symbol=cfg.get("data_symbol"),
+                price_scale=cfg.get("price_scale", 1.0),
+                paper_broker_cls=ESPaperBroker if sym == "ES" else PaperBroker,
             )
         state.push_alert("info", f"Mode basculé sur {req.mode.upper()}")
     first_ms = next(iter(state.market_states.values()))
