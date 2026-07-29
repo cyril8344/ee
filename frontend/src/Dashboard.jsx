@@ -1353,7 +1353,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
               </div>
 
               {/* ---- trading conditions checklist ---- */}
-              {(mkt.ict_conditions || mkt.eurusd_conditions || mkt.conditions) && (
+              {(mkt.ict_conditions || mkt.conditions) && (
                 <div style={{ background: "#0a1020", borderRadius: 6, padding: "8px 10px", marginBottom: 10, fontSize: 11 }}>
                   {mkt.ict_conditions ? (
                     /* ---- Strategy B (ICT / Order Blocks) ---- */
@@ -1380,38 +1380,6 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                           val: mkt.ict_conditions.in_ob_zone ? "✓ dans zone" : "✗ hors zone" },
                         { label: "Zone S/R H1", ok: mkt.ict_conditions.sr_active,
                           val: mkt.ict_conditions.sr_active ? `✓ ${mkt.ict_conditions.sr_zone || ""}` : "—" },
-                      ].map(({ label, ok, val }) => (
-                        <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                          <span style={{ color: COLORS.sub }}>{label}</span>
-                          <span style={{ color: ok ? COLORS.green : ok === false ? COLORS.red : COLORS.grey, fontWeight: 500 }}>{val}</span>
-                        </div>
-                      ))}
-                    </>
-                  ) : mkt.eurusd_conditions ? (
-                    /* ---- EUR/USD simple (EMA bias + ATR + anchor pattern) ---- */
-                    <>
-                      <div style={{ color: COLORS.sub, fontWeight: 600, marginBottom: 6, fontSize: 11 }}>
-                        Conditions EUR/USD
-                        {mkt.eurusd_conditions.blocking_reason ? (
-                          <span style={{ marginLeft: 6, color: COLORS.amber, fontWeight: 400 }}>
-                            — bloqué: {mkt.eurusd_conditions.blocking_reason.replace(/_/g, " ")}
-                          </span>
-                        ) : (
-                          <span style={{ marginLeft: 6, color: COLORS.green, fontWeight: 400 }}>✓ prêt</span>
-                        )}
-                      </div>
-                      {[
-                        { label: "Biais H1 EMA50", ok: mkt.eurusd_conditions.h1_bias !== "NEUTRE", val: mkt.eurusd_conditions.h1_bias || "NEUTRE" },
-                        { label: "ATR M5 suffisant", ok: mkt.eurusd_conditions.atr_ok,
-                          val: mkt.eurusd_conditions.atr_ok ? "✓" : "✗ trop bas" },
-                        { label: "Ancre (ema9 / OB)", ok: mkt.eurusd_conditions.has_anchor,
-                          val: mkt.eurusd_conditions.has_anchor ? "✓" : "✗ absente" },
-                        { label: "Patterns", ok: mkt.eurusd_conditions.weight_sum >= 1.0,
-                          val: mkt.eurusd_conditions.patterns?.length
-                            ? `${mkt.eurusd_conditions.patterns.join(", ")} (${(mkt.eurusd_conditions.weight_sum ?? 0).toFixed(2)})`
-                            : "—" },
-                        { label: "OBs détectés", ok: (mkt.eurusd_conditions.ob_count ?? 0) > 0,
-                          val: `${mkt.eurusd_conditions.ob_count ?? 0}` },
                       ].map(({ label, ok, val }) => (
                         <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                           <span style={{ color: COLORS.sub }}>{label}</span>
