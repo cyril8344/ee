@@ -120,6 +120,7 @@ class Position:
     session: str = ""
     meta: Dict[str, Any] = field(default_factory=dict)
     mfe: float = 0.0
+    tp1_bar_time: Optional[Any] = None
 
     def __post_init__(self):
         if self.remaining == 0.0:
@@ -208,6 +209,7 @@ class PaperBroker(BaseBroker):
     def update_position(self, pos: Position) -> Optional[Dict[str, Any]]:
         df = self.data.get_m5(2)
         bar = df.iloc[-1]
+        bar_time = bar.name
         price = float(bar["close"])
         bar_high = float(bar["high"])
         bar_low = float(bar["low"])
@@ -253,6 +255,7 @@ class PaperBroker(BaseBroker):
                 pos.realised += pnl_for(pos.take_profit1 - self.slippage * sign, lots50)
                 pos.remaining = round(pos.remaining - lots50, 2)
                 pos.tp1_done = True
+                pos.tp1_bar_time = bar_time
                 # BE : SL à l'entrée (+ marge optionnelle BE_BUFFER_R×R, 0 par défaut),
                 # vérifié sur bougies suivantes
                 be_buffer = strategy.BE_BUFFER_R * abs(pos.entry - pos.stop_loss)
@@ -263,8 +266,15 @@ class PaperBroker(BaseBroker):
                 return {"closed": False, "reason": "tp1_partial",
                         "exit_price": pos.take_profit1, "pnl": pos.realised}
 
-        # Stop loss — bar_low/bar_high pour capturer les touches intrabar
-        hit_sl = bar_low <= pos.stop_loss if direction == "long" else bar_high >= pos.stop_loss
+        # Stop loss — bar_low/bar_high pour capturer les touches intrabar.
+        # Après TP1, ne pas re-checker sur la MÊME bougie qui vient de déclencher TP1 :
+        # son high/low peut avoir été atteint AVANT le mouvement qui a touché TP1 (ex.
+        # bougie qui ouvre au-dessus de l'entrée puis chute d'un trait), ce qui donnerait
+        # un faux "SL après TP1" au BE sans qu'aucune bougie suivante n'y soit jamais
+        # revenue (cf. backtest.py::_try_exit qui gère déjà ce cas via `return None`).
+        skip_same_bar = pos.tp1_done and pos.tp1_bar_time is not None and bar_time == pos.tp1_bar_time
+        hit_sl = (not skip_same_bar) and (
+            bar_low <= pos.stop_loss if direction == "long" else bar_high >= pos.stop_loss)
         if hit_sl:
             pos.realised += pnl_for(pos.stop_loss - self.slippage * sign, pos.remaining)
             return {"closed": True,
