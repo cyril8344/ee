@@ -108,6 +108,7 @@ def run_pretrain(
     strategy_mode: str = "A",
     extra_overrides: Optional[Dict[str, Any]] = None,
     write_to_db: bool = True,
+    _raw_data: Optional[tuple] = None,      # (df, source) déjà chargé — évite un refetch (voir walk-forward)
 ) -> Dict[str, Any]:
     """
     Lance le pré-entraînement en mode bloquant.
@@ -181,14 +182,18 @@ def run_pretrain(
         # ---- Charger et préparer les données ----
         if write_to_db:
             _set(status="Chargement des données…")
-        m5_raw   = load_m5_data(start, end, symbol=symbol)
+        if _raw_data is not None:
+            m5_raw, _preloaded_source = _raw_data
+        else:
+            m5_raw = load_m5_data(start, end, symbol=symbol)
+            _preloaded_source = None
         if len(m5_raw) < 300:
             raise ValueError("Pas assez de données pour la période sélectionnée.")
 
         data_start_actual = m5_raw.index[0].isoformat()[:10]
         data_end_actual   = m5_raw.index[-1].isoformat()[:10]
         data_bars_total   = len(m5_raw)
-        data_provider_used = m5_raw.attrs.get("provider", "unknown")
+        data_provider_used = _preloaded_source or m5_raw.attrs.get("provider", "unknown")
         try:
             data_end_gap_days = (pd.Timestamp(end) - pd.Timestamp(data_end_actual)).days
         except Exception:
@@ -979,10 +984,21 @@ def run_walk_forward(
     total_days = (end_dt - start_dt).days
     seg_days   = total_days // n_splits
 
+    # Un seul appel réseau pour toute la période, puis découpage local par fenêtre —
+    # n_splits fenêtres = n_splits appels indépendants auparavant, ce qui déclenchait
+    # le rate-limit du fournisseur dès la 3e requête enchaînée (même correctif que
+    # pretrain_es.py::run_walkforward_es, voir son commentaire). Une fenêtre retombée
+    # en synthétique invalide déjà la robustesse ; ce fetch unique élimine le risque
+    # qu'une fenêtre tombe en synthétique simplement parce qu'elle arrive en fin de
+    # séquence, après que les fenêtres précédentes ont épuisé le quota.
+    full_raw = load_m5_data(start, end, symbol=symbol)
+    full_source = full_raw.attrs.get("provider", "unknown")
+
     windows = []
     for k in range(n_splits):
         seg_start = (start_dt + _td(days=k * seg_days)).isoformat()
         seg_end   = end if k == n_splits - 1 else (start_dt + _td(days=(k + 1) * seg_days)).isoformat()
+        window_raw = full_raw.loc[seg_start:seg_end]
         try:
             r = run_pretrain(
                 start=seg_start, end=seg_end,
@@ -990,6 +1006,7 @@ def run_walk_forward(
                 strategy_mode=strategy_mode, reset=True,
                 extra_overrides=extra_overrides,
                 write_to_db=False,
+                _raw_data=(window_raw, full_source),
             )
             n_sl = r.get("false_stops", {}).get("n_sl_direct", 0)
             windows.append({
