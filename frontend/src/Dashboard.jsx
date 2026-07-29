@@ -460,6 +460,29 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [rlStatus, setRlStatus] = useState(null);
   const [rlHistory, setRlHistory] = useState([]);
   const [rlLoading, setRlLoading] = useState(false);
+  // Sections repliables ("Outils avancés" / "Contexte marché") — persistées en local
+  const [collapsibles, setCollapsibles] = useState(() => {
+    try { return JSON.parse(window.localStorage.getItem("dash_collapsibles") || "{}"); }
+    catch { return {}; }
+  });
+  const isSectionOpen = (key) => collapsibles[key] ?? false;
+  const toggleSection = (key) => {
+    setCollapsibles(prev => {
+      const next = { ...prev, [key]: !isSectionOpen(key) };
+      try { window.localStorage.setItem("dash_collapsibles", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+  const SectionToggle = ({ sectionKey, label }) => (
+    <div onClick={() => toggleSection(sectionKey)}
+      style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none",
+        marginTop: 8, marginBottom: isSectionOpen(sectionKey) ? 6 : 0,
+        borderTop: `1px solid ${COLORS.border}`, paddingTop: 8 }}>
+      <span style={{ fontSize: 11, color: COLORS.sub, transform: isSectionOpen(sectionKey) ? "rotate(90deg)" : "none",
+        display: "inline-block", transition: "transform 0.15s" }}>▶</span>
+      <span style={{ fontSize: 11, fontWeight: 600, color: COLORS.sub }}>{label}</span>
+    </div>
+  );
   const [settingsEdit, setSettingsEdit] = useState(false);
   const [settingsDraft, setSettingsDraft] = useState({});
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -1436,6 +1459,8 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                     </> /* fin Strategy A */
                   )} {/* fin ternaire ICT vs A */}
                   {/* Pré-entraînement — séparé par stratégie */}
+                  <SectionToggle sectionKey="tools" label="⚙ Outils avancés — pré-entraînement, walk-forward, Optuna" />
+                  {isSectionOpen("tools") && (
                   <div style={{ marginTop: 6, borderTop: `1px solid ${COLORS.border}`, paddingTop: 6 }}>
                     <div style={{ fontSize: 10, color: strategyMode === "B" ? COLORS.blue : COLORS.amber, fontWeight: 600, marginBottom: 6 }}>
                       Prétrain {strategyMode === "A" ? "XAU/USD — Strat A" : "EUR/USD — Strat B"}
@@ -2413,6 +2438,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                       </button>
                     </div>
                   </div>
+                  )}
 
                   {/* Adaptive thresholds */}
                   {mkt.conditions?.adaptive && (
@@ -2467,6 +2493,9 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                   </div>
                 </div>
               )}
+              <SectionToggle sectionKey="context" label="🌐 Contexte marché — sentiment, corrélations, Fed, news, Agent IA" />
+              {isSectionOpen("context") && (
+              <>
               {/* macro indicators: 4-in-a-row on desktop, 2x2 on mobile */}
               <div className="macro-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginBottom: 4 }}>
                 {state?.macro?.dxy && (
@@ -2649,6 +2678,8 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                     </div>
                   )}
                 </div>
+              )}
+              </>
               )}
 
               {/* Agent adaptatif live (LiveAdaptiveAgent) */}
