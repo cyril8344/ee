@@ -128,7 +128,7 @@ def run_pretrain(
 
     contract_size = 100.0   if symbol == "XAUUSD" else 100000.0
     pip_size      = 0.1     if symbol == "XAUUSD" else 0.0001
-    default_atr   = 3.0     if symbol == "XAUUSD" else 0.00030
+    default_atr   = 3.0     if symbol == "XAUUSD" else strategy.EURUSD_ATR_MIN
     effective_atr = atr_min if atr_min is not None else default_atr
     if symbol == "XAUUSD":
         spread   = 2.0  * pip_size   # 2.0 pips XAU/USD = 0.20 (réaliste)

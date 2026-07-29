@@ -108,7 +108,7 @@ MARKET_CONFIG = {
     },
     "EURUSD": {
         "name": "EUR/USD",
-        "atr_min": 0.00030,
+        "atr_min": strategy.EURUSD_ATR_MIN,
         "contract_size": 100000.0,
         "spread_pips": 0.2,
         "slippage_pips": 0.05,
