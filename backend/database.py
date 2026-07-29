@@ -64,7 +64,7 @@ DEFAULT_SETTINGS = {
     "daily_stop_pct": 8.0,         # -8% stop journalier (4 pertes max avant arrêt)
     "mode": "paper",               # 'paper' | 'live'
     "symbol": "XAUUSD",
-    "active_markets": ["XAUUSD", "EURUSD"],
+    "active_markets": ["XAUUSD", "EURUSD", "ES"],
     "spread_pips": 0.3,
     "slippage_pips": 0.1,
     "bot_enabled": True,
@@ -251,6 +251,12 @@ def init_db() -> None:
             # Retire l'argent (XAG/USD) : on se concentre d'abord sur or + euro/dollar.
             if isinstance(am, list) and "XAGUSD" in am:
                 am = [m for m in am if m != "XAGUSD"]
+                changed = True
+            # Active ES (paper) sur les bases existantes déjà migrées vers XAUUSD+EURUSD —
+            # risque/capital totalement isolés de state.risk (voir main.py::RiskManager
+            # dédié state.risk_es), donc sans impact sur XAU/EUR.
+            if isinstance(am, list) and "XAUUSD" in am and "EURUSD" in am and "ES" not in am:
+                am = am + ["ES"]
                 changed = True
             if changed:
                 existing["active_markets"] = am

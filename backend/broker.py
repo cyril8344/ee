@@ -39,9 +39,16 @@ import strategy
 class MarketData:
     """Cached 5-minute market data feed (data_provider + synthetic fallback)."""
 
-    def __init__(self, ttl_seconds: int = 300, symbol: str = "XAUUSD"):
+    def __init__(self, ttl_seconds: int = 300, symbol: str = "XAUUSD",
+                 data_symbol: Optional[str] = None, price_scale: float = 1.0):
         self.ttl = ttl_seconds
         self.symbol = symbol
+        # data_symbol : ticker réellement fetché si différent du symbole interne
+        # (ex. "SPY" pour un marché interne "ES" — proxy gratuit, voir pretrain_es.py).
+        # price_scale : facteur appliqué aux prix après fetch pour retrouver l'échelle
+        # du symbole interne (SPY ×10 ≈ échelle ES). 1.0 = comportement inchangé.
+        self.data_symbol = data_symbol or symbol
+        self.price_scale = price_scale
         self._cache: Optional[pd.DataFrame] = None
         self._fetched_at: float = 0.0
         self._lock = threading.Lock()
@@ -62,14 +69,23 @@ class MarketData:
     def _fetch(self) -> pd.DataFrame:
         try:
             import data_provider
-            df, provider = data_provider.get_m5(bars=2000, symbol=self.symbol)
+            df, provider = data_provider.get_m5(bars=2000, symbol=self.data_symbol)
             if df is not None and len(df) > 0:
                 self.provider = provider
-                return df
+                return self._scale(df)
         except Exception:
             pass
         self.provider = "synthetic"
-        return self._synthetic()
+        return self._scale(self._synthetic())
+
+    def _scale(self, df: pd.DataFrame) -> pd.DataFrame:
+        if self.price_scale == 1.0:
+            return df
+        df = df.copy()
+        for col in ("open", "high", "low", "close"):
+            if col in df.columns:
+                df[col] = df[col] * self.price_scale
+        return df
 
     def _synthetic(self) -> pd.DataFrame:
         end = pd.Timestamp.now(tz="UTC").floor("5min")
@@ -81,6 +97,10 @@ class MarketData:
             price0 = 1.08
             vol = 0.00012
             spread_base = 0.00003
+        elif self.symbol == "ES":
+            price0 = 580.0   # échelle SPY — mis à l'échelle ×10 par _scale() ensuite
+            vol = 0.0003
+            spread_base = 0.03
         else:
             price0 = 2000.0
             vol = 0.0008
@@ -169,12 +189,13 @@ class PaperBroker(BaseBroker):
 
     def __init__(self, spread_pips: float = 0.3, slippage_pips: float = 0.1,
                  symbol: str = "XAUUSD", contract_size: float = 100.0,
-                 pip_size: float = 0.1):
+                 pip_size: float = 0.1, data_symbol: Optional[str] = None,
+                 price_scale: float = 1.0):
         # pip_size is the price value of 1 pip (XAU: 0.1, EUR/USD: 0.0001)
         self.spread = spread_pips * pip_size
         self.slippage = slippage_pips * pip_size
         self.contract_size = contract_size
-        self.data = MarketData(symbol=symbol)
+        self.data = MarketData(symbol=symbol, data_symbol=data_symbol, price_scale=price_scale)
         self._ticket = 1000
 
     def connected(self) -> bool:
@@ -306,6 +327,72 @@ class PaperBroker(BaseBroker):
         pnl = pos.realised + (fill - pos.entry) * sign * self.contract_size * pos.remaining
         pos.remaining = 0.0
         return {"closed": True, "reason": reason, "exit_price": fill, "pnl": pnl}
+
+
+class ESPaperBroker(PaperBroker):
+    """PaperBroker pour la stratégie ES : reproduit fidèlement la logique de
+    sortie de pretrain_es.py::_try_exit_es (BE inconditionnel après TP1, pas
+    de marge BE_BUFFER_R, pas d'early exit à 15 min — ce sont des mécaniques
+    Strat A jamais validées pour ES) et arrondit en contrats entiers plutôt
+    qu'en lots 0.01. Le timeout 45min/9 bougies reste géré au niveau de la
+    boucle principale (main.py), avec une durée spécifique à ES."""
+    name = "paper_es"
+
+    def update_position(self, pos: Position) -> Optional[Dict[str, Any]]:
+        df = self.data.get_m5(2)
+        bar = df.iloc[-1]
+        bar_time = bar.name
+        bar_high = float(bar["high"])
+        bar_low = float(bar["low"])
+        direction = pos.direction
+        sign = 1.0 if direction == "long" else -1.0
+
+        def pnl_for(p, lots):
+            return (p - pos.entry) * sign * self.contract_size * lots
+
+        if direction == "long":
+            pos.mfe = max(pos.mfe, bar_high - pos.entry)
+        else:
+            pos.mfe = max(pos.mfe, pos.entry - bar_low)
+
+        # TP1 — sortie 50% (contrats entiers), BE inconditionnel ensuite
+        if not pos.tp1_done:
+            hit = bar_high >= pos.take_profit1 if direction == "long" else bar_low <= pos.take_profit1
+            if hit:
+                lots50 = round(pos.volume * 0.5)
+                if lots50 < 1 or lots50 >= pos.remaining:
+                    lots50 = pos.remaining  # pas assez de contrats pour spliter → close total
+                pos.realised += pnl_for(pos.take_profit1 - self.slippage * sign, lots50)
+                pos.remaining = round(pos.remaining - lots50)
+                pos.tp1_done = True
+                pos.tp1_bar_time = bar_time
+                pos.stop_loss = pos.entry  # BE inconditionnel — pas de BE_BUFFER_R pour ES
+                if pos.remaining < 1:
+                    return {"closed": True, "reason": "tp1",
+                            "exit_price": pos.take_profit1, "pnl": pos.realised}
+                return {"closed": False, "reason": "tp1_partial",
+                        "exit_price": pos.take_profit1, "pnl": pos.realised}
+
+        # SL — même garde-fou "même bougie que TP1" que le broker générique
+        # (voir Position.tp1_bar_time / commentaire dans PaperBroker.update_position)
+        skip_same_bar = pos.tp1_done and pos.tp1_bar_time is not None and bar_time == pos.tp1_bar_time
+        hit_sl = (not skip_same_bar) and (
+            bar_low <= pos.stop_loss if direction == "long" else bar_high >= pos.stop_loss)
+        if hit_sl:
+            pos.realised += pnl_for(pos.stop_loss - self.slippage * sign, pos.remaining)
+            return {"closed": True,
+                    "reason": "sl" if not pos.tp1_done else "sl_after_tp1",
+                    "exit_price": pos.stop_loss, "pnl": pos.realised}
+
+        # TP2 — sortie du reliquat
+        if pos.tp1_done:
+            hit_tp2 = bar_high >= pos.take_profit2 if direction == "long" else bar_low <= pos.take_profit2
+            if hit_tp2:
+                pos.realised += pnl_for(pos.take_profit2 - self.slippage * sign, pos.remaining)
+                return {"closed": True, "reason": "tp2",
+                        "exit_price": pos.take_profit2, "pnl": pos.realised}
+
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -477,12 +564,19 @@ class MT5Broker(BaseBroker):
 
 def make_broker(mode: str = "paper", symbol: str = "XAUUSD",
                 spread_pips: float = 0.3, slippage_pips: float = 0.1,
-                contract_size: float = 100.0, pip_size: float = 0.1) -> BaseBroker:
-    """Factory: returns an MT5 broker for live mode if available, else paper."""
+                contract_size: float = 100.0, pip_size: float = 0.1,
+                data_symbol: Optional[str] = None, price_scale: float = 1.0,
+                paper_broker_cls: type = PaperBroker) -> BaseBroker:
+    """Factory: returns an MT5 broker for live mode if available, else paper.
+
+    paper_broker_cls : classe PaperBroker à instancier (ex. ESPaperBroker pour
+    une gestion de sortie fidèle à la stratégie ES, différente de la Strat A).
+    """
     if mode == "live":
         mt5 = MT5Broker(symbol)
         if mt5.connected():
             return mt5
         # fall back to paper if MT5 unavailable
-    return PaperBroker(spread_pips, slippage_pips, symbol=symbol,
-                       contract_size=contract_size, pip_size=pip_size)
+    return paper_broker_cls(spread_pips, slippage_pips, symbol=symbol,
+                            contract_size=contract_size, pip_size=pip_size,
+                            data_symbol=data_symbol, price_scale=price_scale)
