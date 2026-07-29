@@ -47,7 +47,13 @@ VOL_AVG_PERIOD = 20
 
 RSI_LOW = 30.0   # seuil M15 RSI LONG (LiveAdaptiveAgent peut ajuster)
 RSI_HIGH = 70.0  # seuil M15 RSI SHORT (LiveAdaptiveAgent peut ajuster)
-ATR_MIN = 3.0    # plancher volatilité M5 (LiveAdaptiveAgent peut ajuster)
+ATR_MIN = 3.0    # plancher volatilité M5 XAU/USD (LiveAdaptiveAgent peut ajuster)
+EURUSD_ATR_MIN = 0.00015  # plancher volatilité M5 EUR/USD — l'ancien 0.00030 (jamais retouché
+                          # depuis son introduction) dépassait presque tout le temps la moyenne
+                          # 50p réelle (~0.00024-0.00026, observé à plusieurs reprises en live),
+                          # bloquant Strat B quasi en permanence. Référencé par main.py
+                          # (MARKET_CONFIG) ET pretrain.py pour éviter que live et walk-forward
+                          # divergent, comme ça a été le cas pour ATR_MIN (XAU) avant correction.
 ATR_HIGH = 4.5   # seuil vol. élevée : SL passe à SL_ATR_MULT_HIGH au lieu de bloquer
 ADX_MIN = 28.0   # force tendance minimale H1 (LiveAdaptiveAgent peut ajuster)
 SR_PROXIMITY_ATR = 0.7
