@@ -71,8 +71,7 @@ from news_filter import NewsFilter
 from macro_filter import MacroFilter
 from broker import make_broker, Position
 import strategy
-from strategy import (add_indicators, evaluate, snapshot, snapshot_eurusd,
-                       evaluate_eurusd as _eval_eurusd_fn,
+from strategy import (add_indicators, evaluate, snapshot,
                        swing_levels, active_session, find_order_blocks)
 import feature_logger as _feat_log
 from backtest import BacktestConfig, run_backtest
@@ -412,13 +411,9 @@ def trading_tick() -> Dict[str, Any]:
                 _inst_bad_hours = set(ms.inst_settings.get("bad_hours_cet", []))
                 _inst_bot_enabled = ms.inst_settings.get("bot_enabled", True)
                 _inst_max_trades = ms.inst_settings.get("max_trades_per_day", state.risk.max_trades_per_day)
-                if sym_strategy == "eurusd_simple":
-                    snap = snapshot_eurusd(m5, m15, h1, atr_min_override=ms.config["atr_min"],
-                                           pattern_weights=state.pattern_weights)
-                else:
-                    snap = snapshot(m5, m15, h1, atr_min_override=ms.config["atr_min"],
-                                   pattern_weights=state.pattern_weights,
-                                   adaptive_thresholds=ms.adaptive)
+                snap = snapshot(m5, m15, h1, atr_min_override=ms.config["atr_min"],
+                               pattern_weights=state.pattern_weights,
+                               adaptive_thresholds=ms.adaptive)
                 ms.last_snapshot = snap
 
                 # Pour les marchés Strategy B, calculer les conditions ICT en temps réel
@@ -579,13 +574,6 @@ def trading_tick() -> Dict[str, Any]:
                                         check_session=session_filter,
                                         atr_min=ms.config["atr_min"],
                                         bad_hours=_inst_bad_hours)
-                    elif sym_strategy == "eurusd_simple":
-                        from strategy import evaluate_eurusd as _eval_eurusd
-                        sig = _eval_eurusd(m5, m15, h1, now=now,
-                                           check_session=session_filter,
-                                           atr_min=ms.config["atr_min"],
-                                           pattern_weights=state.pattern_weights,
-                                           bad_hours=_inst_bad_hours)
                     else:
                         _rlog: Dict[str, Any] = {}
                         sig = evaluate(m5, m15, h1, h4=h4, now=now, check_session=session_filter,
@@ -904,7 +892,6 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
         # Préférer le prix du feed WebSocket temps réel au close OHLCV (stale jusqu'à 5 min)
         rt_tick = realtime_feed.get_latest(_sym_to_td.get(sym, sym))
         live_price = rt_tick["price"] if rt_tick else snap.get("price")
-        _sym_strat = ms.config.get("default_strategy", "A")
         markets[sym] = {
             "symbol": sym,
             "name": ms.config["name"],
@@ -920,8 +907,7 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
             },
             "position": _position_payload(ms),
             "last_signal": ms.last_signal,
-            "conditions": None if _sym_strat == "eurusd_simple" else snap.get("conditions"),
-            "eurusd_conditions": snap.get("conditions") if _sym_strat == "eurusd_simple" else None,
+            "conditions": snap.get("conditions"),
             "ict_conditions": snap.get("ict_conditions"),
             "reject_log": snap.get("reject_log"),
             "ml_gate": {},
