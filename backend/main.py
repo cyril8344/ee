@@ -2018,6 +2018,7 @@ class WalkForwardRequest(BaseModel):
     be_buffer_r_override: Optional[float] = None
     ob_require_liquidity_override: Optional[bool] = None
     early_exit_minutes_override: Optional[float] = None
+    adx_min_h1_override: Optional[float] = None   # Strat B (EUR/USD) — strategy_ict.ADX_MIN_H1, 20 par défaut
 
 
 @app.post("/api/pretrain/walkforward")
@@ -2055,6 +2056,8 @@ def start_walkforward(req: WalkForwardRequest, _user: dict = Depends(get_current
                 _overrides["OB_REQUIRE_LIQUIDITY"] = req.ob_require_liquidity_override
             if req.early_exit_minutes_override is not None:
                 _overrides["EARLY_EXIT_MINUTES"] = req.early_exit_minutes_override
+            if req.adx_min_h1_override is not None:
+                _overrides["ADX_MIN_H1"] = req.adx_min_h1_override
             _overrides = _overrides or None
             r = _pretrain_module.run_walk_forward(
                 start=req.start, end=req.end,
