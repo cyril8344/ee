@@ -1340,6 +1340,21 @@ def cleanup_duplicate_trades(_user: dict = Depends(get_current_user)):
     return result
 
 
+@app.get("/api/admin/trade-audit")
+def trade_audit_endpoint(start: str, end: str, symbol: str = "XAUUSD",
+                         replay: bool = True,
+                         _user: dict = Depends(get_current_user)):
+    """Diagnostic entrée/sortie de chaque trade clôturé sur [start, end], avec
+    détection du faux 'SL après TP1' (bug corrigé le 29/07, cf. PR #310) par
+    rejeu des bougies M5 réelles. `replay=false` pour un rapport rapide sans
+    accès data (entrée/sortie seulement, pas de vérification du bug)."""
+    from trade_audit import audit_trades
+    try:
+        return audit_trades(start, end, symbol=symbol, replay_sl_after_tp1=replay)
+    except Exception as exc:
+        raise HTTPException(400, detail=str(exc))
+
+
 @app.delete("/api/trades/{trade_id}")
 def delete_trade_by_id(trade_id: int, _user: dict = Depends(get_current_user)):
     """Supprime manuellement un trade de l'historique et resynchronise le P&L du jour."""
