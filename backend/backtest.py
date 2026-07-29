@@ -354,10 +354,11 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
         t["mfe"] = max(t.get("mfe", 0.0), t["entry"] - low)
         t["mae"] = max(t.get("mae", 0.0), high - t["entry"])
 
-    # Early exit: 15 min (3 bougies M5) sans conviction — MFE < 0.2R
+    # Early exit: sans conviction après EARLY_EXIT_MINUTES (bougies M5) — MFE < EARLY_EXIT_MFE_R × R
     if not t["tp1_done"] and t.get("risk", 0) > 0:
         bars_elapsed = int((ts.to_pydatetime() - t["entry_time"]).total_seconds() / 300)
-        if bars_elapsed >= 3 and t["mfe"] / t["risk"] < 0.2:
+        early_exit_bars = max(1, round(strategy.EARLY_EXIT_MINUTES / 5))
+        if bars_elapsed >= early_exit_bars and t["mfe"] / t["risk"] < strategy.EARLY_EXIT_MFE_R:
             t["realised"] += pnl_for(close, t["remaining"])
             return t["realised"], close, "early_exit"
 

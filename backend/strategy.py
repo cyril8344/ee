@@ -63,6 +63,8 @@ BE_BUFFER_R      = 0.0      # marge (en R) sous/sur l'entrée pour le SL breakev
                              # atteint TP2 dans les 20 bougies suivantes (false_be) — un peu
                              # de marge pourrait laisser respirer ces trades sans réintroduire
                              # tout le risque initial.
+EARLY_EXIT_MINUTES = 15     # sortie si MFE < EARLY_EXIT_MFE_R après ce délai (pas de conviction)
+EARLY_EXIT_MFE_R   = 0.2    # seuil MFE/R en dessous duquel le trade est jugé sans conviction
 SWING_LOOKBACK = 5          # bars each side for swing detection
 
 # SMC parameters (optimised by Agent IA)

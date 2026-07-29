@@ -231,11 +231,12 @@ class PaperBroker(BaseBroker):
         else:
             pos.mfe = max(pos.mfe, pos.entry - bar_low)
 
-        # Early exit: 15 min sans conviction — MFE < 0.2R
+        # Early exit: sans conviction après EARLY_EXIT_MINUTES — MFE < EARLY_EXIT_MFE_R × R
         if not pos.tp1_done:
             elapsed_min = (datetime.now(timezone.utc) - pos.open_time).total_seconds() / 60
             risk_dist = abs(pos.entry - pos.stop_loss)
-            if elapsed_min >= 15 and risk_dist > 0 and pos.mfe / risk_dist < 0.2:
+            if (elapsed_min >= strategy.EARLY_EXIT_MINUTES and risk_dist > 0
+                    and pos.mfe / risk_dist < strategy.EARLY_EXIT_MFE_R):
                 pos.realised += pnl_for(price - self.slippage * sign, pos.remaining)
                 return {"closed": True, "reason": "early_exit",
                         "exit_price": price, "pnl": pos.realised}
