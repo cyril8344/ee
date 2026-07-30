@@ -1430,7 +1430,9 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                         )}
                       </div>
                       {[
-                        { label: "Session RTH (9h30-16h ET)", ok: mkt.es_conditions.session_rth,
+                        { label: `Session (${fmt(mkt.es_conditions.session_open_h, 0)}h${String(mkt.es_conditions.session_open_m ?? 0).padStart(2, "0")}`
+                            + `-${fmt(mkt.es_conditions.session_close_h, 0)}h${String(mkt.es_conditions.session_close_m ?? 0).padStart(2, "0")} ET)`,
+                          ok: mkt.es_conditions.session_rth,
                           val: mkt.es_conditions.session_rth == null ? "—"
                             : mkt.es_conditions.session_rth
                               ? `✓ (${mkt.es_conditions.session_et_hour}h ET)`
