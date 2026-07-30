@@ -98,6 +98,25 @@ import pretrain_es_h1 as _pretrain_es_h1_module
 # non importés, même principe que llm_gate.py.
 
 
+# Capital de départ dédié à ES, indépendant du capital XAU/EUR (settings["capital"]).
+# ES a sa propre enveloppe de risque isolée (state.risk_es) — seuls risk_per_trade_pct/
+# daily_stop_pct/max_trades_per_day sont partagés avec les autres marchés (voir
+# _sync_es_risk_settings ci-dessous), le capital lui-même reste propre à ES et évolue
+# indépendamment via ses propres trades, à partir de ce montant.
+ES_INITIAL_CAPITAL = 10_000.0
+
+
+def _sync_es_risk_settings(risk_es: "RiskManager", risk_xau: "RiskManager") -> None:
+    """Aligne risk_per_trade_pct/daily_stop_pct/max_trades_per_day de risk_es sur les
+    réglages partagés — sans toucher au capital (propre à ES, voir ES_INITIAL_CAPITAL).
+    Un sync_from_settings() complet écraserait le capital ES à chaque PATCH /api/settings.
+    Prend les objets en paramètre (pas le global `state`) : appelée aussi depuis
+    BotState.__init__, avant que `state` existe."""
+    risk_es.risk_per_trade_pct = risk_xau.risk_per_trade_pct
+    risk_es.daily_stop_pct = risk_xau.daily_stop_pct
+    risk_es.max_trades_per_day = risk_xau.max_trades_per_day
+
+
 MARKET_CONFIG = {
     "XAUUSD": {
         "name": "XAU/USD",
@@ -189,14 +208,19 @@ class BotState:
                 self.settings = db.update_settings({"bot_enabled": True})
         self.risk = RiskManager()
         self.risk.sync_from_settings(self.settings)
-        # ES : mêmes réglages (capital, risk_per_trade_pct, max_trades_per_day,
-        # daily_stop_pct) que XAU/EUR — mais une instance RiskManager à part,
-        # avec son propre capital et ses propres compteurs de trades/jour et
-        # de blocage. Une perte ES ne doit jamais réduire la taille des
-        # positions XAU/EUR ni déclencher leur blocage, et inversement — voir
-        # _risk_for()/state.risk_es utilisés partout dans la boucle de trading.
+        # ES : mêmes risk_per_trade_pct/max_trades_per_day/daily_stop_pct que XAU/EUR,
+        # mais un capital propre (ES_INITIAL_CAPITAL) — l'économie des contrats ES
+        # (minimum 1 contrat, ~175$ de risque au SL par défaut) n'a aucun sens avec le
+        # capital XAU/EUR (souvent ~1000$ de base) : 1 contrat représenterait ~17% du
+        # capital au lieu du % de risque visé. Instance RiskManager à part, avec ses
+        # propres compteurs de trades/jour et de blocage — une perte ES ne doit jamais
+        # réduire la taille des positions XAU/EUR ni déclencher leur blocage, et
+        # inversement — voir _risk_for()/state.risk_es dans la boucle de trading.
         self.risk_es = RiskManager()
-        self.risk_es.sync_from_settings(self.settings)
+        _sync_es_risk_settings(self.risk_es, self.risk)
+        self.risk_es.capital = ES_INITIAL_CAPITAL
+        self.risk_es.equity_peak = ES_INITIAL_CAPITAL
+        self.risk_es.start_equity_today = ES_INITIAL_CAPITAL
         self.news = NewsFilter(window_minutes=30, currencies=("USD", "EUR"))
         self.macro = MacroFilter()
         self.alerts: List[Dict[str, Any]] = []
@@ -1751,7 +1775,7 @@ def write_settings(patch: SettingsPatch, _user: dict = Depends(get_current_user)
     with state.lock:
         state.settings = db.update_settings(data)
         state.risk.sync_from_settings(state.settings)
-        state.risk_es.sync_from_settings(state.settings)  # ES suit les mêmes réglages que XAU/EUR
+        _sync_es_risk_settings(state.risk_es, state.risk)  # % partagés, capital ES inchangé
     return state.settings
 
 

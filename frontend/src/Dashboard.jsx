@@ -1535,7 +1535,12 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                   ))}
                     </> /* fin Strategy A */
                   )} {/* fin ternaire ICT vs A */}
-                  {/* Pré-entraînement — séparé par stratégie */}
+                  {/* Pré-entraînement — séparé par stratégie. Masqué pour ES : ce panel
+                      (pretrain XAU/EUR, walk-forward, Optuna) tape sur /api/pretrain,
+                      qui ne connaît que Strat A/B — ES a son propre panel complet
+                      (mêmes outils + M5/H1) sur la page dédiée, bouton "ES →". */}
+                  {!mkt.es_conditions && (
+                  <>
                   <SectionToggle sectionKey="tools" label="⚙ Outils avancés — pré-entraînement, walk-forward, Optuna" />
                   {isSectionOpen("tools") && (
                   <div style={{ marginTop: 6, borderTop: `1px solid ${COLORS.border}`, paddingTop: 6 }}>
@@ -2524,6 +2529,8 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                       </button>
                     </div>
                   </div>
+                  )}
+                  </>
                   )}
 
                   {/* Adaptive thresholds */}
