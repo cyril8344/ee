@@ -419,11 +419,10 @@ export default function DashboardES({ onBack, token }) {
     setSettingsDirty(true);
   };
 
-  const handleBadHours = (raw) => {
-    try {
-      const parsed = raw.split(",").map(s => parseInt(s.trim())).filter(n => !isNaN(n));
-      handleParam("bad_hours_et", parsed);
-    } catch { /* ignore */ }
+  const toggleBadHour = (h) => {
+    const current = settings.bad_hours_et || [];
+    const next = current.includes(h) ? current.filter(x => x !== h) : [...current, h].sort((a, b) => a - b);
+    handleParam("bad_hours_et", next);
   };
 
   const saveSettings = async () => {
@@ -560,15 +559,35 @@ export default function DashboardES({ onBack, token }) {
               {tf === "M5" && (
                 <ParamToggle label="H1 bias (EMA200)" k="h1_filter" settings={settings} onChange={handleParam} />
               )}
-              <div style={{ marginTop: 4, marginBottom: 7 }}>
-                <div style={{ color: C.sub, fontSize: 12, marginBottom: 3 }}>Heures bloquées ET (ex: 10,11)</div>
-                <input
-                  type="text"
-                  defaultValue={(settings.bad_hours_et || []).join(",")}
-                  onBlur={e => handleBadHours(e.target.value)}
-                  style={S.input}
-                  placeholder="10"
-                />
+              <div style={{ marginTop: 4, marginBottom: 4 }}>
+                <div style={{ color: C.sub, fontSize: 12, marginBottom: 6 }}>
+                  Heures bloquées (ET)
+                  <span style={{ marginLeft: 6, fontWeight: 400 }}>
+                    {(settings.bad_hours_et || []).length === 0 ? "aucune" : (settings.bad_hours_et || []).map(h => `${h}h`).join(", ")}
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                  {Array.from({ length: 24 }, (_, h) => {
+                    const isRth = h >= (settings.session_open_h ?? 9) && h < (settings.session_close_h ?? 16);
+                    const isBlocked = (settings.bad_hours_et || []).includes(h);
+                    return (
+                      <button key={h} onClick={() => toggleBadHour(h)}
+                        title={isBlocked ? `Débloquer ${h}h ET` : `Bloquer ${h}h ET`}
+                        style={{
+                          width: 26, height: 22, fontSize: 10, borderRadius: 3, cursor: "pointer",
+                          background: isBlocked ? C.red : isRth ? "#1a2a1a" : C.panel2,
+                          color: isBlocked ? "#fff" : isRth ? C.green : C.sub,
+                          border: `1px solid ${isBlocked ? C.red : isRth ? C.green : C.border}`,
+                          fontWeight: isBlocked ? 700 : 400,
+                        }}>
+                        {h}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{ fontSize: 9, color: C.sub, marginTop: 5 }}>
+                  Vert = session RTH · Rouge = bloqué · Clique pour bloquer/débloquer
+                </div>
               </div>
             </div>
 
