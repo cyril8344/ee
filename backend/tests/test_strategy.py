@@ -8,7 +8,7 @@ import pytest
 import strategy
 from strategy import (
     ema, rsi, atr, add_indicators, active_session, compute_bias,
-    is_bullish_engulfing, is_bearish_engulfing, evaluate,
+    is_bullish_engulfing, is_bearish_engulfing, evaluate, market_structure_ok,
 )
 
 
@@ -92,3 +92,34 @@ def test_evaluate_runs_on_real_shaped_data():
     # Should not raise; returns Signal or None
     sig = evaluate(m5, m15, h1, check_session=False)
     assert sig is None or sig.direction in ("long", "short")
+
+
+def test_market_structure_ok_returns_python_bool_not_numpy():
+    """Regression : market_structure_ok() renvoyait un numpy.bool_ (comparaisons
+    sur des Series.mean()), non sérialisable par jsonable_encoder — faisait
+    planter /api/state en 500 ("numpy.bool_ object is not iterable")."""
+    closes = 2000 + np.cumsum(np.random.default_rng(2).normal(0, 0.5, 60))
+    df = _frame(closes)
+    for bias in ("LONG", "SHORT"):
+        result = market_structure_ok(df, bias)
+        assert isinstance(result, bool)
+        assert type(result) is bool  # pas numpy.bool_, même si isinstance passerait aussi
+
+
+def test_snapshot_conditions_ema9_aligned_is_python_bool_not_numpy():
+    """Regression (même famille que market_structure_ok) : conditions["ema9_aligned"]
+    était un numpy.bool_ (cur5["close"] non casté avant comparaison) — un 2e numpy.bool_
+    qui plantait /api/state en 500 même après le fix de market_structure_ok."""
+    import json
+    from strategy import snapshot
+    closes = 2000 + np.cumsum(np.random.default_rng(3).normal(0, 0.3, 600))
+    m5 = add_indicators(_frame(closes))
+    agg = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+    m15 = add_indicators(m5[["open", "high", "low", "close", "volume"]]
+                         .resample("15min", label="right", closed="right").agg(agg).dropna())
+    h1 = add_indicators(m5[["open", "high", "low", "close", "volume"]]
+                        .resample("60min", label="right", closed="right").agg(agg).dropna())
+    snap = snapshot(m5, m15, h1)
+    ema9_aligned = snap["conditions"]["ema9_aligned"]
+    assert type(ema9_aligned) is bool
+    json.dumps(snap["conditions"])  # ne doit pas lever TypeError
