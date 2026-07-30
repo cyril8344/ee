@@ -73,10 +73,14 @@ DEFAULTS: dict = {
     "tp1_ticks":  20,   # 5.0 pts = $250/contrat
     "tp2_ticks":  40,   # 10.0 pts = $500/contrat
 
-    # Session ET (Eastern Time)
-    "session_open_h":  9,
-    "session_open_m":  30,
-    "session_close_h": 16,
+    # Session ET (Eastern Time) — ouvert 24h par défaut (ES trade quasi en continu
+    # sur Globex) : on démarre large pour observer les vraies heures gagnantes/
+    # perdantes sur données réelles, puis on ferme heure par heure via bad_hours_et
+    # une fois qu'un pattern se dégage — même démarche que BAD_HOURS_CET pour XAU
+    # (exclusions trouvées après coup, jamais devinées à l'avance).
+    "session_open_h":  0,
+    "session_open_m":  0,
+    "session_close_h": 24,
     "session_close_m": 0,
 }
 

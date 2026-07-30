@@ -589,7 +589,13 @@ def trading_tick() -> Dict[str, Any]:
                         _ema21_es = float(_cur_es.get("ema21", 0) or 0)
                         _rsi_es = float(_cur_es.get("rsi", 50) or 50)
                         _vwap_es = float(_cur_es.get("vwap", 0) or 0)
-                        _p_es = strategy_es.DEFAULTS
+                        # _es_settings, pas strategy_es.DEFAULTS : ce panel doit refléter les
+                        # mêmes réglages que ceux réellement utilisés par la boucle live
+                        # (voir plus bas "elif sym_strategy == 'ES':" côté entrée) — sinon le
+                        # panel affiche encore les seuils par défaut même après que
+                        # l'utilisateur a changé les vrais réglages en live.
+                        with _es_settings_lock:
+                            _p_es = dict(_es_settings)
                         _use_h1_es = bool(_p_es.get("h1_filter", 0)) and len(h1_es) > 0
                         _ema200_ref_es = (float(h1_es.iloc[-1].get("ema200", 0) or 0) if _use_h1_es
                                           else float(_cur_es.get("ema200", 0) or 0))
@@ -651,6 +657,10 @@ def trading_tick() -> Dict[str, Any]:
                             "vwap_ok":           _vwap_ok_es,
                             "session_rth":       _in_rth_es,
                             "session_et_hour":   _et_hour_es,
+                            "session_open_h":    _p_es.get("session_open_h"),
+                            "session_open_m":    _p_es.get("session_open_m"),
+                            "session_close_h":   _p_es.get("session_close_h"),
+                            "session_close_m":   _p_es.get("session_close_m"),
                             "blocking_reason":   _blocking_es,
                         }
                     except Exception:
@@ -2748,31 +2758,10 @@ class ESPretrainRequest(BaseModel):
     params:   Optional[Dict[str, Any]] = None
 
 
-# Paramètres ES alignés avec les nouveaux DEFAULTS strategy_es.py
-_es_settings: Dict[str, Any] = {
-    "ema_fast":         9,
-    "ema_slow":         21,
-    "ema_trend":        200,
-    "rsi_long":         30,
-    "rsi_short":        70,
-    "atr_min_pts":      0,
-    "adx_min":          0,
-    "vwap_filter":      0,
-    "h1_filter":        0,
-    "bad_hours_et":     [],
-    "vol_multiplier":   0,
-    "vol_lookback":     20,
-    "close_pct_long":   0,
-    "close_pct_short":  1,
-    "body_ratio_min":   0,
-    "sl_ticks":         14,
-    "tp1_ticks":        20,
-    "tp2_ticks":        40,
-    "session_open_h":   9,
-    "session_open_m":   30,
-    "session_close_h":  16,
-    "session_close_m":  0,
-}
+# Copie éditable de strategy_es.DEFAULTS (pas un duplicata à la main : la
+# dernière fois que ces deux dicts ont divergé — session RTH ici, 24h dans
+# DEFAULTS après le fix ci-dessus — le panel affichait des seuils obsolètes).
+_es_settings: Dict[str, Any] = dict(strategy_es.DEFAULTS)
 _es_settings_lock = threading.Lock()
 
 
