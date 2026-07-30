@@ -141,6 +141,7 @@ class Position:
     meta: Dict[str, Any] = field(default_factory=dict)
     mfe: float = 0.0
     tp1_bar_time: Optional[Any] = None
+    entry_bar_time: Optional[Any] = None
 
     def __post_init__(self):
         if self.remaining == 0.0:
@@ -214,7 +215,9 @@ class PaperBroker(BaseBroker):
 
     def market_order(self, direction, volume, sl, tp1, tp2, session="", meta=None, risk_amount=0.0) -> Position:
         self._ticket += 1
-        price = self.get_price()
+        df = self.data.get_m5(2)
+        bar = df.iloc[-1]
+        price = float(bar["close"])
         # fill with spread + slippage
         if direction == "long":
             fill = price + self.spread + self.slippage
@@ -225,12 +228,22 @@ class PaperBroker(BaseBroker):
             volume=volume, stop_loss=sl, take_profit1=tp1,
             take_profit2=tp2, open_time=datetime.now(timezone.utc),
             remaining=volume, risk_amount=risk_amount, session=session, meta=meta or {},
+            entry_bar_time=bar.name,
         )
 
     def update_position(self, pos: Position) -> Optional[Dict[str, Any]]:
         df = self.data.get_m5(2)
         bar = df.iloc[-1]
         bar_time = bar.name
+        # Ne jamais résoudre un exit sur la MÊME bougie que l'entrée : cette bougie
+        # peut déjà être complète au moment du fill (cache MarketData jusqu'à 300s),
+        # donc son high/low reflète aussi du mouvement ANTÉRIEUR à l'ouverture réelle
+        # du trade — un TP1/SL "touché" dessus n'est pas un vrai mouvement de prix
+        # après entrée. backtest.py/pretrain_es.py (validés en walk-forward) ne
+        # vérifient jamais l'exit sur la bougie d'entrée non plus (boucle bar-par-bar :
+        # l'exit n'est évalué qu'à partir de l'itération SUIVANTE) — même garantie ici.
+        if pos.entry_bar_time is not None and bar_time == pos.entry_bar_time:
+            return None
         price = float(bar["close"])
         bar_high = float(bar["high"])
         bar_low = float(bar["low"])
@@ -342,6 +355,10 @@ class ESPaperBroker(PaperBroker):
         df = self.data.get_m5(2)
         bar = df.iloc[-1]
         bar_time = bar.name
+        # Même garde que le broker générique : jamais d'exit sur la bougie d'entrée
+        # (voir commentaire dans PaperBroker.update_position).
+        if pos.entry_bar_time is not None and bar_time == pos.entry_bar_time:
+            return None
         bar_high = float(bar["high"])
         bar_low = float(bar["low"])
         direction = pos.direction
