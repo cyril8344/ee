@@ -776,7 +776,12 @@ def trading_tick() -> Dict[str, Any]:
                                         bad_hours=_inst_bad_hours)
                     elif sym_strategy == "ES":
                         m5_es, h1_es = build_context_es(ms.broker)
-                        _es_sig = strategy_es.evaluate(m5_es, ts=now, h1=h1_es)
+                        # _es_settings : mêmes réglages qu'utilisés par /api/es/pretrain — avant ce
+                        # changement, le live tournait toujours sur strategy_es.DEFAULTS bruts, donc
+                        # éditer ce panel (ex. heures bloquées ET) n'avait aucun effet en live.
+                        with _es_settings_lock:
+                            _es_params = dict(_es_settings)
+                        _es_sig = strategy_es.evaluate(m5_es, params=_es_params, ts=now, h1=h1_es)
                         sig = (_es_signal_to_dataclass(_es_sig, now, ms.config.get("max_duration_min", 45))
                                if _es_sig is not None else None)
                         if sig is None:
