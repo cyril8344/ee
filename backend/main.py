@@ -1449,7 +1449,23 @@ def get_chart(tf: str = "M5", symbol: str = "XAUUSD", _user: dict = Depends(get_
                 "price": t.get("exit_price"), "pnl": t.get("pnl"),
             })
 
-    obs = find_order_blocks(add_indicators(base))
+    if ms.config.get("default_strategy", "A") == "B":
+        # Strategy B (EUR/USD) : le graphique doit afficher les OBs détectés par
+        # l'algorithme ICT réellement utilisé par la boucle live (strategy_ict.
+        # _find_order_blocks — contrarian + impulse + BOS + non-mitigée [+ liquidité]),
+        # pas le détecteur générique de strategy.py (Strat A, sans check de mitigation)
+        # qui affichait des OBs contredisant le panel "Conditions d'entrée".
+        from strategy_ict import _find_order_blocks as _ict_find_order_blocks
+        _df_ict = add_indicators(base)
+        _atr_val = float(_df_ict["atr"].iloc[-1]) if len(_df_ict) and "atr" in _df_ict.columns else 0.0
+        obs = (
+            [{"type": "bullish", "low": ob["low"], "high": ob["high"]}
+             for ob in _ict_find_order_blocks(_df_ict, "LONG", _atr_val)]
+            + [{"type": "bearish", "low": ob["low"], "high": ob["high"]}
+               for ob in _ict_find_order_blocks(_df_ict, "SHORT", _atr_val)]
+        )
+    else:
+        obs = find_order_blocks(add_indicators(base))
     order_blocks = [{"type": ob["type"], "low": round(ob["low"], 5), "high": round(ob["high"], 5)} for ob in obs]
 
     return {"timeframe": tf.upper(), "symbol": symbol, "candles": candles,
