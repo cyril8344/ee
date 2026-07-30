@@ -1374,36 +1374,44 @@ export default function Dashboard({ onLogout, onNavigateES }) {
               </div>
 
               {/* ---- heures bloquées ---- */}
-              <div style={{ background: "#0a1020", borderRadius: 6, padding: "8px 10px", marginBottom: 10 }}>
-                <div style={{ color: COLORS.sub, fontWeight: 600, fontSize: 11, marginBottom: 8 }}>
-                  Heures bloquées CET
-                  <span style={{ fontWeight: 400, marginLeft: 6 }}>
-                    {blockedHours.length === 0 ? "aucune" : blockedHours.map(h => `${h}h`).join(", ")}
-                  </span>
+              {/* ES exclu : cette grille est en heure CET (session London/NY) et écrit
+                  dans ms.inst_settings.bad_hours_cet, un champ que la boucle live ES
+                  ne lit jamais (elle utilise _es_settings.bad_hours_et, en heure ET —
+                  voir le panel dédié "ES →"). L'afficher ici serait un contrôle qui a
+                  l'air de marcher mais qui est inerte pour ES, et dans le mauvais
+                  fuseau horaire en plus — source de confusion, mieux vaut le masquer. */}
+              {!mkt.es_conditions && (
+                <div style={{ background: "#0a1020", borderRadius: 6, padding: "8px 10px", marginBottom: 10 }}>
+                  <div style={{ color: COLORS.sub, fontWeight: 600, fontSize: 11, marginBottom: 8 }}>
+                    Heures bloquées CET
+                    <span style={{ fontWeight: 400, marginLeft: 6 }}>
+                      {blockedHours.length === 0 ? "aucune" : blockedHours.map(h => `${h}h`).join(", ")}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                    {Array.from({ length: 24 }, (_, h) => {
+                      const isSession = (h >= 8 && h < 12) || (h >= 14 && h < 18);
+                      const isBlocked = blockedHours.includes(h);
+                      return (
+                        <button key={h} onClick={() => handleToggleHour(h)}
+                          title={isBlocked ? `Débloquer ${h}h` : `Bloquer ${h}h`}
+                          style={{
+                            width: 30, height: 24, fontSize: 10, borderRadius: 3, cursor: "pointer",
+                            background: isBlocked ? COLORS.red : isSession ? "#1a2a1a" : "#0d1624",
+                            color: isBlocked ? "#fff" : isSession ? COLORS.green : COLORS.sub,
+                            border: `1px solid ${isBlocked ? COLORS.red : isSession ? COLORS.green : COLORS.border}`,
+                            fontWeight: isBlocked ? 700 : 400,
+                          }}>
+                          {h}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: 9, color: COLORS.sub, marginTop: 5 }}>
+                    Vert = session active · Rouge = bloqué · Cliquer pour bloquer/débloquer
+                  </div>
                 </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-                  {Array.from({ length: 24 }, (_, h) => {
-                    const isSession = (h >= 8 && h < 12) || (h >= 14 && h < 18);
-                    const isBlocked = blockedHours.includes(h);
-                    return (
-                      <button key={h} onClick={() => handleToggleHour(h)}
-                        title={isBlocked ? `Débloquer ${h}h` : `Bloquer ${h}h`}
-                        style={{
-                          width: 30, height: 24, fontSize: 10, borderRadius: 3, cursor: "pointer",
-                          background: isBlocked ? COLORS.red : isSession ? "#1a2a1a" : "#0d1624",
-                          color: isBlocked ? "#fff" : isSession ? COLORS.green : COLORS.sub,
-                          border: `1px solid ${isBlocked ? COLORS.red : isSession ? COLORS.green : COLORS.border}`,
-                          fontWeight: isBlocked ? 700 : 400,
-                        }}>
-                        {h}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div style={{ fontSize: 9, color: COLORS.sub, marginTop: 5 }}>
-                  Vert = session active · Rouge = bloqué · Cliquer pour bloquer/débloquer
-                </div>
-              </div>
+              )}
 
               {/* ---- trading conditions checklist ---- */}
               {(mkt.es_conditions || mkt.ict_conditions || mkt.conditions) && (
