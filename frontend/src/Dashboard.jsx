@@ -302,25 +302,32 @@ function TvChart({ candles, markers, levels, orderBlocks, position, symbol, live
 
 /* ============================== gauges =================================== */
 function AtrGauge({ atr, avg, min }) {
+  // min ?? (pas ||) : un seuil à 0 (filtre désactivé, ex. ES par défaut) est une
+  // valeur réelle, pas une absence de valeur — || le confondait avec "non fourni"
+  // et retombait sur le seuil XAU (0.8), affichant un seuil trompeur pour ES.
+  const effMin = min ?? 0.8;
+  const disabled = effMin <= 0;
   const ratio = avg ? Math.min((atr || 0) / (avg * 2), 1) : 0;
-  const ok = (atr || 0) >= (min || 0.8);
+  const ok = disabled || (atr || 0) >= effMin;
   const d = (v) => v != null && v < 1 ? 5 : 2;
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: COLORS.sub }}>
         <span>ATR M5</span>
         <span style={{ color: ok ? COLORS.green : COLORS.amber }}>
-          {fmt(atr, d(atr))} {ok ? "✓" : "⚠ bas"}
+          {fmt(atr, d(atr))} {disabled ? "" : (ok ? "✓" : "⚠ bas")}
         </span>
       </div>
       <div style={{ height: 8, background: "#1a2233", borderRadius: 4, marginTop: 4, position: "relative" }}>
         <div style={{ width: `${ratio * 100}%`, height: "100%", borderRadius: 4,
           background: ok ? COLORS.green : COLORS.amber, transition: "width .4s" }} />
-        <div style={{ position: "absolute", left: `${(avg ? (min / (avg * 2)) : 0.4) * 100}%`,
-          top: -2, height: 12, width: 2, background: COLORS.text }} />
+        {!disabled && (
+          <div style={{ position: "absolute", left: `${(avg ? (effMin / (avg * 2)) : 0.4) * 100}%`,
+            top: -2, height: 12, width: 2, background: COLORS.text }} />
+        )}
       </div>
       <div style={{ fontSize: 11, color: COLORS.sub, marginTop: 3 }}>
-        moyenne 50p: {fmt(avg, d(avg))} · seuil scalp: {fmt(min, d(min))}
+        moyenne 50p: {fmt(avg, d(avg))} · seuil scalp: {disabled ? "désactivé" : fmt(effMin, d(effMin))}
       </div>
     </div>
   );
@@ -1263,13 +1270,22 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                     background: statusColor + "22", color: statusColor }}>
                     {state?.bot_status || "—"}
                   </span>
-                  <span style={{ padding: "3px 8px", borderRadius: 4, fontWeight: 700, fontSize: 11,
-                    background: strategyMode === "B" ? COLORS.blue + "33" : COLORS.amber + "22",
-                    color: strategyMode === "B" ? COLORS.blue : COLORS.amber,
-                    border: `1px solid ${strategyMode === "B" ? COLORS.blue : COLORS.amber}88`,
-                    letterSpacing: "0.5px" }}>
-                    Strat {strategyMode === "A" ? "A EMA" : "B ICT"}
-                  </span>
+                  {(() => {
+                    // Badge dérivé du marché affiché (mkt), pas du toggle strategyMode
+                    // du panel Prétrain — celui-ci ne connaît que A/B et affichait donc
+                    // "Strat A EMA" même sur l'onglet ES, qui tourne un 3e moteur distinct.
+                    const mktStrat = mkt.es_conditions ? "ES" : mkt.ict_conditions ? "B" : "A";
+                    const mktStratLabel = mktStrat === "ES" ? "ES OrderFlow" : mktStrat === "B" ? "B ICT" : "A EMA";
+                    const mktStratColor = mktStrat === "ES" ? COLORS.green : mktStrat === "B" ? COLORS.blue : COLORS.amber;
+                    return (
+                      <span style={{ padding: "3px 8px", borderRadius: 4, fontWeight: 700, fontSize: 11,
+                        background: mktStratColor + "22", color: mktStratColor,
+                        border: `1px solid ${mktStratColor}88`,
+                        letterSpacing: "0.5px" }}>
+                        Strat {mktStratLabel}
+                      </span>
+                    );
+                  })()}
                   {state?.bot_status === "BLOQUE" && (
                     <button onClick={() => {
                       if (!window.confirm("Réinitialiser la journée ? Les compteurs sont remis à zéro mais l'historique est conservé.")) return;
@@ -1286,13 +1302,20 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                 </div>
               </div>
 
-              <RsiBar label="RSI M5" value={mkt.indicators?.rsi_m5}
-                // RSI M5 : filtre à sens unique selon le biais (pas de plafond en LONG,
-                // pas de plancher en SHORT) — donc pas de zone tant que le biais est neutre.
-                zoneLow={mkt.conditions?.h1_bias === "SHORT" ? 0 : mkt.conditions?.rsi_m5_long_min}
-                zoneHigh={mkt.conditions?.h1_bias === "LONG" ? 100 : mkt.conditions?.rsi_m5_short_max} />
-              <RsiBar label="RSI M15" value={mkt.indicators?.rsi_m15}
-                zoneLow={mkt.conditions?.rsi_m15_low} zoneHigh={mkt.conditions?.rsi_m15_high} />
+              {/* ES : RSI M5/M15 génériques masqués — mauvaise zone (Strat A) et pas
+                  d'équivalent M15 dans strategy_es.py ; le RSI M5 réel est déjà dans
+                  la checklist "Conditions d'entrée" ci-dessous avec sa vraie zone. */}
+              {!mkt.es_conditions && (
+                <>
+                  <RsiBar label="RSI M5" value={mkt.indicators?.rsi_m5}
+                    // RSI M5 : filtre à sens unique selon le biais (pas de plafond en LONG,
+                    // pas de plancher en SHORT) — donc pas de zone tant que le biais est neutre.
+                    zoneLow={mkt.conditions?.h1_bias === "SHORT" ? 0 : mkt.conditions?.rsi_m5_long_min}
+                    zoneHigh={mkt.conditions?.h1_bias === "LONG" ? 100 : mkt.conditions?.rsi_m5_short_max} />
+                  <RsiBar label="RSI M15" value={mkt.indicators?.rsi_m15}
+                    zoneLow={mkt.conditions?.rsi_m15_low} zoneHigh={mkt.conditions?.rsi_m15_high} />
+                </>
+              )}
               <div style={{ margin: "12px 0" }}>
                 <AtrGauge atr={mkt.indicators?.atr_m5} avg={mkt.indicators?.atr_avg}
                   min={mkt.indicators?.atr_min} />
@@ -1338,11 +1361,14 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                     </div>
                   </div>
                 ) : (
+                  // mkt.risk : enveloppe isolée par marché (ES a la sienne, voir
+                  // main.py::_risk_for) — pour XAU/EUR c'est le même objet que
+                  // state.risk donc aucun changement visuel pour ces deux-là.
                   <>
-                    <Row k="Capital" v={`$${fmtUSD(state?.risk?.capital, 2)}`} />
-                    <Row k="Risque / trade" v={`${fmt(state?.risk?.risk_per_trade_pct, 1)}% · $${fmtUSD(state?.risk?.risk_amount_usd, 2)}`} />
-                    <Row k="Stop journalier" v={`-$${fmtUSD(state?.risk?.daily_loss_limit_usd, 0)}`} />
-                    <Row k="Trades max / jour" v={`${state?.risk?.max_trades_per_day ?? "—"}`} />
+                    <Row k="Capital" v={`$${fmtUSD((mkt.risk ?? state?.risk)?.capital, 2)}`} />
+                    <Row k="Risque / trade" v={`${fmt((mkt.risk ?? state?.risk)?.risk_per_trade_pct, 1)}% · $${fmtUSD((mkt.risk ?? state?.risk)?.risk_amount_usd, 2)}`} />
+                    <Row k="Stop journalier" v={`-$${fmtUSD((mkt.risk ?? state?.risk)?.daily_loss_limit_usd, 0)}`} />
+                    <Row k="Trades max / jour" v={`${(mkt.risk ?? state?.risk)?.max_trades_per_day ?? "—"}`} />
                   </>
                 )}
               </div>
@@ -1380,9 +1406,48 @@ export default function Dashboard({ onLogout, onNavigateES }) {
               </div>
 
               {/* ---- trading conditions checklist ---- */}
-              {(mkt.ict_conditions || mkt.conditions) && (
+              {(mkt.es_conditions || mkt.ict_conditions || mkt.conditions) && (
                 <div style={{ background: "#0a1020", borderRadius: 6, padding: "8px 10px", marginBottom: 10, fontSize: 11 }}>
-                  {mkt.ict_conditions ? (
+                  {mkt.es_conditions ? (
+                    /* ---- Strategy ES (Order Flow) ---- */
+                    <>
+                      <div style={{ color: COLORS.sub, fontWeight: 600, marginBottom: 6, fontSize: 11 }}>
+                        Conditions d'entrée
+                        {mkt.es_conditions.blocking_reason ? (
+                          <span style={{ marginLeft: 6, color: COLORS.amber, fontWeight: 400 }}>
+                            — bloqué: {mkt.es_conditions.blocking_reason.replace(/_/g, " ")}
+                          </span>
+                        ) : (
+                          <span style={{ marginLeft: 6, color: COLORS.green, fontWeight: 400 }}>✓ prêt</span>
+                        )}
+                      </div>
+                      {[
+                        { label: "Session RTH (9h30-16h ET)", ok: mkt.es_conditions.session_rth,
+                          val: mkt.es_conditions.session_rth == null ? "—"
+                            : mkt.es_conditions.session_rth
+                              ? `✓ (${mkt.es_conditions.session_et_hour}h ET)`
+                              : `✗ hors session (${mkt.es_conditions.session_et_hour ?? "—"}h ET)` },
+                        { label: "Biais EMA200", ok: mkt.es_conditions.bias !== "NEUTRE", val: mkt.es_conditions.bias },
+                        { label: "EMA9/21 aligné", ok: mkt.es_conditions.ema_align_ok,
+                          val: mkt.es_conditions.ema_align_ok ? "✓" : "✗" },
+                        { label: "RSI M5", ok: true,
+                          val: `${fmt(mkt.es_conditions.rsi, 1)} (zone ${mkt.es_conditions.rsi_long_min}-${mkt.es_conditions.rsi_short_max}, quasi permissif)` },
+                        { label: "ADX H1", ok: mkt.es_conditions.adx_ok,
+                          val: mkt.es_conditions.adx_filter_active
+                            ? `${fmt(mkt.es_conditions.adx_h1, 1)} ${mkt.es_conditions.adx_ok ? "✓" : "✗"} (min ${mkt.es_conditions.adx_min})`
+                            : `${fmt(mkt.es_conditions.adx_h1, 1)} · désactivé` },
+                        { label: "VWAP", ok: mkt.es_conditions.vwap_ok,
+                          val: mkt.es_conditions.vwap_filter_active
+                            ? (mkt.es_conditions.vwap_ok ? "✓ bon côté" : "✗ mauvais côté")
+                            : `${fmt(mkt.es_conditions.vwap, 2)} · désactivé` },
+                      ].map(({ label, ok, val }) => (
+                        <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                          <span style={{ color: COLORS.sub }}>{label}</span>
+                          <span style={{ color: ok ? COLORS.green : ok === false ? COLORS.red : COLORS.grey, fontWeight: 500 }}>{val}</span>
+                        </div>
+                      ))}
+                    </>
+                  ) : mkt.ict_conditions ? (
                     /* ---- Strategy B (ICT / Order Blocks) ---- */
                     <>
                       <div style={{ color: COLORS.sub, fontWeight: 600, marginBottom: 6, fontSize: 11 }}>
