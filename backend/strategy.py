@@ -236,10 +236,13 @@ def market_structure_ok(df: pd.DataFrame, bias: str, lookback: int = 20) -> bool
     highs_late = sub["high"].iloc[-t:].mean()
     lows_early = sub["low"].iloc[:t].mean()
     lows_late = sub["low"].iloc[-t:].mean()
+    # bool(...) : highs_late/lows_early etc. sont des numpy.float64 (Series.mean()),
+    # donc les comparaisons produisent des numpy.bool_ — non sérialisables en JSON
+    # par jsonable_encoder (plante /api/state avec "numpy.bool_ object is not iterable").
     if bias == "LONG":
-        return highs_late > highs_early or lows_late > lows_early
+        return bool(highs_late > highs_early or lows_late > lows_early)
     else:
-        return highs_late < highs_early or lows_late < lows_early
+        return bool(highs_late < highs_early or lows_late < lows_early)
 
 
 def near_opposing_sr(entry: float, bias: str,
@@ -1210,10 +1213,13 @@ def snapshot(m5: pd.DataFrame, m15: pd.DataFrame, h1: pd.DataFrame,
         ema9_v = cur5.get("ema9", float("nan"))
         if not pd.isna(ema9_v):
             ema9_tol = atr_val * snap_ema9_mult
+            # bool(...) : cur5["close"] est un numpy.float64 (ligne de Series) — sans
+            # coercion, la comparaison produit un numpy.bool_ non sérialisable en JSON
+            # (même bug que market_structure_ok, plante /api/state).
             if bias == "LONG":
-                ema9_aligned = cur5["close"] >= float(ema9_v) - ema9_tol
+                ema9_aligned = bool(cur5["close"] >= float(ema9_v) - ema9_tol)
             else:
-                ema9_aligned = cur5["close"] <= float(ema9_v) + ema9_tol
+                ema9_aligned = bool(cur5["close"] <= float(ema9_v) + ema9_tol)
 
     # NOTE: cette liste doit rester alignée avec les triggers de evaluate()
     # pour que l'affichage du dashboard reflète exactement la logique d'entrée.
