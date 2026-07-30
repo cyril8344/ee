@@ -575,6 +575,87 @@ def trading_tick() -> Dict[str, Any]:
                     except Exception:
                         pass
 
+                # Pour ES, calculer les vraies conditions strategy_es en temps réel —
+                # snapshot() (Strat A) ci-dessus n'a aucun rapport avec ES (moteur
+                # complètement différent : bias EMA200, EMA9/21, RSI quasi désactivé
+                # par défaut, ADX/VWAP désactivés par défaut). Sans ça, le panel
+                # "Statut bot" affichait des seuils XAU trompeurs pour ES.
+                elif sym_strategy == "ES":
+                    try:
+                        m5_es, h1_es = build_context_es(ms.broker)
+                        _cur_es = m5_es.iloc[-1]
+                        _close_es = float(_cur_es["close"])
+                        _ema9_es = float(_cur_es.get("ema9", 0) or 0)
+                        _ema21_es = float(_cur_es.get("ema21", 0) or 0)
+                        _rsi_es = float(_cur_es.get("rsi", 50) or 50)
+                        _vwap_es = float(_cur_es.get("vwap", 0) or 0)
+                        _p_es = strategy_es.DEFAULTS
+                        _use_h1_es = bool(_p_es.get("h1_filter", 0)) and len(h1_es) > 0
+                        _ema200_ref_es = (float(h1_es.iloc[-1].get("ema200", 0) or 0) if _use_h1_es
+                                          else float(_cur_es.get("ema200", 0) or 0))
+                        _bias_es = None
+                        if _ema200_ref_es > 0:
+                            _bias_es = "LONG" if _close_es > _ema200_ref_es else "SHORT"
+                        _ema_align_es = bool(_bias_es) and (
+                            (_bias_es == "LONG" and _ema9_es >= _ema21_es) or
+                            (_bias_es == "SHORT" and _ema9_es <= _ema21_es)
+                        )
+                        _adx_h1_es = float(h1_es.iloc[-1].get("adx", 0) or 0) if len(h1_es) > 0 else 0.0
+                        _adx_min_es = float(_p_es.get("adx_min", 0))
+                        _adx_ok_es = (_adx_min_es <= 0) or (_adx_h1_es >= _adx_min_es)
+                        _vwap_filter_es = bool(_p_es.get("vwap_filter", 0))
+                        _vwap_ok_es = (not _vwap_filter_es) or (bool(_bias_es) and (
+                            (_bias_es == "LONG" and _close_es >= _vwap_es) or
+                            (_bias_es == "SHORT" and _close_es <= _vwap_es)
+                        ))
+                        _in_rth_es, _et_hour_es = None, None
+                        try:
+                            import pytz
+                            _et_now = now.astimezone(pytz.timezone("America/New_York"))
+                            _dec_h_es = _et_now.hour + _et_now.minute / 60.0
+                            _open_dec_es = _p_es["session_open_h"] + _p_es["session_open_m"] / 60.0
+                            _close_dec_es = _p_es["session_close_h"] + _p_es["session_close_m"] / 60.0
+                            _in_rth_es = _open_dec_es <= _dec_h_es < _close_dec_es
+                            _et_hour_es = _et_now.hour
+                        except Exception:
+                            pass
+
+                        _blocking_es = None
+                        if _in_rth_es is False:
+                            _blocking_es = "hors_rth"
+                        elif _bias_es is None:
+                            _blocking_es = "bias_indisponible"
+                        elif not _ema_align_es:
+                            _blocking_es = "ema9_21_non_aligne"
+                        elif not _adx_ok_es:
+                            _blocking_es = "adx_h1_trop_bas"
+                        elif not _vwap_ok_es:
+                            _blocking_es = "hors_vwap"
+
+                        snap["es_conditions"] = {
+                            "bias":              _bias_es or "NEUTRE",
+                            "close":             round(_close_es, 2),
+                            "ema9":              round(_ema9_es, 2),
+                            "ema21":             round(_ema21_es, 2),
+                            "ema200":            round(_ema200_ref_es, 2),
+                            "ema_align_ok":      _ema_align_es,
+                            "rsi":               round(_rsi_es, 1),
+                            "rsi_long_min":      _p_es["rsi_long"],
+                            "rsi_short_max":     _p_es["rsi_short"],
+                            "adx_h1":            round(_adx_h1_es, 1),
+                            "adx_min":           _adx_min_es,
+                            "adx_filter_active": _adx_min_es > 0,
+                            "adx_ok":            _adx_ok_es,
+                            "vwap":              round(_vwap_es, 2),
+                            "vwap_filter_active": _vwap_filter_es,
+                            "vwap_ok":           _vwap_ok_es,
+                            "session_rth":       _in_rth_es,
+                            "session_et_hour":   _et_hour_es,
+                            "blocking_reason":   _blocking_es,
+                        }
+                    except Exception:
+                        pass
+
 
                 def _set_loop_gate(reason: str):
                     """Surcharge blocking_reason dans conditions pour debug dashboard."""
@@ -1053,7 +1134,11 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
             "last_signal": ms.last_signal,
             "conditions": snap.get("conditions"),
             "ict_conditions": snap.get("ict_conditions"),
+            "es_conditions": snap.get("es_conditions"),
             "reject_log": snap.get("reject_log"),
+            # Risque isolé par marché (ES a sa propre enveloppe — voir _risk_for()).
+            # Pour XAU/EUR c'est le même objet que le "risk" global ci-dessous.
+            "risk": _risk_for(ms).status(),
             "ml_gate": {},
             "data_provider": getattr(getattr(ms.broker, "data", None), "provider", None),
             "data_errors": {k: v for k, v in __import__("data_provider").get_last_errors().items()

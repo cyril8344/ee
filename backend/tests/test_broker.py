@@ -238,3 +238,60 @@ def test_es_broker_tp2_closes_remaining_contracts():
     assert info["closed"] is True
     assert info["reason"] == "tp2"
     assert info["exit_price"] == pytest.approx(5814.0)
+
+
+# --------------------------------------------------------------------------- #
+# Regression : jamais d'exit sur la MÊME bougie que l'entrée (voir bug ES —
+# trades résolus en <1min car MarketData cache la bougie déjà close utilisée
+# pour le fill, dont le high/low reflète aussi du mouvement antérieur à l'
+# ouverture réelle). backtest.py/pretrain_es.py ne checkent jamais l'exit sur
+# la bougie d'entrée non plus (boucle bar-par-bar, exit évalué à l'itération
+# suivante) — market_order() doit maintenant enregistrer entry_bar_time.
+# --------------------------------------------------------------------------- #
+def test_market_order_records_entry_bar_time():
+    broker = PaperBroker(spread_pips=0.0, slippage_pips=0.0, symbol="XAUUSD")
+    t1 = datetime(2026, 1, 1, 15, 0, tzinfo=timezone.utc)
+    broker.data.get_m5 = lambda bars=2: _bar(t1, o=4040, h=4045, l=4035, c=4042)
+    pos = broker.market_order("long", 0.2, sl=4035.0, tp1=4046.0, tp2=4050.0)
+    assert pos.entry_bar_time == t1
+
+
+def test_update_position_never_resolves_on_the_entry_bar():
+    """Le bug reproduit : la bougie servant au fill a déjà un high >= TP1 et un
+    low <= SL (déjà entièrement connue au moment du fetch, cache MarketData
+    jusqu'à 300s) — un update_position() immédiat (même bougie encore en cache)
+    ne doit RIEN résoudre. Seule une bougie postérieure peut déclencher un exit."""
+    broker = PaperBroker(spread_pips=0.0, slippage_pips=0.0, symbol="XAUUSD")
+    t1 = datetime(2026, 1, 1, 15, 0, tzinfo=timezone.utc)
+    # High/low englobent déjà TP1 (4046) ET SL (4035) — mouvement antérieur à l'entrée.
+    broker.data.get_m5 = lambda bars=2: _bar(t1, o=4040, h=4048, l=4033, c=4042)
+    pos = broker.market_order("long", 0.2, sl=4035.0, tp1=4046.0, tp2=4050.0)
+
+    # Même bougie encore en cache (poll immédiat) — aucune résolution.
+    assert broker.update_position(pos) is None
+    assert pos.tp1_done is False
+
+    # Une bougie postérieure qui touche TP1 — là, ça doit résoudre normalement.
+    t2 = t1 + timedelta(minutes=5)
+    broker.data.get_m5 = lambda bars=2: _bar(t2, o=4042, h=4047, l=4041, c=4046)
+    info = broker.update_position(pos)
+    assert info["reason"] == "tp1_partial"
+    assert pos.tp1_done is True
+
+
+def test_es_broker_never_resolves_on_the_entry_bar():
+    from broker import ESPaperBroker
+    broker = ESPaperBroker(spread_pips=0.0, slippage_pips=0.0, symbol="ES",
+                           contract_size=50.0, pip_size=0.25)
+    t1 = datetime(2026, 1, 1, 15, 0, tzinfo=timezone.utc)
+    # Bougie déjà complète dont le range dépasse largement TP1 (5807) et SL (5790).
+    broker.data.get_m5 = lambda bars=2: _bar(t1, o=5800, h=5812, l=5786, c=5805)
+    pos = broker.market_order("long", 5, sl=5790.0, tp1=5807.0, tp2=5814.0)
+
+    assert broker.update_position(pos) is None
+    assert pos.tp1_done is False
+
+    t2 = t1 + timedelta(minutes=5)
+    broker.data.get_m5 = lambda bars=2: _bar(t2, o=5805, h=5808, l=5804, c=5807)
+    info = broker.update_position(pos)
+    assert info["reason"] == "tp1_partial"
