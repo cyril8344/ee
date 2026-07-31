@@ -2149,6 +2149,10 @@ class WalkForwardRequest(BaseModel):
     risk_pct: float = 5.0
     strategy_mode: str = "A"
     adx_min_override: Optional[float] = None
+    rsi_long_min_override: Optional[float] = None
+    rsi_short_max_override: Optional[float] = None
+    atr_min_override: Optional[float] = None
+    trend_bias_distance_override: Optional[float] = None
     adx_regime_ratio_override: Optional[float] = None
     atr_regime_max_ratio_override: Optional[float] = None
     drawdown_sizing_threshold_override: Optional[float] = None
@@ -2175,6 +2179,14 @@ def start_walkforward(req: WalkForwardRequest, _user: dict = Depends(get_current
             _overrides = {}
             if req.adx_min_override is not None:
                 _overrides["ADX_MIN"] = req.adx_min_override
+            if req.rsi_long_min_override is not None:
+                _overrides["RSI_M5_LONG_MIN"] = req.rsi_long_min_override
+            if req.rsi_short_max_override is not None:
+                _overrides["RSI_M5_SHORT_MAX"] = req.rsi_short_max_override
+            if req.atr_min_override is not None:
+                _overrides["ATR_MIN"] = req.atr_min_override
+            if req.trend_bias_distance_override is not None:
+                _overrides["TREND_BIAS_DISTANCE"] = req.trend_bias_distance_override
             if req.adx_regime_ratio_override is not None:
                 _overrides["ADX_REGIME_MIN_RATIO"] = req.adx_regime_ratio_override
             if req.atr_regime_max_ratio_override is not None:

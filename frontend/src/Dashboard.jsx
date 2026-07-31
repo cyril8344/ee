@@ -429,6 +429,10 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [optunaLoading, setOptunaLoading]     = useState(false);
   const [wfSplits, setWfSplits]               = useState(4);
   const [wfAdxOverride, setWfAdxOverride]     = useState("");
+  const [wfRsiLongOverride, setWfRsiLongOverride] = useState("");
+  const [wfRsiShortOverride, setWfRsiShortOverride] = useState("");
+  const [wfAtrMinOverride, setWfAtrMinOverride] = useState("");
+  const [wfTrendBiasOverride, setWfTrendBiasOverride] = useState("");
   const [wfAdxRegimeOverride, setWfAdxRegimeOverride] = useState("");
   const [wfAtrRegimeMaxOverride, setWfAtrRegimeMaxOverride] = useState("");
   const [wfDdSizingThreshold, setWfDdSizingThreshold] = useState("");
@@ -844,6 +848,10 @@ export default function Dashboard({ onLogout, onNavigateES }) {
       method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ start: wfStart, end: wfEnd, n_splits: wfSplits, symbol: activeMarket, capital: pretrainCapital, risk_pct: pretrainRiskPct, strategy_mode: strategyMode,
         adx_min_override: wfAdxOverride !== "" ? parseFloat(wfAdxOverride) : null,
+        rsi_long_min_override: wfRsiLongOverride !== "" ? parseFloat(wfRsiLongOverride) : null,
+        rsi_short_max_override: wfRsiShortOverride !== "" ? parseFloat(wfRsiShortOverride) : null,
+        atr_min_override: wfAtrMinOverride !== "" ? parseFloat(wfAtrMinOverride) : null,
+        trend_bias_distance_override: wfTrendBiasOverride !== "" ? parseFloat(wfTrendBiasOverride) : null,
         adx_regime_ratio_override: wfAdxRegimeOverride !== "" ? parseFloat(wfAdxRegimeOverride) : null,
         atr_regime_max_ratio_override: wfAtrRegimeMaxOverride !== "" ? parseFloat(wfAtrRegimeMaxOverride) : null,
         drawdown_sizing_threshold_override: wfDdSizingThreshold !== "" ? parseFloat(wfDdSizingThreshold) : null,
@@ -2411,6 +2419,42 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                         <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          RSI M5 LONG min test (vide = défaut live)
+                        </span>
+                        <input type="number" step="1" placeholder="49" value={wfRsiLongOverride}
+                          onChange={e => setWfRsiLongOverride(e.target.value)}
+                          style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          RSI M5 SHORT max test (vide = défaut live)
+                        </span>
+                        <input type="number" step="1" placeholder="57" value={wfRsiShortOverride}
+                          onChange={e => setWfRsiShortOverride(e.target.value)}
+                          style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          ATR_MIN test — volatilité M5 min (vide = défaut live)
+                        </span>
+                        <input type="number" step="0.5" placeholder="3.0" value={wfAtrMinOverride}
+                          onChange={e => setWfAtrMinOverride(e.target.value)}
+                          style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          TREND_BIAS_DISTANCE test — distance EMA200 H1 (vide = défaut live)
+                        </span>
+                        <input type="number" step="0.1" placeholder="0.3" value={wfTrendBiasOverride}
+                          onChange={e => setWfTrendBiasOverride(e.target.value)}
+                          style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
                           ADX régime ratio test (ADX vs sa moyenne 20p H1 — vide = désactivé)
                         </span>
                         <input type="number" step="0.05" placeholder="1.1" value={wfAdxRegimeOverride}
@@ -2495,7 +2539,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                           style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
-                      {(wfAdxOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "" || obRequireBos || wfBeBufferR !== "" || obRequireLiquidity || wfEarlyExitOverride !== "" || wfAdxH1Override !== "") && (
+                      {(wfAdxOverride !== "" || wfRsiLongOverride !== "" || wfRsiShortOverride !== "" || wfAtrMinOverride !== "" || wfTrendBiasOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "" || obRequireBos || wfBeBufferR !== "" || obRequireLiquidity || wfEarlyExitOverride !== "" || wfAdxH1Override !== "") && (
                         <div style={{ fontSize: 9, color: COLORS.amber, marginBottom: 4 }}>
                           ⚠ Test isolé — ne modifie pas le réglage live tant que tu ne le forces pas ailleurs.
                         </div>
