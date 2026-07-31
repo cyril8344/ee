@@ -1144,6 +1144,9 @@ def _position_payload(ms: MarketState) -> Optional[Dict[str, Any]]:
 def _public_state(session=None, news_status=None) -> Dict[str, Any]:
     if news_status is None:
         news_status = state.news.status()
+    if "time_blocked" not in news_status:
+        news_status = dict(news_status)
+        news_status["time_blocked"] = state.news.blocked_time_summary(session_fn=active_session)
     today = db.today_utc()
     daily = db.get_daily(today) or {"pnl": 0.0, "start_equity": state.risk.capital}
     day_pnl = daily.get("pnl") or 0.0
@@ -2055,7 +2058,9 @@ def optimize_apply(req: ApplyParamsRequest, _user: dict = Depends(get_current_us
 @app.get("/api/news")
 def news():
     state.news.refresh()
-    return state.news.status()
+    result = state.news.status()
+    result["time_blocked"] = state.news.blocked_time_summary(session_fn=active_session)
+    return result
 
 
 @app.get("/api/news-feed")

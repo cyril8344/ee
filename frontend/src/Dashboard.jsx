@@ -2723,6 +2723,14 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                 ) : (
                   <div style={{ fontSize: 13, color: COLORS.sub }}>Aucune news imminente</div>
                 )}
+                {state?.news?.time_blocked && (
+                  <div style={{ fontSize: 11, color: COLORS.sub, marginTop: 6 }}>
+                    Bloqué par l'actu — aujourd'hui : {fmt(state.news.time_blocked.today?.blocked_minutes, 0)} min
+                    {state.news.time_blocked.today?.n_events > 0 && ` (${state.news.time_blocked.today.n_events} event${state.news.time_blocked.today.n_events > 1 ? "s" : ""})`}
+                    {" · "}7 prochains jours : {fmt(state.news.time_blocked.next_7d?.blocked_minutes, 0)} min
+                    {state.news.time_blocked.next_7d?.n_events > 0 && ` (${state.news.time_blocked.next_7d.n_events} event${state.news.time_blocked.next_7d.n_events > 1 ? "s" : ""})`}
+                  </div>
+                )}
               </div>
 
 
