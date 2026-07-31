@@ -1144,6 +1144,9 @@ def _position_payload(ms: MarketState) -> Optional[Dict[str, Any]]:
 def _public_state(session=None, news_status=None) -> Dict[str, Any]:
     if news_status is None:
         news_status = state.news.status()
+    if "time_blocked" not in news_status:
+        news_status = dict(news_status)
+        news_status["time_blocked"] = state.news.blocked_time_summary(session_fn=active_session)
     today = db.today_utc()
     daily = db.get_daily(today) or {"pnl": 0.0, "start_equity": state.risk.capital}
     day_pnl = daily.get("pnl") or 0.0
@@ -1449,7 +1452,23 @@ def get_chart(tf: str = "M5", symbol: str = "XAUUSD", _user: dict = Depends(get_
                 "price": t.get("exit_price"), "pnl": t.get("pnl"),
             })
 
-    obs = find_order_blocks(add_indicators(base))
+    if ms.config.get("default_strategy", "A") == "B":
+        # Strategy B (EUR/USD) : le graphique doit afficher les OBs détectés par
+        # l'algorithme ICT réellement utilisé par la boucle live (strategy_ict.
+        # _find_order_blocks — contrarian + impulse + BOS + non-mitigée [+ liquidité]),
+        # pas le détecteur générique de strategy.py (Strat A, sans check de mitigation)
+        # qui affichait des OBs contredisant le panel "Conditions d'entrée".
+        from strategy_ict import _find_order_blocks as _ict_find_order_blocks
+        _df_ict = add_indicators(base)
+        _atr_val = float(_df_ict["atr"].iloc[-1]) if len(_df_ict) and "atr" in _df_ict.columns else 0.0
+        obs = (
+            [{"type": "bullish", "low": ob["low"], "high": ob["high"]}
+             for ob in _ict_find_order_blocks(_df_ict, "LONG", _atr_val)]
+            + [{"type": "bearish", "low": ob["low"], "high": ob["high"]}
+               for ob in _ict_find_order_blocks(_df_ict, "SHORT", _atr_val)]
+        )
+    else:
+        obs = find_order_blocks(add_indicators(base))
     order_blocks = [{"type": ob["type"], "low": round(ob["low"], 5), "high": round(ob["high"], 5)} for ob in obs]
 
     return {"timeframe": tf.upper(), "symbol": symbol, "candles": candles,
@@ -2039,7 +2058,9 @@ def optimize_apply(req: ApplyParamsRequest, _user: dict = Depends(get_current_us
 @app.get("/api/news")
 def news():
     state.news.refresh()
-    return state.news.status()
+    result = state.news.status()
+    result["time_blocked"] = state.news.blocked_time_summary(session_fn=active_session)
+    return result
 
 
 @app.get("/api/news-feed")
@@ -2128,6 +2149,10 @@ class WalkForwardRequest(BaseModel):
     risk_pct: float = 5.0
     strategy_mode: str = "A"
     adx_min_override: Optional[float] = None
+    rsi_long_min_override: Optional[float] = None
+    rsi_short_max_override: Optional[float] = None
+    atr_min_override: Optional[float] = None
+    trend_bias_distance_override: Optional[float] = None
     adx_regime_ratio_override: Optional[float] = None
     atr_regime_max_ratio_override: Optional[float] = None
     drawdown_sizing_threshold_override: Optional[float] = None
@@ -2154,6 +2179,14 @@ def start_walkforward(req: WalkForwardRequest, _user: dict = Depends(get_current
             _overrides = {}
             if req.adx_min_override is not None:
                 _overrides["ADX_MIN"] = req.adx_min_override
+            if req.rsi_long_min_override is not None:
+                _overrides["RSI_M5_LONG_MIN"] = req.rsi_long_min_override
+            if req.rsi_short_max_override is not None:
+                _overrides["RSI_M5_SHORT_MAX"] = req.rsi_short_max_override
+            if req.atr_min_override is not None:
+                _overrides["ATR_MIN"] = req.atr_min_override
+            if req.trend_bias_distance_override is not None:
+                _overrides["TREND_BIAS_DISTANCE"] = req.trend_bias_distance_override
             if req.adx_regime_ratio_override is not None:
                 _overrides["ADX_REGIME_MIN_RATIO"] = req.adx_regime_ratio_override
             if req.atr_regime_max_ratio_override is not None:

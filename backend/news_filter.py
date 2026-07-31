@@ -317,6 +317,47 @@ class NewsFilter:
             "last_refresh": self._last_refresh.isoformat() if self._last_refresh else None,
         }
 
+    def blocked_time_summary(self, at: Optional[datetime] = None,
+                              session_fn=None) -> Dict[str, Any]:
+        """Cumule le temps de blocage news pour 'aujourd'hui' (00:00 UTC -> now)
+        et les 7 prochains jours. Si session_fn(datetime)->bool est fourni,
+        ne compte que les minutes qui tombent aussi dans une session de trading
+        (sinon le blocage ne coûte rien, la strat ne tradait pas de toute façon)."""
+        now = at or datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_end = now + timedelta(days=7)
+
+        def _sum(range_start: datetime, range_end: datetime) -> Dict[str, Any]:
+            total_s = 0.0
+            events: List[NewsEvent] = []
+            for e in self._events:
+                w_start, w_end = e.time_utc - self.window, e.time_utc + self.window
+                lo, hi = max(w_start, range_start), min(w_end, range_end)
+                if lo >= hi:
+                    continue
+                events.append(e)
+                if session_fn is None:
+                    total_s += (hi - lo).total_seconds()
+                else:
+                    t = lo
+                    while t < hi:
+                        nxt_t = min(t + timedelta(minutes=1), hi)
+                        if session_fn(t + (nxt_t - t) / 2):
+                            total_s += (nxt_t - t).total_seconds()
+                        t = nxt_t
+            return {
+                "blocked_minutes": round(total_s / 60, 1),
+                "n_events": len(events),
+                "events": [e.to_dict() for e in events],
+            }
+
+        return {
+            "today":   _sum(today_start, now),
+            "next_7d": _sum(now, week_end),
+        }
+
 
 if __name__ == "__main__":
     nf = NewsFilter()
