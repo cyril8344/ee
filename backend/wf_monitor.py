@@ -63,10 +63,17 @@ class WalkForwardMonitor:
             self._last_ts = time.time()
 
     def status(self) -> Dict[str, Any]:
+        history = []
+        try:
+            import database as _db
+            history = _db.wf_monitor_history(self.symbol, limit=20)
+        except Exception as exc:
+            logger.debug("[WFMonitor] read history: %s", exc)
         return {
             "running":   self._running,
             "last_run":  self._last_result,
             "interval_hours": _MIN_INTERVAL_S / 3600.0,
+            "history":   history,
         }
 
     # ---- Internals ---- #
@@ -109,6 +116,15 @@ class WalkForwardMonitor:
             "is_robust":       result.get("is_robust"),
         }
         self._last_result = summary
+
+        try:
+            import database as _db
+            _db.wf_monitor_log_run(
+                self.symbol, summary["period"], summary["avg_pf"], summary["std_pf"],
+                summary["pct_profitable"], bool(summary["is_robust"]),
+            )
+        except Exception as exc:
+            logger.debug("[WFMonitor] persist history: %s", exc)
 
         if not result.get("is_robust"):
             try:

@@ -3227,6 +3227,23 @@ export default function Dashboard({ onLogout, onNavigateES }) {
             ) : (
               <div style={{ fontSize: 11, color: COLORS.sub }}>Pas encore de run automatique.</div>
             )}
+            {state?.wf_monitor?.history?.length > 1 && (
+              <div style={{ marginTop: 8, borderTop: `1px solid ${COLORS.border}`, paddingTop: 6 }}>
+                <div style={{ fontSize: 10, color: COLORS.sub, marginBottom: 4 }}>
+                  Historique ({state.wf_monitor.history.length} runs) — voir si la robustesse dérive dans le temps :
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  {state.wf_monitor.history.map((h, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: COLORS.sub }}>
+                      <span>{new Date(h.created_at).toLocaleDateString("fr-FR")}</span>
+                      <span style={{ color: h.is_robust ? COLORS.green : COLORS.red }}>
+                        {h.is_robust ? "✓" : "⚠"} PF {fmt(h.avg_pf, 2)} ± {fmt(h.std_pf, 2)} · {fmt(h.pct_profitable, 0)}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ===== Walk-forward résultats ===== */}
