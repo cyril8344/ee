@@ -1162,7 +1162,13 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
         markets[sym] = {
             "symbol": sym,
             "name": ms.config["name"],
-            "bias": snap.get("bias", "NEUTRE"),
+            # "bias" générique (snap["bias"], Strat A : close vs EMA50) peut diverger du
+            # biais réellement utilisé pour gater les trades Strat B (EMA50 vs EMA200,
+            # snap["ict_conditions"]["h1_bias"]) ou ES (snap["es_conditions"]["bias"]) —
+            # toujours préférer le biais spécifique à la stratégie active quand il existe.
+            "bias": (snap.get("ict_conditions") or {}).get("h1_bias")
+                    or (snap.get("es_conditions") or {}).get("bias")
+                    or snap.get("bias", "NEUTRE"),
             "session": snap.get("session", "Hors session"),
             "price": live_price,
             "indicators": {

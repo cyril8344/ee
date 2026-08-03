@@ -1320,8 +1320,11 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                   <RsiBar label="RSI M5" value={mkt.indicators?.rsi_m5}
                     // RSI M5 : filtre à sens unique selon le biais (pas de plafond en LONG,
                     // pas de plancher en SHORT) — donc pas de zone tant que le biais est neutre.
-                    zoneLow={mkt.conditions?.h1_bias === "SHORT" ? 0 : mkt.conditions?.rsi_m5_long_min}
-                    zoneHigh={mkt.conditions?.h1_bias === "LONG" ? 100 : mkt.conditions?.rsi_m5_short_max} />
+                    // mkt.bias est résolu côté backend avec le biais spécifique à la stratégie
+                    // active (ICT pour Strat B, ES pour ES) — ne pas utiliser mkt.conditions
+                    // .h1_bias ici, qui reste le calcul générique Strat A (peut diverger).
+                    zoneLow={mkt.bias === "SHORT" ? 0 : mkt.conditions?.rsi_m5_long_min}
+                    zoneHigh={mkt.bias === "LONG" ? 100 : mkt.conditions?.rsi_m5_short_max} />
                   <RsiBar label="RSI M15" value={mkt.indicators?.rsi_m15}
                     zoneLow={mkt.conditions?.rsi_m15_low} zoneHigh={mkt.conditions?.rsi_m15_high} />
                 </>
