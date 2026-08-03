@@ -2164,6 +2164,7 @@ class WalkForwardRequest(BaseModel):
     ob_require_liquidity_override: Optional[bool] = None
     early_exit_minutes_override: Optional[float] = None
     adx_min_h1_override: Optional[float] = None   # Strat B (EUR/USD) — strategy_ict.ADX_MIN_H1, 20 par défaut
+    ema_slope_filter_override: Optional[bool] = None  # EMA9/21 M5 doivent pencher dans le sens du biais
 
 
 @app.post("/api/pretrain/walkforward")
@@ -2211,6 +2212,8 @@ def start_walkforward(req: WalkForwardRequest, _user: dict = Depends(get_current
                 _overrides["EARLY_EXIT_MINUTES"] = req.early_exit_minutes_override
             if req.adx_min_h1_override is not None:
                 _overrides["ADX_MIN_H1"] = req.adx_min_h1_override
+            if req.ema_slope_filter_override is not None:
+                _overrides["EMA_SLOPE_FILTER_ENABLED"] = req.ema_slope_filter_override
             _overrides = _overrides or None
             r = _pretrain_module.run_walk_forward(
                 start=req.start, end=req.end,

@@ -87,6 +87,9 @@ ATR_REGIME_MIN_RATIO  = 0.65     # ratio ATR_now/ATR_mean minimal pour entrer (L
 ATR_REGIME_MAX_RATIO  = 0.0      # ratio ATR_now/ATR_mean maximal — 0 = désactivé (test walk-forward only)
 ADX_REGIME_MIN_RATIO  = 0.0      # ratio ADX_H1_now/ADX_H1_mean minimal — 0 = désactivé (test walk-forward only)
 ADX_REGIME_LOOKBACK   = 20       # nb bougies H1 pour la moyenne glissante ADX du régime
+EMA_SLOPE_FILTER_ENABLED = False # EMA9 et EMA21 M5 doivent pencher dans le sens du biais — désactivé
+                                  # par défaut (test walk-forward only, ne touche jamais le live tel quel)
+EMA_SLOPE_LOOKBACK    = 5        # nb bougies M5 en arrière pour juger la pente
 DRAWDOWN_SIZING_ENABLED       = False  # réduit risk_pct en drawdown — False = désactivé (test walk-forward only)
 DRAWDOWN_SIZING_THRESHOLD_PCT = 5.0    # % de recul depuis le plus haut d'equity qui déclenche la réduction
 DRAWDOWN_SIZING_FACTOR        = 0.5    # multiplicateur appliqué à risk_pct une fois le seuil dépassé
@@ -943,6 +946,19 @@ def evaluate(
             _rej(_reject_log, "ema9"); return None
         if bias == "SHORT" and cur["close"] > cur["ema9"] + ema9_tolerance:
             _rej(_reject_log, "ema9"); return None
+
+    # 5a) M5 EMA9/EMA21 slope alignment — l'EMA9 et l'EMA21 doivent pencher dans le
+    # sens du biais, pas juste être proches du prix (voir 5). Désactivé par défaut ;
+    # activé uniquement via extra_overrides pour test walk-forward isolé.
+    if EMA_SLOPE_FILTER_ENABLED and len(m5) > EMA_SLOPE_LOOKBACK:
+        ema9_prev = float(m5["ema9"].iloc[-(EMA_SLOPE_LOOKBACK + 1)])
+        ema21_prev = float(m5["ema21"].iloc[-(EMA_SLOPE_LOOKBACK + 1)])
+        ema9_now = float(cur["ema9"])
+        ema21_now = float(cur["ema21"])
+        if bias == "LONG" and (ema9_now <= ema9_prev or ema21_now <= ema21_prev):
+            _rej(_reject_log, "ema_slope"); return None
+        if bias == "SHORT" and (ema9_now >= ema9_prev or ema21_now >= ema21_prev):
+            _rej(_reject_log, "ema_slope"); return None
 
     # 5b) M5 RSI momentum confirmation
     rsi_m5 = float(cur.get("rsi", 50) or 50)

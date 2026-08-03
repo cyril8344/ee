@@ -106,6 +106,46 @@ def test_market_structure_ok_returns_python_bool_not_numpy():
         assert type(result) is bool  # pas numpy.bool_, même si isinstance passerait aussi
 
 
+def test_ema_slope_filter_rejects_long_against_declining_emas(monkeypatch):
+    """EMA_SLOPE_FILTER_ENABLED (test walk-forward only, désactivé par défaut) :
+    doit rejeter un LONG quand EMA9 et EMA21 M5 sont en train de baisser, même si
+    le biais H1 est LONG et que le filtre EMA9 de proximité (stage 5) est satisfait."""
+    rng = np.random.default_rng(7)
+    base = 2000 + np.cumsum(rng.normal(0, 0.05, 550))
+    decline = base[-1] - np.cumsum(np.abs(rng.normal(0.3, 0.05, 60)))
+    closes = np.concatenate([base, decline])
+    m5 = add_indicators(_frame(closes))
+    agg = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+    m15 = add_indicators(m5[["open", "high", "low", "close", "volume"]]
+                         .resample("15min", label="right", closed="right").agg(agg).dropna())
+    h1 = add_indicators(m5[["open", "high", "low", "close", "volume"]]
+                        .resample("60min", label="right", closed="right").agg(agg).dropna())
+    h1 = h1.copy()
+    h1.iloc[-1, h1.columns.get_loc("close")] = float(h1.iloc[-1]["ema50"]) + 5.0
+
+    # Neutralise les autres étages du pipeline pour isoler uniquement le filtre de pente.
+    monkeypatch.setattr(strategy, "BOOTSTRAP_MODE", True)
+    monkeypatch.setattr(strategy, "EMA9_FILTER_ENABLED", False)
+    monkeypatch.setattr(strategy, "M15_FILTER_ENABLED", False)
+    monkeypatch.setattr(strategy, "H1_RSI_FILTER_ENABLED", False)
+    monkeypatch.setattr(strategy, "ADX_MIN", 0.0)
+    monkeypatch.setattr(strategy, "ATR_MIN", 0.0)
+
+    assert float(m5["ema9"].iloc[-1]) < float(m5["ema9"].iloc[-(strategy.EMA_SLOPE_LOOKBACK + 1)])
+    assert float(m5["ema21"].iloc[-1]) < float(m5["ema21"].iloc[-(strategy.EMA_SLOPE_LOOKBACK + 1)])
+
+    monkeypatch.setattr(strategy, "EMA_SLOPE_FILTER_ENABLED", True)
+    log_on: dict = {}
+    sig_on = evaluate(m5, m15, h1, check_session=False, _reject_log=log_on)
+    assert sig_on is None
+    assert log_on.get("ema_slope", 0) >= 1
+
+    monkeypatch.setattr(strategy, "EMA_SLOPE_FILTER_ENABLED", False)
+    log_off: dict = {}
+    evaluate(m5, m15, h1, check_session=False, _reject_log=log_off)
+    assert "ema_slope" not in log_off
+
+
 def test_snapshot_conditions_ema9_aligned_is_python_bool_not_numpy():
     """Regression (même famille que market_structure_ok) : conditions["ema9_aligned"]
     était un numpy.bool_ (cur5["close"] non casté avant comparaison) — un 2e numpy.bool_
