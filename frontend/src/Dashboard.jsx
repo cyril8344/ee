@@ -439,6 +439,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [wfDdSizingFactor, setWfDdSizingFactor] = useState("");
   const [wfBadHoursOverride, setWfBadHoursOverride] = useState("");
   const [obRequireBos, setObRequireBos] = useState(false);
+  const [emaSlopeFilter, setEmaSlopeFilter] = useState(false);
   const [wfBeBufferR, setWfBeBufferR] = useState("");
   const [obRequireLiquidity, setObRequireLiquidity] = useState(false);
   const [wfEarlyExitOverride, setWfEarlyExitOverride] = useState("");
@@ -864,7 +865,8 @@ export default function Dashboard({ onLogout, onNavigateES }) {
         be_buffer_r_override: wfBeBufferR !== "" ? parseFloat(wfBeBufferR) : null,
         ob_require_liquidity_override: obRequireLiquidity,
         early_exit_minutes_override: wfEarlyExitOverride !== "" ? parseFloat(wfEarlyExitOverride) : null,
-        adx_min_h1_override: wfAdxH1Override !== "" ? parseFloat(wfAdxH1Override) : null }),
+        adx_min_h1_override: wfAdxH1Override !== "" ? parseFloat(wfAdxH1Override) : null,
+        ema_slope_filter_override: emaSlopeFilter }),
     }).then(() => setWfLoading(false)).catch(() => setWfLoading(false));
   };
 
@@ -1318,8 +1320,11 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                   <RsiBar label="RSI M5" value={mkt.indicators?.rsi_m5}
                     // RSI M5 : filtre à sens unique selon le biais (pas de plafond en LONG,
                     // pas de plancher en SHORT) — donc pas de zone tant que le biais est neutre.
-                    zoneLow={mkt.conditions?.h1_bias === "SHORT" ? 0 : mkt.conditions?.rsi_m5_long_min}
-                    zoneHigh={mkt.conditions?.h1_bias === "LONG" ? 100 : mkt.conditions?.rsi_m5_short_max} />
+                    // mkt.bias est résolu côté backend avec le biais spécifique à la stratégie
+                    // active (ICT pour Strat B, ES pour ES) — ne pas utiliser mkt.conditions
+                    // .h1_bias ici, qui reste le calcul générique Strat A (peut diverger).
+                    zoneLow={mkt.bias === "SHORT" ? 0 : mkt.conditions?.rsi_m5_long_min}
+                    zoneHigh={mkt.bias === "LONG" ? 100 : mkt.conditions?.rsi_m5_short_max} />
                   <RsiBar label="RSI M15" value={mkt.indicators?.rsi_m15}
                     zoneLow={mkt.conditions?.rsi_m15_low} zoneHigh={mkt.conditions?.rsi_m15_high} />
                 </>
@@ -2499,6 +2504,13 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
                       <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, cursor: "pointer" }}>
+                        <input type="checkbox" checked={emaSlopeFilter} onChange={e => setEmaSlopeFilter(e.target.checked)}
+                          style={{ accentColor: COLORS.amber }} />
+                        <span style={{ fontSize: 9, color: emaSlopeFilter ? COLORS.amber : COLORS.sub }}>
+                          Strat A — exiger EMA9/21 M5 penchées dans le sens du biais
+                        </span>
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, cursor: "pointer" }}>
                         <input type="checkbox" checked={obRequireBos} onChange={e => setObRequireBos(e.target.checked)}
                           style={{ accentColor: COLORS.amber }} />
                         <span style={{ fontSize: 9, color: obRequireBos ? COLORS.amber : COLORS.sub }}>
@@ -2539,7 +2551,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                           style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
-                      {(wfAdxOverride !== "" || wfRsiLongOverride !== "" || wfRsiShortOverride !== "" || wfAtrMinOverride !== "" || wfTrendBiasOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "" || obRequireBos || wfBeBufferR !== "" || obRequireLiquidity || wfEarlyExitOverride !== "" || wfAdxH1Override !== "") && (
+                      {(wfAdxOverride !== "" || wfRsiLongOverride !== "" || wfRsiShortOverride !== "" || wfAtrMinOverride !== "" || wfTrendBiasOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "" || obRequireBos || wfBeBufferR !== "" || obRequireLiquidity || wfEarlyExitOverride !== "" || wfAdxH1Override !== "" || emaSlopeFilter) && (
                         <div style={{ fontSize: 9, color: COLORS.amber, marginBottom: 4 }}>
                           ⚠ Test isolé — ne modifie pas le réglage live tant que tu ne le forces pas ailleurs.
                         </div>

@@ -1162,7 +1162,13 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
         markets[sym] = {
             "symbol": sym,
             "name": ms.config["name"],
-            "bias": snap.get("bias", "NEUTRE"),
+            # "bias" générique (snap["bias"], Strat A : close vs EMA50) peut diverger du
+            # biais réellement utilisé pour gater les trades Strat B (EMA50 vs EMA200,
+            # snap["ict_conditions"]["h1_bias"]) ou ES (snap["es_conditions"]["bias"]) —
+            # toujours préférer le biais spécifique à la stratégie active quand il existe.
+            "bias": (snap.get("ict_conditions") or {}).get("h1_bias")
+                    or (snap.get("es_conditions") or {}).get("bias")
+                    or snap.get("bias", "NEUTRE"),
             "session": snap.get("session", "Hors session"),
             "price": live_price,
             "indicators": {
@@ -2164,6 +2170,7 @@ class WalkForwardRequest(BaseModel):
     ob_require_liquidity_override: Optional[bool] = None
     early_exit_minutes_override: Optional[float] = None
     adx_min_h1_override: Optional[float] = None   # Strat B (EUR/USD) — strategy_ict.ADX_MIN_H1, 20 par défaut
+    ema_slope_filter_override: Optional[bool] = None  # EMA9/21 M5 doivent pencher dans le sens du biais
 
 
 @app.post("/api/pretrain/walkforward")
@@ -2211,6 +2218,8 @@ def start_walkforward(req: WalkForwardRequest, _user: dict = Depends(get_current
                 _overrides["EARLY_EXIT_MINUTES"] = req.early_exit_minutes_override
             if req.adx_min_h1_override is not None:
                 _overrides["ADX_MIN_H1"] = req.adx_min_h1_override
+            if req.ema_slope_filter_override is not None:
+                _overrides["EMA_SLOPE_FILTER_ENABLED"] = req.ema_slope_filter_override
             _overrides = _overrides or None
             r = _pretrain_module.run_walk_forward(
                 start=req.start, end=req.end,
