@@ -192,6 +192,17 @@ def init_db() -> None:
                 data       TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS wf_monitor_runs (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol          TEXT NOT NULL,
+                period          TEXT NOT NULL,
+                avg_pf          REAL,
+                std_pf          REAL,
+                pct_profitable  REAL,
+                is_robust       INTEGER NOT NULL,
+                created_at      TEXT NOT NULL
+            );
             """
         )
 
@@ -768,6 +779,42 @@ def live_agent_adjustments_history(symbol: str, limit: int = 50) -> list:
             "wr":         r["wr"],
             "changes":    json.loads(r["changes"]),
             "created_at": r["created_at"],
+        }
+        for r in rows
+    ]
+
+
+def wf_monitor_log_run(symbol: str, period: str, avg_pf: Optional[float],
+                        std_pf: Optional[float], pct_profitable: Optional[float],
+                        is_robust: bool) -> None:
+    """Journal persistant de chaque run du Walk-Forward auto (surveillance) —
+    le monitor lui-même ne garde que le dernier résultat en mémoire, sans ça
+    impossible de voir si la robustesse dérive dans le temps entre deux
+    redéploiements."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO wf_monitor_runs (symbol, period, avg_pf, std_pf, pct_profitable, "
+            "is_robust, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (symbol, period, avg_pf, std_pf, pct_profitable, 1 if is_robust else 0, _utcnow_iso()),
+        )
+
+
+def wf_monitor_history(symbol: str, limit: int = 20) -> list:
+    """Derniers runs du Walk-Forward auto, du plus récent au plus ancien."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT period, avg_pf, std_pf, pct_profitable, is_robust, created_at "
+            "FROM wf_monitor_runs WHERE symbol = ? ORDER BY id DESC LIMIT ?",
+            (symbol, limit),
+        ).fetchall()
+    return [
+        {
+            "period":         r["period"],
+            "avg_pf":         r["avg_pf"],
+            "std_pf":         r["std_pf"],
+            "pct_profitable": r["pct_profitable"],
+            "is_robust":      bool(r["is_robust"]),
+            "created_at":     r["created_at"],
         }
         for r in rows
     ]
