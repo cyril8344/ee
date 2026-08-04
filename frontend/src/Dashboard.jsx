@@ -832,7 +832,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
     fetch(`${API}/api/pretrain`, {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ start: pretrainStart, end: pretrainEnd, symbol: sym, reset: pretrainResetML, strategy_mode: strategyMode, capital: pretrainCapital, risk_pct: pretrainRiskPct, vwap_session_anchored_override: vwapSessionAnchored }),
+      body: JSON.stringify({ start: pretrainStart, end: pretrainEnd, symbol: sym, reset: pretrainResetML, strategy_mode: strategyMode, capital: pretrainCapital, risk_pct: pretrainRiskPct, vwap_session_anchored_override: vwapSessionAnchored ? true : null }),
     })
       .then(r => r.json())
       .then(d => { if (d.progress) setPretrainStatus(d.progress); setPretrainLoading(false); })
@@ -857,16 +857,21 @@ export default function Dashboard({ onLogout, onNavigateES }) {
         atr_regime_max_ratio_override: wfAtrRegimeMaxOverride !== "" ? parseFloat(wfAtrRegimeMaxOverride) : null,
         drawdown_sizing_threshold_override: wfDdSizingThreshold !== "" ? parseFloat(wfDdSizingThreshold) : null,
         drawdown_sizing_factor_override: wfDdSizingFactor !== "" ? parseFloat(wfDdSizingFactor) : null,
-        vwap_session_anchored_override: vwapSessionAnchored,
+        // Cases à cocher : ne renvoyer true QUE si explicitement cochées, jamais false —
+        // sinon le backend les ajoute systématiquement à extra_overrides (is not None),
+        // et le panel affiche "(pas le réglage live)" même sur un run où rien n'a été
+        // changé par rapport aux défauts (VWAP_SESSION_ANCHORED/OB_REQUIRE_BOS/
+        // OB_REQUIRE_LIQUIDITY/EMA_SLOPE_FILTER_ENABLED valent déjà false en live).
+        vwap_session_anchored_override: vwapSessionAnchored ? true : null,
         bad_hours_cet_override: wfBadHoursOverride !== ""
           ? wfBadHoursOverride.split(",").map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n))
           : null,
-        ob_require_bos_override: obRequireBos,
+        ob_require_bos_override: obRequireBos ? true : null,
         be_buffer_r_override: wfBeBufferR !== "" ? parseFloat(wfBeBufferR) : null,
-        ob_require_liquidity_override: obRequireLiquidity,
+        ob_require_liquidity_override: obRequireLiquidity ? true : null,
         early_exit_minutes_override: wfEarlyExitOverride !== "" ? parseFloat(wfEarlyExitOverride) : null,
         adx_min_h1_override: wfAdxH1Override !== "" ? parseFloat(wfAdxH1Override) : null,
-        ema_slope_filter_override: emaSlopeFilter }),
+        ema_slope_filter_override: emaSlopeFilter ? true : null }),
     }).then(() => setWfLoading(false)).catch(() => setWfLoading(false));
   };
 
