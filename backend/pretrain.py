@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import threading
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Callable, List
 
 import pandas as pd
 
@@ -953,6 +953,80 @@ def launch_pretrain(
 
 
 # --------------------------------------------------------------------------- #
+# Comparaison fenêtres gagnantes vs perdantes — quels facteurs de régime
+# (ADX, ATR, %LONG, SL_direct%, blocages pipeline...) diffèrent le plus entre
+# les deux groupes, calculé sur les vraies données de chaque run.
+# --------------------------------------------------------------------------- #
+def _compare_window_regimes(windows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    valid = [w for w in windows if w.get("n_trades", 0) >= 5 and w.get("regime_signature")]
+    if len(valid) < 4:
+        return None
+
+    profitable = [w for w in valid if w["profit_factor"] > 1.0]
+    losing = [w for w in valid if w["profit_factor"] <= 1.0]
+    if not profitable or not losing:
+        return None
+
+    def _avg(group, extractor):
+        vals = [v for w in group if (v := extractor(w)) is not None]
+        return round(sum(vals) / len(vals), 3) if vals else None
+
+    numeric_fields = [
+        ("ADX H1 moyen",          lambda w: w["regime_signature"].get("avg_adx_h1")),
+        ("ATR moyen",             lambda w: w["regime_signature"].get("avg_atr")),
+        ("RSI H1 moyen",          lambda w: w["regime_signature"].get("avg_rsi_h1")),
+        ("% trades LONG",         lambda w: w["regime_signature"].get("pct_long")),
+        ("Efficacité H1 (trend)", lambda w: w["regime_signature"].get("efficiency_ratio_h1")),
+        ("SL direct %",           lambda w: w.get("sl_direct_pct")),
+        ("Win rate %",            lambda w: w.get("win_rate")),
+    ]
+
+    comparisons = []
+    for label, extractor in numeric_fields:
+        avg_win = _avg(profitable, extractor)
+        avg_lose = _avg(losing, extractor)
+        if avg_win is None or avg_lose is None:
+            continue
+        comparisons.append({
+            "factor": label,
+            "avg_fenetres_gagnantes": avg_win,
+            "avg_fenetres_perdantes": avg_lose,
+            "diff": round(avg_win - avg_lose, 3),
+        })
+
+    # Blocages pipeline — proportion normalisée par fenêtre (pas les comptes bruts,
+    # qui dépendent du nombre de bougies chargées, très variable selon la période).
+    def _rejection_pct(w, stage):
+        rc = w.get("rejection_counts") or {}
+        total = sum(rc.values())
+        return (rc.get(stage, 0) / total * 100) if total else None
+
+    all_stages = set()
+    for w in valid:
+        all_stages.update((w.get("rejection_counts") or {}).keys())
+
+    for stage in sorted(all_stages):
+        avg_win = _avg(profitable, lambda w, s=stage: _rejection_pct(w, s))
+        avg_lose = _avg(losing, lambda w, s=stage: _rejection_pct(w, s))
+        if avg_win is None or avg_lose is None:
+            continue
+        comparisons.append({
+            "factor": f"Blocage pipeline : {stage}",
+            "avg_fenetres_gagnantes": round(avg_win, 1),
+            "avg_fenetres_perdantes": round(avg_lose, 1),
+            "diff": round(avg_win - avg_lose, 1),
+        })
+
+    comparisons.sort(key=lambda c: abs(c["diff"]), reverse=True)
+
+    return {
+        "n_fenetres_gagnantes": len(profitable),
+        "n_fenetres_perdantes": len(losing),
+        "facteurs": comparisons,
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Walk-forward : robustesse sur N fenêtres indépendantes
 # --------------------------------------------------------------------------- #
 def run_walk_forward(
@@ -1057,4 +1131,5 @@ def run_walk_forward(
         "std_pf":          std_pf,
         "pct_profitable":  pct_ok,
         "extra_overrides": extra_overrides or {},
+        "regime_comparison": _compare_window_regimes(windows),
     }

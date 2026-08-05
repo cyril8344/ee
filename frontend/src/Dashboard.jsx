@@ -3420,6 +3420,42 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                   })}
                 </div>
               )}
+              {wfStatus?.result?.regime_comparison && (
+                <div style={{ marginTop: 14, borderTop: `1px solid ${COLORS.border}`, paddingTop: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>
+                    Comparaison fenêtres gagnantes vs perdantes
+                  </div>
+                  <div style={{ fontSize: 10, color: COLORS.sub, marginBottom: 8 }}>
+                    {wfStatus.result.regime_comparison.n_fenetres_gagnantes} fenêtre(s) gagnante(s) vs{" "}
+                    {wfStatus.result.regime_comparison.n_fenetres_perdantes} perdante(s) — écarts triés du plus
+                    au moins marqué, calculés sur les vraies données de ce run.
+                  </div>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+                      <thead>
+                        <tr style={{ color: COLORS.sub, textAlign: "right" }}>
+                          <th style={{ textAlign: "left", padding: "2px 6px" }}>Facteur</th>
+                          <th style={{ padding: "2px 6px" }}>Gagnantes</th>
+                          <th style={{ padding: "2px 6px" }}>Perdantes</th>
+                          <th style={{ padding: "2px 6px" }}>Écart</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {wfStatus.result.regime_comparison.facteurs.map((f, i) => (
+                          <tr key={i} style={{ borderTop: `1px solid ${COLORS.border}`, textAlign: "right" }}>
+                            <td style={{ textAlign: "left", padding: "3px 6px", color: COLORS.text }}>{f.factor}</td>
+                            <td style={{ padding: "3px 6px", color: COLORS.green }}>{f.avg_fenetres_gagnantes}</td>
+                            <td style={{ padding: "3px 6px", color: COLORS.red }}>{f.avg_fenetres_perdantes}</td>
+                            <td style={{ padding: "3px 6px", fontWeight: 600, color: COLORS.amber }}>
+                              {f.diff > 0 ? "+" : ""}{f.diff}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
