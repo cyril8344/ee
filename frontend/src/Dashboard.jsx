@@ -456,10 +456,14 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [cacheClearMsg, setCacheClearMsg]     = useState(null);
   const [pretrainCapital, setPretrainCapital] = useState(1000);
   const [pretrainRiskPct, setPretrainRiskPct] = useState(2.0);
-  const [pretrainStart, setPretrainStart]     = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 6); return d.toISOString().slice(0, 10); });
+  // Défaut à 24 mois (pas 6) : un défaut court poussait chaque test de paramètre à se
+  // calibrer implicitement sur la période récente sans jamais être confronté aux régimes
+  // plus anciens (voir l'audit walk-forward 24 mois qui a révélé le risque d'overfitting) —
+  // même fenêtre de référence que tous les tests EMA_SLOPE_FILTER/ADX_MIN de cette session.
+  const [pretrainStart, setPretrainStart]     = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 24); return d.toISOString().slice(0, 10); });
   const [pretrainEnd, setPretrainEnd]         = useState(() => new Date().toISOString().slice(0, 10));
-  const [wfStart, setWfStart]                 = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 12); return d.toISOString().slice(0, 10); });
-  const [wfEnd, setWfEnd]                     = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 6); return d.toISOString().slice(0, 10); });
+  const [wfStart, setWfStart]                 = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 24); return d.toISOString().slice(0, 10); });
+  const [wfEnd, setWfEnd]                     = useState(() => new Date().toISOString().slice(0, 10));
   const PRETRAIN_PAGE = 20;
   const [agentStatus, setAgentStatus] = useState(null);
   const [agentHistory, setAgentHistory] = useState([]);
@@ -2349,7 +2353,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                           style={{ marginTop: 6, width: "100%", background: COLORS.blue + "22",
                             border: `1px solid ${COLORS.blue}`, borderRadius: 4,
                             color: COLORS.blue, padding: "4px 0", cursor: "pointer", fontSize: 11 }}>
-                          Relancer (6 mois)
+                          Relancer (24 mois)
                         </button>
                       </div>
                     ) : (
@@ -2409,13 +2413,13 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                           Même période
                         </button>
                         <button onClick={() => {
-                          const s = new Date(); s.setMonth(s.getMonth() - 12);
-                          const e = new Date(); e.setMonth(e.getMonth() - 6);
+                          const s = new Date(); s.setMonth(s.getMonth() - 24);
+                          const e = new Date();
                           setWfStart(s.toISOString().slice(0, 10));
                           setWfEnd(e.toISOString().slice(0, 10));
                         }} style={{ flex: 1, fontSize: 9, background: COLORS.panel, border: `1px solid ${COLORS.border}`,
                             borderRadius: 3, color: COLORS.sub, padding: "2px 0", cursor: "pointer" }}>
-                          −12M → −6M
+                          −24M → 0 (référence)
                         </button>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
