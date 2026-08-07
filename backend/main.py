@@ -98,23 +98,24 @@ import pretrain_es_h1 as _pretrain_es_h1_module
 # non importés, même principe que llm_gate.py.
 
 
-# Capital de départ dédié à ES, indépendant du capital XAU/EUR (settings["capital"]).
+# Capital de départ dédié à ES, indépendant du capital XAU (settings["capital"]).
 # ES a sa propre enveloppe de risque isolée (state.risk_es) — seuls risk_per_trade_pct/
 # daily_stop_pct/max_trades_per_day sont partagés avec les autres marchés (voir
-# _sync_es_risk_settings ci-dessous), le capital lui-même reste propre à ES et évolue
+# _sync_shared_risk_settings ci-dessous), le capital lui-même reste propre à ES et évolue
 # indépendamment via ses propres trades, à partir de ce montant.
 ES_INITIAL_CAPITAL = 10_000.0
 
 
-def _sync_es_risk_settings(risk_es: "RiskManager", risk_xau: "RiskManager") -> None:
-    """Aligne risk_per_trade_pct/daily_stop_pct/max_trades_per_day de risk_es sur les
-    réglages partagés — sans toucher au capital (propre à ES, voir ES_INITIAL_CAPITAL).
-    Un sync_from_settings() complet écraserait le capital ES à chaque PATCH /api/settings.
-    Prend les objets en paramètre (pas le global `state`) : appelée aussi depuis
-    BotState.__init__, avant que `state` existe."""
-    risk_es.risk_per_trade_pct = risk_xau.risk_per_trade_pct
-    risk_es.daily_stop_pct = risk_xau.daily_stop_pct
-    risk_es.max_trades_per_day = risk_xau.max_trades_per_day
+def _sync_shared_risk_settings(target: "RiskManager", source: "RiskManager") -> None:
+    """Aligne risk_per_trade_pct/daily_stop_pct/max_trades_per_day de `target` sur
+    `source` — sans toucher au capital (propre à chaque enveloppe isolée : ES via
+    ES_INITIAL_CAPITAL, EUR via son propre capital de départ). Un sync_from_settings()
+    complet écraserait le capital de la cible à chaque PATCH /api/settings. Prend les
+    objets en paramètre (pas le global `state`) : appelée aussi depuis BotState.__init__,
+    avant que `state` existe."""
+    target.risk_per_trade_pct = source.risk_per_trade_pct
+    target.daily_stop_pct = source.daily_stop_pct
+    target.max_trades_per_day = source.max_trades_per_day
 
 
 MARKET_CONFIG = {
@@ -217,10 +218,16 @@ class BotState:
         # réduire la taille des positions XAU/EUR ni déclencher leur blocage, et
         # inversement — voir _risk_for()/state.risk_es dans la boucle de trading.
         self.risk_es = RiskManager()
-        _sync_es_risk_settings(self.risk_es, self.risk)
+        _sync_shared_risk_settings(self.risk_es, self.risk)
         self.risk_es.capital = ES_INITIAL_CAPITAL
         self.risk_es.equity_peak = ES_INITIAL_CAPITAL
         self.risk_es.start_equity_today = ES_INITIAL_CAPITAL
+        # EUR/USD : enveloppe isolée elle aussi (4 trades/jour propres, indépendants de
+        # XAU) — mais même échelle de capital que XAU (paire forex classique, pas
+        # l'économie particulière des contrats ES), donc on part de settings["capital"]
+        # comme XAU puis les deux évoluent séparément.
+        self.risk_eur = RiskManager()
+        self.risk_eur.sync_from_settings(self.settings)
         self.news = NewsFilter(window_minutes=30, currencies=("USD", "EUR"))
         self.macro = MacroFilter()
         self.alerts: List[Dict[str, Any]] = []
@@ -318,11 +325,11 @@ class BotState:
     def _hydrate_today(self):
         today = db.today_utc()
         daily = db.get_or_create_daily(today, self.risk.capital)
-        # ES exclu : sa comptabilité journalière est isolée dans self.risk_es
-        # (voir plus bas) — la laisser fuiter ici contaminerait le compteur
-        # trades_today/pnl_today partagé de XAU/EUR (self.risk).
+        # ES et EUR exclus : leur comptabilité journalière est isolée dans
+        # self.risk_es / self.risk_eur (voir plus bas) — les laisser fuiter ici
+        # contaminerait le compteur trades_today/pnl_today de XAU (self.risk).
         trades = [t for t in db.get_trades_for_day(today, mode=self.settings.get("mode"))
-                  if t.get("symbol") != "ES"]
+                  if t.get("symbol") not in ("ES", "EURUSD")]
         closed = [t for t in trades if t["status"] == "closed"]
         pnl = sum(t.get("pnl") or 0.0 for t in closed)
         self.risk.hydrate_day(
@@ -332,7 +339,7 @@ class BotState:
             blocked=bool(daily["blocked"]),
         )
         # ES : compteur/jour et blocage entièrement séparés, contre un capital
-        # dédié (self.risk_es.capital) — jamais contre l'equity XAU/EUR.
+        # dédié (self.risk_es.capital) — jamais contre l'equity XAU.
         es_trades = db.get_trades_for_day_by_symbol(today, "ES", mode=self.settings.get("mode"))
         es_closed = [t for t in es_trades if t["status"] == "closed"]
         es_pnl = sum(t.get("pnl") or 0.0 for t in es_closed)
@@ -340,6 +347,17 @@ class BotState:
             trades_today=len(es_trades),
             pnl_today=es_pnl,
             start_equity=self.risk_es.capital,
+            blocked=False,
+        )
+        # EUR/USD : même isolation que ES, contre son propre capital
+        # (self.risk_eur.capital) — jamais contre l'equity XAU.
+        eur_trades = db.get_trades_for_day_by_symbol(today, "EURUSD", mode=self.settings.get("mode"))
+        eur_closed = [t for t in eur_trades if t["status"] == "closed"]
+        eur_pnl = sum(t.get("pnl") or 0.0 for t in eur_closed)
+        self.risk_eur.hydrate_day(
+            trades_today=len(eur_trades),
+            pnl_today=eur_pnl,
+            start_equity=self.risk_eur.capital,
             blocked=False,
         )
         # Per-instrument hydration
@@ -351,7 +369,12 @@ class BotState:
             ms.pnl_today = sum(t.get("pnl") or 0.0 for t in sym_closed)
             ms.daily_stopped = False
             _inst_stop_pct = ms.inst_settings.get("daily_stop_pct", 2.0)
-            _base_eq = self.risk_es.capital if sym == "ES" else _start_eq
+            if sym == "ES":
+                _base_eq = self.risk_es.capital
+            elif sym == "EURUSD":
+                _base_eq = self.risk_eur.capital
+            else:
+                _base_eq = _start_eq
             if _base_eq > 0 and ms.pnl_today <= -abs(_base_eq * _inst_stop_pct / 100.0):
                 ms.daily_stopped = True
         self._current_day = today
@@ -456,13 +479,17 @@ def _es_signal_to_dataclass(sig: dict, now: datetime, max_duration_min: int) -> 
 
 
 def _risk_for(ms) -> RiskManager:
-    """Enveloppe risque isolée par marché — ES a la sienne (state.risk_es),
-    tous les autres marchés partagent state.risk (comportement inchangé)."""
-    return state.risk_es if ms.symbol == "ES" else state.risk
+    """Enveloppe risque isolée par marché — ES (state.risk_es) et EUR/USD
+    (state.risk_eur) ont chacun la leur, XAU/USD utilise state.risk."""
+    if ms.symbol == "ES":
+        return state.risk_es
+    if ms.symbol == "EURUSD":
+        return state.risk_eur
+    return state.risk
 
 
 def current_equity() -> float:
-    eq = state.risk.capital + state.risk_es.capital
+    eq = state.risk.capital + state.risk_es.capital + state.risk_eur.capital
     for ms in state.market_states.values():
         if ms.position is not None:
             try:
@@ -704,7 +731,7 @@ def trading_tick() -> Dict[str, Any]:
                     if _risk.blocked:
                         _risk.blocked = False
                         _risk.block_reason = ""
-                        if ms.symbol != "ES":
+                        if ms.symbol == "XAUUSD":
                             db.update_daily(db.today_utc(), {"blocked": 0})
                     if ms.circuit_breaker_until is not None:
                         ms.circuit_breaker_until = None
@@ -946,7 +973,7 @@ def _open_trade(ms: MarketState, sig, decision, now):
                             ts_utc=pos.open_time.isoformat(),
                             session=sig.session,
                             session_hour=round(session_hour, 2))
-    if ms.symbol != "ES":  # daily_stats est la table XAU/EUR (state.risk) — ES n'y écrit pas
+    if ms.symbol == "XAUUSD":  # daily_stats est la table XAU (state.risk) — ES/EUR n'y écrivent pas
         db.update_daily(db.today_utc(), {"trade_count": state.risk.trades_today})
     arrow = "🟢 LONG" if sig.direction == "long" else "🔴 SHORT"
     msg = (f"{arrow} <b>{ms.config['name']} ouvert</b>\n"
@@ -1055,7 +1082,7 @@ def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], 
                 "mode": state.settings.get("mode", "paper"),
                 "meta": pos.meta,
             })
-    if ms.symbol != "ES":  # daily_stats/equity_points = table XAU/EUR (state.risk) uniquement
+    if ms.symbol == "XAUUSD":  # daily_stats/equity_points = table XAU (state.risk) uniquement
         today = db.today_utc()
         daily = db.get_daily(today) or {"pnl": 0.0}
         db.update_daily(today, {
@@ -1602,13 +1629,14 @@ def reset_all_history(_user: dict = Depends(get_current_user)):
     """Supprime TOUS les trades et remet les stats à zéro. Irréversible."""
     with state.lock:
         result = db.reset_all_trades()
-        # Réinitialiser l'état en mémoire
+        # Réinitialiser l'état en mémoire (XAU, ES, EUR — toutes les enveloppes)
         state.risk.hydrate_day(
             trades_today=0, pnl_today=0.0,
             start_equity=state.risk.capital,
             blocked=False,
         )
         state.risk.start_equity_today = state.risk.capital
+        state._hydrate_today()
     return result
 
 
@@ -1618,20 +1646,17 @@ def cleanup_duplicate_trades(_user: dict = Depends(get_current_user)):
     Garde le premier, supprime les suivants. Utile après un bug de double-entrée BOOTSTRAP."""
     with state.lock:
         result = db.delete_duplicate_trades()
-        # Resynchroniser le P&L du jour après nettoyage
+        # Resynchroniser le P&L/trade_count du jour après nettoyage (table
+        # daily_stats = XAU seul ; ES/EUR sont resynchronisés via _hydrate_today
+        # depuis leurs propres enveloppes, pas depuis cette table).
         today = db.today_utc()
-        trades_today = db.get_trades_for_day(today, mode=state.settings.get("mode"))
-        closed_today = [t for t in trades_today if t["status"] == "closed"]
-        pnl_today = round(sum(t.get("pnl") or 0.0 for t in closed_today), 2)
-        db.update_daily(today, {"pnl": pnl_today, "trade_count": len(trades_today)})
-        state.risk.hydrate_day(
-            trades_today=len(trades_today),
-            pnl_today=pnl_today,
-            start_equity=state.risk.start_equity_today or state.risk.capital,
-            blocked=state.risk.blocked,
-        )
+        xau_trades_today = db.get_trades_for_day_by_symbol(today, "XAUUSD", mode=state.settings.get("mode"))
+        xau_closed_today = [t for t in xau_trades_today if t["status"] == "closed"]
+        pnl_today = round(sum(t.get("pnl") or 0.0 for t in xau_closed_today), 2)
+        db.update_daily(today, {"pnl": pnl_today, "trade_count": len(xau_trades_today)})
+        state._hydrate_today()
     result["pnl_today"] = pnl_today
-    result["trades_today"] = len(trades_today)
+    result["trades_today"] = len(xau_trades_today)
     return result
 
 
@@ -1657,19 +1682,16 @@ def delete_trade_by_id(trade_id: int, _user: dict = Depends(get_current_user)):
         deleted = db.delete_trade(trade_id)
         if not deleted:
             raise HTTPException(404, detail="Trade non trouvé")
-        # Resynchroniser le P&L et trade_count du jour depuis la DB
+        # Resynchroniser le P&L/trade_count du jour depuis la DB (table daily_stats
+        # = XAU seul ; ES/EUR resynchronisés via _hydrate_today depuis leurs
+        # propres enveloppes).
         today = db.today_utc()
-        trades_today = db.get_trades_for_day(today, mode=state.settings.get("mode"))
-        closed_today = [t for t in trades_today if t["status"] == "closed"]
-        pnl_today = round(sum(t.get("pnl") or 0.0 for t in closed_today), 2)
-        db.update_daily(today, {"pnl": pnl_today, "trade_count": len(trades_today)})
-        state.risk.hydrate_day(
-            trades_today=len(trades_today),
-            pnl_today=pnl_today,
-            start_equity=state.risk.start_equity_today or state.risk.capital,
-            blocked=state.risk.blocked,
-        )
-    return {"deleted": trade_id, "pnl_today": pnl_today, "trades_today": len(trades_today)}
+        xau_trades_today = db.get_trades_for_day_by_symbol(today, "XAUUSD", mode=state.settings.get("mode"))
+        xau_closed_today = [t for t in xau_trades_today if t["status"] == "closed"]
+        pnl_today = round(sum(t.get("pnl") or 0.0 for t in xau_closed_today), 2)
+        db.update_daily(today, {"pnl": pnl_today, "trade_count": len(xau_trades_today)})
+        state._hydrate_today()
+    return {"deleted": trade_id, "pnl_today": pnl_today, "trades_today": len(xau_trades_today)}
 
 
 @app.get("/api/strategy/blocked-hours")
@@ -1757,17 +1779,12 @@ def reset_daily_counter(_user: dict = Depends(get_current_user)):
     Utile après suppression manuelle de trades ou changement de max_trades_per_day."""
     with state.lock:
         today = db.today_utc()
-        trades_today = db.get_trades_for_day(today, mode=state.settings.get("mode"))
-        closed_today = [t for t in trades_today if t["status"] == "closed"]
-        pnl_today = round(sum(t.get("pnl") or 0.0 for t in closed_today), 2)
-        db.update_daily(today, {"pnl": pnl_today, "trade_count": len(trades_today)})
-        state.risk.hydrate_day(
-            trades_today=len(trades_today),
-            pnl_today=pnl_today,
-            start_equity=state.risk.start_equity_today or state.risk.capital,
-            blocked=state.risk.blocked,
-        )
-    return {"trades_today": len(trades_today), "pnl_today": pnl_today}
+        xau_trades_today = db.get_trades_for_day_by_symbol(today, "XAUUSD", mode=state.settings.get("mode"))
+        xau_closed_today = [t for t in xau_trades_today if t["status"] == "closed"]
+        pnl_today = round(sum(t.get("pnl") or 0.0 for t in xau_closed_today), 2)
+        db.update_daily(today, {"pnl": pnl_today, "trade_count": len(xau_trades_today)})
+        state._hydrate_today()
+    return {"trades_today": len(xau_trades_today), "pnl_today": pnl_today}
 
 
 @app.get("/api/settings")
@@ -1802,7 +1819,8 @@ def write_settings(patch: SettingsPatch, _user: dict = Depends(get_current_user)
     with state.lock:
         state.settings = db.update_settings(data)
         state.risk.sync_from_settings(state.settings)
-        _sync_es_risk_settings(state.risk_es, state.risk)  # % partagés, capital ES inchangé
+        _sync_shared_risk_settings(state.risk_es, state.risk)  # % partagés, capital ES inchangé
+        _sync_shared_risk_settings(state.risk_eur, state.risk)  # % partagés, capital EUR inchangé
     return state.settings
 
 
@@ -1814,6 +1832,7 @@ def reset_day(_user: dict = Depends(get_current_user)):
         db.update_daily(today, {"blocked": 0})
         state.risk.start_new_day(state.risk.capital)
         state.risk_es.start_new_day(state.risk_es.capital)
+        state.risk_eur.start_new_day(state.risk_eur.capital)
         for ms in state.market_states.values():
             ms.daily_stopped = False
         state.bot_status = "ACTIF"
@@ -1892,6 +1911,8 @@ def unblock_risk(_user: dict = Depends(get_current_user)):
         state.risk.block_reason = ""
         state.risk_es.blocked = False
         state.risk_es.block_reason = ""
+        state.risk_eur.blocked = False
+        state.risk_eur.block_reason = ""
         today = db.today_utc()
         db.update_daily(today, {"blocked": 0})
         state.push_alert("info", "🔓 Blocage risk réinitialisé manuellement")
