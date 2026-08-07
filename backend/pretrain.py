@@ -978,7 +978,9 @@ def _compare_window_regimes(windows: List[Dict[str, Any]]) -> Optional[Dict[str,
         ("% trades LONG",         lambda w: w["regime_signature"].get("pct_long")),
         ("Efficacité H1 (trend)", lambda w: w["regime_signature"].get("efficiency_ratio_h1")),
         ("SL direct %",           lambda w: w.get("sl_direct_pct")),
-        ("Win rate %",            lambda w: w.get("win_rate")),
+        # win_rate est stocké en ratio (0-1, ex. 0.619) partout ailleurs dans pretrain.py —
+        # ×100 ici pour rester sur la même échelle "%" que les autres facteurs affichés.
+        ("Win rate %",            lambda w: w["win_rate"] * 100 if w.get("win_rate") is not None else None),
     ]
 
     comparisons = []
