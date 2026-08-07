@@ -441,6 +441,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [obRequireBos, setObRequireBos] = useState(false);
   const [emaSlopeFilter, setEmaSlopeFilter] = useState(false);
   const [wfEmaSlopeLookback, setWfEmaSlopeLookback] = useState("");
+  const [wfSlLongExtra, setWfSlLongExtra] = useState("");
   const [wfBeBufferR, setWfBeBufferR] = useState("");
   const [obRequireLiquidity, setObRequireLiquidity] = useState(false);
   const [wfEarlyExitOverride, setWfEarlyExitOverride] = useState("");
@@ -877,7 +878,8 @@ export default function Dashboard({ onLogout, onNavigateES }) {
         early_exit_minutes_override: wfEarlyExitOverride !== "" ? parseFloat(wfEarlyExitOverride) : null,
         adx_min_h1_override: wfAdxH1Override !== "" ? parseFloat(wfAdxH1Override) : null,
         ema_slope_filter_override: emaSlopeFilter ? true : null,
-        ema_slope_lookback_override: wfEmaSlopeLookback !== "" ? parseInt(wfEmaSlopeLookback, 10) : null }),
+        ema_slope_lookback_override: wfEmaSlopeLookback !== "" ? parseInt(wfEmaSlopeLookback, 10) : null,
+        sl_long_extra_atr_override: wfSlLongExtra !== "" ? parseFloat(wfSlLongExtra) : null }),
     }).then(() => setWfLoading(false)).catch(() => setWfLoading(false));
   };
 
@@ -2530,6 +2532,15 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                           style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          Strat A — SL LONG +X×ATR (marge additionnelle, vide = défaut 0)
+                        </span>
+                        <input type="number" step="0.1" placeholder="0" value={wfSlLongExtra}
+                          onChange={e => setWfSlLongExtra(e.target.value)}
+                          style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
                       <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, cursor: "pointer" }}>
                         <input type="checkbox" checked={obRequireBos} onChange={e => setObRequireBos(e.target.checked)}
                           style={{ accentColor: COLORS.amber }} />
@@ -2571,7 +2582,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                           style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
-                      {(wfAdxOverride !== "" || wfRsiLongOverride !== "" || wfRsiShortOverride !== "" || wfAtrMinOverride !== "" || wfTrendBiasOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "" || obRequireBos || wfBeBufferR !== "" || obRequireLiquidity || wfEarlyExitOverride !== "" || wfAdxH1Override !== "" || emaSlopeFilter || wfEmaSlopeLookback !== "") && (
+                      {(wfAdxOverride !== "" || wfRsiLongOverride !== "" || wfRsiShortOverride !== "" || wfAtrMinOverride !== "" || wfTrendBiasOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "" || obRequireBos || wfBeBufferR !== "" || obRequireLiquidity || wfEarlyExitOverride !== "" || wfAdxH1Override !== "" || emaSlopeFilter || wfEmaSlopeLookback !== "" || wfSlLongExtra !== "") && (
                         <div style={{ fontSize: 9, color: COLORS.amber, marginBottom: 4 }}>
                           ⚠ Test isolé — ne modifie pas le réglage live tant que tu ne le forces pas ailleurs.
                         </div>
