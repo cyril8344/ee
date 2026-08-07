@@ -30,7 +30,7 @@ def _fake_window(pf, n_trades, adx, sl_pct, wr, pct_long=50.0, rejections=None):
     return {
         "n_trades": n_trades,
         "profit_factor": pf,
-        "win_rate": wr,
+        "win_rate": wr / 100,  # stocké en ratio 0-1 dans le vrai code, comme pretrain.py
         "sl_direct_pct": sl_pct,
         "regime_signature": {
             "avg_adx_h1": adx, "avg_atr": 4.0, "avg_rsi_h1": 50.0,
@@ -55,6 +55,12 @@ def test_compare_window_regimes_ranks_biggest_differences_first():
     # SL direct % has by far the largest gap (≈15-18 vs 42-45) — must rank first.
     assert cmp["facteurs"][0]["factor"] == "SL direct %"
     assert cmp["facteurs"][0]["diff"] < 0  # winning windows have LOWER SL direct %
+
+    wr_factor = next(f for f in cmp["facteurs"] if f["factor"] == "Win rate %")
+    # win_rate is stored as a 0-1 ratio (e.g. 0.59 for windows 1+2 averaged) — must be
+    # displayed on the same 0-100 scale as the other percentage factors, not 0.59.
+    assert wr_factor["avg_fenetres_gagnantes"] == 59.0
+    assert wr_factor["avg_fenetres_perdantes"] == 41.0
 
 
 def test_compare_window_regimes_returns_none_with_too_few_windows():

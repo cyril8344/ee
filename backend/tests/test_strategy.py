@@ -106,6 +106,63 @@ def test_market_structure_ok_returns_python_bool_not_numpy():
         assert type(result) is bool  # pas numpy.bool_, même si isinstance passerait aussi
 
 
+def test_sl_long_extra_atr_widens_long_stop_but_not_short(monkeypatch):
+    """SL_LONG_EXTRA_ATR (test walk-forward only, désactivé par défaut) : doit élargir
+    le SL d'un LONG de exactement extra×ATR quand le plancher SL_MIN_ATR_MULT est
+    l'élément contraignant (consolidation serrée juste avant l'entrée -> swing low très
+    proche du prix), et ne doit strictement rien changer pour un SHORT."""
+    rng = np.random.default_rng(11)
+    base = 2000 + np.cumsum(rng.normal(0, 0.05, 550))
+    tight = base[-1] + np.cumsum(rng.normal(0, 0.005, 20))  # quasi plat -> swing proche
+    closes_long = np.concatenate([base, tight])
+    m5 = add_indicators(_frame(closes_long))
+    agg = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+    m15 = add_indicators(m5[["open", "high", "low", "close", "volume"]]
+                         .resample("15min", label="right", closed="right").agg(agg).dropna())
+    h1 = add_indicators(m5[["open", "high", "low", "close", "volume"]]
+                        .resample("60min", label="right", closed="right").agg(agg).dropna())
+    h1 = h1.copy()
+    h1.iloc[-1, h1.columns.get_loc("close")] = float(h1.iloc[-1]["ema50"]) + 5.0  # force LONG bias
+
+    monkeypatch.setattr(strategy, "BOOTSTRAP_MODE", True)
+    monkeypatch.setattr(strategy, "EMA9_FILTER_ENABLED", False)
+    monkeypatch.setattr(strategy, "M15_FILTER_ENABLED", False)
+    monkeypatch.setattr(strategy, "H1_RSI_FILTER_ENABLED", False)
+    monkeypatch.setattr(strategy, "ADX_MIN", 0.0)
+    monkeypatch.setattr(strategy, "ATR_MIN", 0.0)
+
+    monkeypatch.setattr(strategy, "SL_LONG_EXTRA_ATR", 0.0)
+    sig_base = evaluate(m5, m15, h1, check_session=False)
+    assert sig_base is not None
+    assert sig_base.direction == "long"
+    risk_base = sig_base.entry - sig_base.stop_loss
+
+    monkeypatch.setattr(strategy, "SL_LONG_EXTRA_ATR", 1.0)
+    sig_wide = evaluate(m5, m15, h1, check_session=False)
+    assert sig_wide is not None
+    risk_wide = sig_wide.entry - sig_wide.stop_loss
+
+    assert risk_wide == pytest.approx(risk_base + 1.0 * sig_wide.atr, abs=1e-6)
+
+    # Un SHORT ne doit jamais être affecté par SL_LONG_EXTRA_ATR.
+    closes_short = np.concatenate([2000 - np.cumsum(np.abs(rng.normal(0, 0.05, 550))),
+                                    tight])
+    m5_s = add_indicators(_frame(closes_short))
+    m15_s = add_indicators(m5_s[["open", "high", "low", "close", "volume"]]
+                           .resample("15min", label="right", closed="right").agg(agg).dropna())
+    h1_s = add_indicators(m5_s[["open", "high", "low", "close", "volume"]]
+                          .resample("60min", label="right", closed="right").agg(agg).dropna())
+    h1_s = h1_s.copy()
+    h1_s.iloc[-1, h1_s.columns.get_loc("close")] = float(h1_s.iloc[-1]["ema50"]) - 5.0  # force SHORT
+
+    monkeypatch.setattr(strategy, "SL_LONG_EXTRA_ATR", 0.0)
+    sig_short_base = evaluate(m5_s, m15_s, h1_s, check_session=False)
+    monkeypatch.setattr(strategy, "SL_LONG_EXTRA_ATR", 1.0)
+    sig_short_wide = evaluate(m5_s, m15_s, h1_s, check_session=False)
+    if sig_short_base is not None and sig_short_wide is not None:
+        assert sig_short_base.stop_loss == pytest.approx(sig_short_wide.stop_loss)
+
+
 def test_ema_slope_filter_rejects_long_against_declining_emas(monkeypatch):
     """EMA_SLOPE_FILTER_ENABLED (test walk-forward only, désactivé par défaut) :
     doit rejeter un LONG quand EMA9 et EMA21 M5 sont en train de baisser, même si

@@ -63,6 +63,11 @@ SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
 SL_ATR_MULT      = 1.8      # multiplicateur SL normal (plafond max)
 SL_ATR_MULT_HIGH = 2.0      # multiplicateur SL haute volatilité (ATR > ATR_HIGH)
 SL_MIN_ATR_MULT  = 1.2      # plancher SL minimal — < 1.2×ATR → 70% faux stops
+SL_LONG_EXTRA_ATR = 0.0     # ATR additionnel sur le SL (plafond ET plancher), LONG
+                             # uniquement — désactivé par défaut (test walk-forward only).
+                             # Diagnostic pretrain : faux-stop% 28.7% en LONG vs 22.5% en
+                             # SHORT à distance de SL quasi identique (1.6 vs 1.66×ATR) —
+                             # hypothèse à tester : le LONG a besoin d'un peu plus de marge.
 BE_BUFFER_R      = 0.0      # marge (en R) sous/sur l'entrée pour le SL breakeven après TP1
                              # — 0.0 = comportement actuel (SL exactement à l'entrée).
                              # Diagnostic pretrain : 47.3% des sorties "SL après TP1" auraient
@@ -985,8 +990,8 @@ def evaluate(
     if bias == "LONG":
         swing = last_swing_low(m5, lookback=10)
         raw_sl = min(swing, entry - 1e-6)
-        sl = max(raw_sl, entry - sl_mult * atr_val)
-        sl = min(sl, entry - SL_MIN_ATR_MULT * atr_val)  # plancher min 1.2×ATR
+        sl = max(raw_sl, entry - (sl_mult + SL_LONG_EXTRA_ATR) * atr_val)
+        sl = min(sl, entry - (SL_MIN_ATR_MULT + SL_LONG_EXTRA_ATR) * atr_val)  # plancher min
         direction = "long"
     else:
         swing = last_swing_high(m5, lookback=10)
