@@ -1268,7 +1268,8 @@ async def _price_tick():
                     direction = pos.direction
                     if direction == "long":
                         if rt_price <= pos.stop_loss:
-                            close_info = ms.broker.close_position(pos, "sl_realtime", price=pos.stop_loss)
+                            _sl_reason = "sl_realtime" if not pos.tp1_done else "sl_after_tp1"
+                            close_info = ms.broker.close_position(pos, _sl_reason, price=pos.stop_loss)
                             if close_info and close_info.get("closed"):
                                 now = datetime.now(timezone.utc)
                                 _finalize_trade(ms, pos, close_info, now)
@@ -1283,7 +1284,8 @@ async def _price_tick():
                                 ms.last_close_time = now
                     else:
                         if rt_price >= pos.stop_loss:
-                            close_info = ms.broker.close_position(pos, "sl_realtime", price=pos.stop_loss)
+                            _sl_reason = "sl_realtime" if not pos.tp1_done else "sl_after_tp1"
+                            close_info = ms.broker.close_position(pos, _sl_reason, price=pos.stop_loss)
                             if close_info and close_info.get("closed"):
                                 now = datetime.now(timezone.utc)
                                 _finalize_trade(ms, pos, close_info, now)
