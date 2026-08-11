@@ -2196,6 +2196,7 @@ class WalkForwardRequest(BaseModel):
     ema_slope_filter_override: Optional[bool] = None  # EMA9/21 M5 doivent pencher dans le sens du biais
     ema_slope_lookback_override: Optional[int] = None  # nb bougies M5 pour juger la pente (5 par défaut)
     sl_long_extra_atr_override: Optional[float] = None  # ATR additionnel sur le SL, LONG uniquement
+    h4_trend_filter_override: Optional[bool] = None  # exige close H4 vs EMA200 H4 aligné avec le biais
 
 
 @app.post("/api/pretrain/walkforward")
@@ -2249,6 +2250,8 @@ def start_walkforward(req: WalkForwardRequest, _user: dict = Depends(get_current
                 _overrides["EMA_SLOPE_LOOKBACK"] = req.ema_slope_lookback_override
             if req.sl_long_extra_atr_override is not None:
                 _overrides["SL_LONG_EXTRA_ATR"] = req.sl_long_extra_atr_override
+            if req.h4_trend_filter_override is not None:
+                _overrides["H4_TREND_FILTER_ENABLED"] = req.h4_trend_filter_override
             _overrides = _overrides or None
             r = _pretrain_module.run_walk_forward(
                 start=req.start, end=req.end,
