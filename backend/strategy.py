@@ -83,6 +83,12 @@ TRAIL_AFTER_TP1_ENABLED  = False  # trailing ATR après TP1 (resserre progressiv
 TRAIL_AFTER_TP1_ATR_MULT = 1.0    # distance du trailing stop derrière le plus haut/bas atteint
                              # depuis TP1 (× ATR) — ne resserre jamais en dessous du plancher BE déjà
                              # posé, ne se desserre jamais (ratchet à sens unique).
+TRAIL_AFTER_TP1_LONG_ONLY = False # restreint le trailing ci-dessus au LONG uniquement (SHORT garde le
+                             # saut fixe à BE) — walk-forward 12 fenêtres sur le trailing symétrique :
+                             # 4/12 fenêtres profitables, std_pf≈0.37, rejeté (voir CLAUDE.md). Le
+                             # SHORT convertit déjà bien vers TP2 (60.8%) avec le saut fixe ; le
+                             # tester en isolation permet de savoir si le trailing appliqué aux deux
+                             # directions a dilué/dégradé le SHORT plutôt que d'aider le LONG.
 EARLY_EXIT_MINUTES = 15     # sortie si MFE < EARLY_EXIT_MFE_R après ce délai (pas de conviction)
 EARLY_EXIT_MFE_R   = 0.2    # seuil MFE/R en dessous duquel le trade est jugé sans conviction
 SWING_LOOKBACK = 5          # bars each side for swing detection

@@ -445,6 +445,7 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
   const [h4TrendFilter, setH4TrendFilter] = useState(false);
   const [trailAfterTp1, setTrailAfterTp1] = useState(false);
   const [wfTrailAtrMult, setWfTrailAtrMult] = useState("");
+  const [trailLongOnly, setTrailLongOnly] = useState(false);
   const [wfBeBufferR, setWfBeBufferR] = useState("");
   const [obRequireLiquidity, setObRequireLiquidity] = useState(false);
   const [wfEarlyExitOverride, setWfEarlyExitOverride] = useState("");
@@ -887,7 +888,8 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
         sl_long_extra_atr_override: wfSlLongExtra !== "" ? parseFloat(wfSlLongExtra) : null,
         h4_trend_filter_override: h4TrendFilter ? true : null,
         trail_after_tp1_override: trailAfterTp1 ? true : null,
-        trail_after_tp1_atr_mult_override: wfTrailAtrMult !== "" ? parseFloat(wfTrailAtrMult) : null }),
+        trail_after_tp1_atr_mult_override: wfTrailAtrMult !== "" ? parseFloat(wfTrailAtrMult) : null,
+        trail_after_tp1_long_only_override: trailLongOnly ? true : null }),
     }).then(() => setWfLoading(false)).catch(() => setWfLoading(false));
   };
 
@@ -2693,6 +2695,13 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                           style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, cursor: "pointer" }}>
+                        <input type="checkbox" checked={trailLongOnly} onChange={e => setTrailLongOnly(e.target.checked)}
+                          style={{ accentColor: COLORS.amber }} />
+                        <span style={{ fontSize: 9, color: trailLongOnly ? COLORS.amber : COLORS.sub }}>
+                          ↳ restreindre le trailing au LONG uniquement (SHORT garde le saut fixe à BE)
+                        </span>
+                      </label>
                       </>)}
                       {strategyMode === "B" && (<>
                       <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, cursor: "pointer" }}>
@@ -2739,7 +2748,7 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
                       )}
-                      {(wfAdxOverride !== "" || wfRsiLongOverride !== "" || wfRsiShortOverride !== "" || wfAtrMinOverride !== "" || wfTrendBiasOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "" || obRequireBos || wfBeBufferR !== "" || obRequireLiquidity || wfEarlyExitOverride !== "" || wfAdxH1Override !== "" || emaSlopeFilter || wfEmaSlopeLookback !== "" || wfSlLongExtra !== "" || h4TrendFilter || trailAfterTp1 || wfTrailAtrMult !== "") && (
+                      {(wfAdxOverride !== "" || wfRsiLongOverride !== "" || wfRsiShortOverride !== "" || wfAtrMinOverride !== "" || wfTrendBiasOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "" || obRequireBos || wfBeBufferR !== "" || obRequireLiquidity || wfEarlyExitOverride !== "" || wfAdxH1Override !== "" || emaSlopeFilter || wfEmaSlopeLookback !== "" || wfSlLongExtra !== "" || h4TrendFilter || trailAfterTp1 || wfTrailAtrMult !== "" || trailLongOnly) && (
                         <div style={{ fontSize: 9, color: COLORS.amber, marginBottom: 4 }}>
                           ⚠ Test isolé — ne modifie pas le réglage live tant que tu ne le forces pas ailleurs.
                         </div>
