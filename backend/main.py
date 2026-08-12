@@ -2582,6 +2582,7 @@ def pretrain_stats(_user: dict = Depends(get_current_user)):
         "diag_by_dow":           result.get("diag_by_dow", {}),
         "diag_by_direction":     result.get("diag_by_direction", {}),
         "diag_by_direction_regime": result.get("diag_by_direction_regime", {}),
+        "diag_by_direction_exit_reason": result.get("diag_by_direction_exit_reason", {}),
     }
 
 

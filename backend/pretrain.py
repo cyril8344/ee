@@ -704,6 +704,9 @@ def run_pretrain(
         # ---- Diagnostic LONG/SHORT par alignement H4 (voir _diag_by_direction_regime) ----
         diag_by_direction_regime = _diag_by_direction_regime(trades_log)
 
+        # ---- Diagnostic LONG/SHORT par type de sortie (voir _diag_by_direction_exit_reason) ----
+        diag_by_direction_exit_reason = _diag_by_direction_exit_reason(trades_log)
+
         # ---- Ratio d'efficacité directionnelle (Kaufman) sur H1 ----
         # Contrairement à avg_adx_h1 (moyenné seulement sur les trades pris), ceci
         # mesure le PRIX lui-même sur toute la fenêtre, trades ou pas : 1.0 = aller
@@ -899,6 +902,7 @@ def run_pretrain(
             "diag_by_dow":            diag_by_dow,
             "diag_by_direction":      diag_by_direction,
             "diag_by_direction_regime": diag_by_direction_regime,
+            "diag_by_direction_exit_reason": diag_by_direction_exit_reason,
             "regime_signature":       regime_signature,
             "efficiency_ratio_h1":    efficiency_ratio_h1,
             "rejection_counts":       dict(sorted(rejection_counts.items(), key=lambda x: -x[1])),
@@ -1069,6 +1073,40 @@ def _diag_by_direction_regime(trades_log: List[Dict[str, Any]]) -> Dict[str, Any
             "n":   v["n"],
             "wr":  round(v["wins"] / v["n"] * 100, 1) if v["n"] else 0,
             "pnl": round(v["pnl"], 2),
+        }
+        for key, v in by_group.items() if v["n"] >= 3
+    }
+
+
+def _diag_by_direction_exit_reason(trades_log: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """LONG/SHORT segmentés par type de sortie (tp1/tp2/sl/sl_after_tp1/timeout/
+    early_exit). diag_by_direction_regime montre un WR quasi identique LONG vs SHORT
+    "H4 aligné" (54.6% vs 54.0%) mais un PnL de signe opposé — donc l'écart n'est pas
+    un problème de régime/alignement, plutôt une différence dans COMMENT chaque
+    direction gagne/perd (plus de SL direct, moins de TP2 atteint, etc.). Ce
+    diagnostic isole quelle catégorie de sortie porte l'écart. Seuil n>=3 par groupe,
+    comme les autres diagnostics par direction."""
+    from collections import defaultdict as _dd
+
+    _known = {"tp1", "tp2", "sl", "sl_after_tp1", "timeout", "early_exit"}
+    by_group: dict = _dd(lambda: {"n": 0, "wins": 0, "pnl": 0.0})
+    by_dir_total: dict = _dd(int)
+    for t in trades_log:
+        direction = t.get("direction", "long")
+        by_dir_total[direction] += 1
+        reason = t.get("exit_reason") or "other"
+        bucket = reason if reason in _known else "other"
+        key = f"{direction}_{bucket}"
+        by_group[key]["n"] += 1
+        by_group[key]["wins"] += int(t.get("won", False))
+        by_group[key]["pnl"] += t.get("pnl", 0.0)
+
+    return {
+        key: {
+            "n":       v["n"],
+            "pct":     round(v["n"] / by_dir_total[key.split("_", 1)[0]] * 100, 1),
+            "avg_pnl": round(v["pnl"] / v["n"], 2) if v["n"] else 0,
+            "pnl":     round(v["pnl"], 2),
         }
         for key, v in by_group.items() if v["n"] >= 3
     }
