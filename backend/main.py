@@ -526,6 +526,23 @@ def _launch_auto_pretrain(label: str = "auto", window_months: int = 3, reset: bo
 # Trading loop (one decision per tick)
 # --------------------------------------------------------------------------- #
 def trading_tick() -> Dict[str, Any]:
+    # Ne jamais évaluer de signal live pendant qu'un pretrain/walk-forward/Optuna —
+    # lancé manuellement depuis le panel OU automatiquement par wf_monitor (surveillance
+    # hebdomadaire, voir wf_monitor.py::maybe_run) — mute temporairement les paramètres
+    # du module strategy/strategy_ict via setattr (voir pretrain.py::_STRATEGY_OVERRIDE_LOCK).
+    # Ces deux boucles tournent dans des threads différents sur le même process ; sans ce
+    # verrou, un trade réel (paper ou live) peut s'ouvrir/se gérer avec des seuils de TEST
+    # au lieu des seuils live pendant la fenêtre de mutation. Non-bloquant : on saute ce
+    # tick (~2s de boucle), sans impact sur le trading M5.
+    if not _pretrain_module._STRATEGY_OVERRIDE_LOCK.acquire(blocking=False):
+        return _public_state()
+    try:
+        return _trading_tick_locked()
+    finally:
+        _pretrain_module._STRATEGY_OVERRIDE_LOCK.release()
+
+
+def _trading_tick_locked() -> Dict[str, Any]:
     with state.lock:
         # Daily rollover
         today = db.today_utc()
@@ -927,7 +944,12 @@ def trading_tick() -> Dict[str, Any]:
             state.bot_status = "ACTIF"
 
         # researcher / adaptive désactivés (voir CLAUDE.md) — plus d'appel périodique ici
-        # Walk-forward automatique — diagnostic seul (ne modifie jamais strategy.*)
+        # Walk-forward automatique (surveillance) : lance un thread qui APPELLE
+        # pretrain.run_walk_forward() et mute donc temporairement strategy.* comme tout
+        # walk-forward — protégé par _STRATEGY_OVERRIDE_LOCK (voir trading_tick() ci-dessus),
+        # pas par une isolation propre à wf_monitor. Le nom "diagnostic seul" fait référence
+        # au fait qu'il ne modifie jamais les réglages LIVE persistés, pas à une absence de
+        # setattr temporaire sur le module partagé.
         state.wf_monitor.maybe_run(has_active_position=any_active)
 
         return _public_state(session, news_status)
@@ -1673,6 +1695,16 @@ def trade_audit_endpoint(start: str, end: str, symbol: str = "XAUUSD",
         return audit_trades(start, end, symbol=symbol, replay_sl_after_tp1=replay)
     except Exception as exc:
         raise HTTPException(400, detail=str(exc))
+
+
+@app.get("/api/admin/override-overlap-audit")
+def override_overlap_audit_endpoint(symbol: str = "XAUUSD", _user: dict = Depends(get_current_user)):
+    """Liste les trades dont l'entrée est tombée dans une fenêtre où un pretrain/
+    walk-forward/Optuna mutait temporairement strategy.*/strategy_ict.* (protégé
+    depuis PR #336, mais historiquement pas — voir trading_tick()). Ne couvre que
+    les fenêtres enregistrées depuis l'ajout de ce log (strategy_override_windows) ;
+    les tests lancés avant ne sont pas vérifiables rétroactivement."""
+    return db.find_trades_in_override_windows(symbol=symbol)
 
 
 @app.delete("/api/trades/{trade_id}")
@@ -2549,6 +2581,7 @@ def pretrain_stats(_user: dict = Depends(get_current_user)):
         "false_stop_by_body":    result.get("false_stop_by_body", {}),
         "diag_by_dow":           result.get("diag_by_dow", {}),
         "diag_by_direction":     result.get("diag_by_direction", {}),
+        "diag_by_direction_regime": result.get("diag_by_direction_regime", {}),
     }
 
 

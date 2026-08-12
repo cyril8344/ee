@@ -2,8 +2,13 @@
 wf_monitor.py
 =============
 Walk-forward automatique périodique — surveille la robustesse OOS de la
-stratégie sans jamais modifier ses paramètres (contrairement à
-researcher_agent.py et adaptive_agent.py, désactivés — voir CLAUDE.md).
+stratégie sans jamais persister de changement de paramètre en live
+(contrairement à researcher_agent.py et adaptive_agent.py, désactivés —
+voir CLAUDE.md). Note : comme tout walk-forward, le run interne appelle
+pretrain.run_walk_forward() qui mute temporairement strategy.*/strategy_ict.*
+via setattr le temps du calcul — la boucle de trading live (main.py::
+trading_tick) est protégée contre cette fenêtre via _STRATEGY_OVERRIDE_LOCK,
+pas par une isolation propre à ce module.
 
 Purement diagnostique : relance le walk-forward à 12 fenêtres à intervalle
 régulier, hors session et sans position active, et pousse une alerte

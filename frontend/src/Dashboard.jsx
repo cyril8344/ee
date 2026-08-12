@@ -448,6 +448,8 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
   const [wfEarlyExitOverride, setWfEarlyExitOverride] = useState("");
   const [wfAdxH1Override, setWfAdxH1Override] = useState("");
   const [optunaTrials, setOptunaTrials]       = useState(30);
+  const [overrideAudit, setOverrideAudit]         = useState(null);
+  const [overrideAuditLoading, setOverrideAuditLoading] = useState(false);
   const [pretrainTrades, setPretrainTrades]   = useState(null);
   const [pretrainFilter, setPretrainFilter]   = useState("losses");
   const [pretrainPage, setPretrainPage]       = useState(0);
@@ -2362,6 +2364,53 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                                     </div>
                                   );
                                 })()}
+
+                                {/* LONG/SHORT par alignement H4 — teste si la faiblesse LONG dépend
+                                    du régime H4 ou persiste même quand H4 confirme une vraie tendance */}
+                                {(() => {
+                                  const dbr = pretrainStats.diag_by_direction_regime || {};
+                                  const keys = ["long_h4_aligné", "long_h4_non_aligné", "short_h4_aligné", "short_h4_non_aligné"];
+                                  if (!keys.some(k => dbr[k])) return null;
+                                  return (
+                                    <div style={{ marginTop: 10 }}>
+                                      <div style={{ color: COLORS.sub, marginBottom: 5 }}>
+                                        LONG/SHORT selon alignement H4 — le LONG tient-il mieux quand H4 confirme la tendance ?
+                                      </div>
+                                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 9 }}>
+                                        <thead>
+                                          <tr>
+                                            <th style={{ textAlign: "left", color: COLORS.sub, fontWeight: "normal", paddingBottom: 3 }}>Groupe</th>
+                                            <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>Trades</th>
+                                            <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>WR%</th>
+                                            <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>PnL</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {keys.map((k) => {
+                                            const v = dbr[k];
+                                            if (!v) return null;
+                                            const isLong = k.startsWith("long");
+                                            const aligned = k.endsWith("aligné") && !k.endsWith("non_aligné");
+                                            return (
+                                              <tr key={k}>
+                                                <td style={{ color: isLong ? COLORS.green : COLORS.amber, paddingTop: 2, paddingRight: 4 }}>
+                                                  {isLong ? "LONG" : "SHORT"} {aligned ? "· H4 aligné" : "· H4 non aligné"}
+                                                </td>
+                                                <td style={{ textAlign: "right", color: COLORS.sub, paddingTop: 2 }}>{v.n}</td>
+                                                <td style={{ textAlign: "right", color: v.wr >= 52 ? COLORS.green : v.wr >= 45 ? COLORS.amber : COLORS.red, paddingTop: 2, fontWeight: 600 }}>{v.wr}%</td>
+                                                <td style={{ textAlign: "right", color: v.pnl >= 0 ? COLORS.green : COLORS.red, paddingTop: 2 }}>{v.pnl >= 0 ? "+" : ""}{v.pnl}$</td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                      <div style={{ color: COLORS.sub, fontSize: 8, marginTop: 3 }}>
+                                        "H4 aligné" = biais H4 (EMA50/EMA200) dans le même sens que le trade. Si le LONG
+                                        "H4 aligné" reste faible, le problème n'est pas juste un mauvais timing de régime.
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             );
                           })()}
@@ -3287,7 +3336,7 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
               </button>
             </div>
             <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 4 }}>
-              Tourne automatiquement toutes les {state?.wf_monitor?.interval_hours ?? 168}h hors session — ne modifie jamais la stratégie, alerte seulement si hors critères.
+              Tourne automatiquement toutes les {state?.wf_monitor?.interval_hours ?? 168}h hors session — ne modifie jamais le réglage live persisté, alerte seulement si hors critères. Le trading live est mis en pause le temps du calcul (voir audit ci-dessous).
             </div>
             {state?.wf_monitor?.last_run ? (
               <div style={{ fontSize: 12 }}>
@@ -3318,6 +3367,58 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+          </div>
+
+          {/* ===== Audit chevauchement test/live (PR #336) ===== */}
+          <div className="dashboard-panel section-gap" style={{ ...panel(), marginTop: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <h3 style={{ margin: 0, fontSize: 13 }}>Audit trades pendant un test en cours</h3>
+              <button
+                onClick={() => {
+                  setOverrideAuditLoading(true);
+                  fetch(`${API}/api/admin/override-overlap-audit?symbol=${activeMarket}`, { headers: authHeaders() })
+                    .then(r => r.json())
+                    .then(d => { setOverrideAudit(d); setOverrideAuditLoading(false); })
+                    .catch(() => setOverrideAuditLoading(false));
+                }}
+                disabled={overrideAuditLoading}
+                style={{ fontSize: 10, background: "transparent", border: `1px solid ${COLORS.border}`,
+                  borderRadius: 4, color: COLORS.sub, padding: "2px 8px", cursor: "pointer" }}
+              >
+                {overrideAuditLoading ? "⏳..." : "Vérifier"}
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 4 }}>
+              Vérifie si des trades sont tombés dans une fenêtre où un pretrain/walk-forward/Optuna
+              mutait temporairement les paramètres (protégé depuis le fix — voir PR #336). Ne couvre
+              que les fenêtres enregistrées depuis ce fix ; les tests antérieurs ne sont pas vérifiables.
+            </div>
+            {overrideAudit && (
+              <div style={{ fontSize: 12 }}>
+                <div style={{ color: COLORS.sub, marginBottom: 4 }}>
+                  {overrideAudit.windows_logged} fenêtre(s) précise(s)
+                  {overrideAudit.estimated_windows > 0 ? ` + ${overrideAudit.estimated_windows} estimée(s) (runs auto ±15min)` : ""}
+                  {overrideAudit.first_window_at ? ` · depuis le ${new Date(overrideAudit.first_window_at).toLocaleString("fr-FR")}` : ""}
+                  {" "}· {overrideAudit.trades_checked} trades vérifiés
+                </div>
+                {overrideAudit.trades_at_risk.length === 0 ? (
+                  <div style={{ color: COLORS.green }}>✓ Aucun trade trouvé dans une fenêtre à risque</div>
+                ) : (
+                  <div>
+                    <div style={{ color: COLORS.red, fontWeight: 600, marginBottom: 4 }}>
+                      ⚠ {overrideAudit.trades_at_risk.length} trade(s) potentiellement affecté(s)
+                    </div>
+                    {overrideAudit.trades_at_risk.map((t) => (
+                      <div key={t.id} style={{ fontSize: 11, color: COLORS.sub, marginBottom: 2 }}>
+                        #{t.id} · {t.direction} · {new Date(t.entry_time).toLocaleString("fr-FR")}
+                        {" "}· PnL {t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}${t.pnl}$` : "?"} · {t.exit_reason || "?"}
+                        {t.estimated ? <span style={{ color: COLORS.amber }}> · estimé</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

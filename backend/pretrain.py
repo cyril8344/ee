@@ -145,6 +145,13 @@ def run_pretrain(
     # deux côtés (constaté : un walk-forward lancé pendant un Optuna en cours a vu
     # son nombre de trades s'effondrer sur une fenêtre sans raison liée aux données).
     _STRATEGY_OVERRIDE_LOCK.acquire()
+    # Horodate la fenêtre pour l'audit rétroactif (voir main.py::trading_tick et
+    # database.py::find_trades_in_override_windows) — ne doit jamais faire planter le
+    # run lui-même si la DB est momentanément indisponible.
+    try:
+        _override_window_id = db.log_override_window_start(symbol)
+    except Exception:
+        _override_window_id = None
     _saved_strategy: Dict[str, Any] = {}
     _saved_ict: Dict[str, Any] = {}
     try:
@@ -694,6 +701,9 @@ def run_pretrain(
             for _dir, _v in _by_dir.items() if _v["n"] >= 3
         }
 
+        # ---- Diagnostic LONG/SHORT par alignement H4 (voir _diag_by_direction_regime) ----
+        diag_by_direction_regime = _diag_by_direction_regime(trades_log)
+
         # ---- Ratio d'efficacité directionnelle (Kaufman) sur H1 ----
         # Contrairement à avg_adx_h1 (moyenné seulement sur les trades pris), ceci
         # mesure le PRIX lui-même sur toute la fenêtre, trades ou pas : 1.0 = aller
@@ -888,6 +898,7 @@ def run_pretrain(
             "false_stop_by_body":     false_stop_by_body,
             "diag_by_dow":            diag_by_dow,
             "diag_by_direction":      diag_by_direction,
+            "diag_by_direction_regime": diag_by_direction_regime,
             "regime_signature":       regime_signature,
             "efficiency_ratio_h1":    efficiency_ratio_h1,
             "rejection_counts":       dict(sorted(rejection_counts.items(), key=lambda x: -x[1])),
@@ -912,6 +923,11 @@ def run_pretrain(
             for k, v in _saved_ict.items():
                 setattr(strategy_ict, k, v)
         finally:
+            try:
+                if _override_window_id is not None:
+                    db.log_override_window_end(_override_window_id)
+            except Exception:
+                pass
             _STRATEGY_OVERRIDE_LOCK.release()
 
 
@@ -1025,6 +1041,36 @@ def _compare_window_regimes(windows: List[Dict[str, Any]]) -> Optional[Dict[str,
         "n_fenetres_gagnantes": len(profitable),
         "n_fenetres_perdantes": len(losing),
         "facteurs": comparisons,
+    }
+
+
+def _diag_by_direction_regime(trades_log: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """LONG/SHORT segmentés par alignement H4 (h4_bias déjà capturé par trade dans
+    ind_snap au moment de l'ouverture — voir run_pretrain()). Teste si la faiblesse
+    du LONG (diag_by_direction) tient au régime du moment (H1 dit LONG mais H4 ne
+    confirme pas — juste un rebond dans une tendance H4 plus large toujours
+    baissière) ou persiste même quand H4 confirme un vrai régime haussier soutenu.
+    Seuil n>=3 par groupe, comme diag_by_direction, pour ignorer les échantillons
+    trop bruités pour être interprétables."""
+    from collections import defaultdict as _dd
+
+    by_group: dict = _dd(lambda: {"n": 0, "wins": 0, "pnl": 0.0})
+    for t in trades_log:
+        direction = t.get("direction", "long")
+        h4 = t.get("h4_bias", 0)
+        aligned = (direction == "long" and h4 == 1) or (direction == "short" and h4 == -1)
+        key = f"{direction}_h4_aligné" if aligned else f"{direction}_h4_non_aligné"
+        by_group[key]["n"] += 1
+        by_group[key]["wins"] += int(t.get("won", False))
+        by_group[key]["pnl"] += t.get("pnl", 0.0)
+
+    return {
+        key: {
+            "n":   v["n"],
+            "wr":  round(v["wins"] / v["n"] * 100, 1) if v["n"] else 0,
+            "pnl": round(v["pnl"], 2),
+        }
+        for key, v in by_group.items() if v["n"] >= 3
     }
 
 
