@@ -2536,6 +2536,7 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                           style={{ width: 70, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
+                      {strategyMode === "A" && (<>
                       <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, cursor: "pointer" }}>
                         <input type="checkbox" checked={emaSlopeFilter} onChange={e => setEmaSlopeFilter(e.target.checked)}
                           style={{ accentColor: COLORS.amber }} />
@@ -2568,6 +2569,8 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                           Strat A — exiger close H4 aligné avec l'EMA200 H4 (LONG au-dessus, SHORT en-dessous)
                         </span>
                       </label>
+                      </>)}
+                      {strategyMode === "B" && (<>
                       <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, cursor: "pointer" }}>
                         <input type="checkbox" checked={obRequireBos} onChange={e => setObRequireBos(e.target.checked)}
                           style={{ accentColor: COLORS.amber }} />
@@ -2582,6 +2585,7 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                           Strat B — exiger poche de liquidité (Equal High/Low) sur l'OB
                         </span>
                       </label>
+                      </>)}
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                         <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
                           Marge BE après TP1, en R (vide = 0, comportement actuel)
@@ -2600,6 +2604,7 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                           style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
+                      {strategyMode === "B" && (
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                         <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
                           Strat B — ADX H1 minimum test (vide = 20 par défaut)
@@ -2609,7 +2614,8 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                           style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
-                      {(wfAdxOverride !== "" || wfRsiLongOverride !== "" || wfRsiShortOverride !== "" || wfAtrMinOverride !== "" || wfTrendBiasOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "" || obRequireBos || wfBeBufferR !== "" || obRequireLiquidity || wfEarlyExitOverride !== "" || wfAdxH1Override !== "" || emaSlopeFilter || wfEmaSlopeLookback !== "" || wfSlLongExtra !== "") && (
+                      )}
+                      {(wfAdxOverride !== "" || wfRsiLongOverride !== "" || wfRsiShortOverride !== "" || wfAtrMinOverride !== "" || wfTrendBiasOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "" || obRequireBos || wfBeBufferR !== "" || obRequireLiquidity || wfEarlyExitOverride !== "" || wfAdxH1Override !== "" || emaSlopeFilter || wfEmaSlopeLookback !== "" || wfSlLongExtra !== "" || h4TrendFilter) && (
                         <div style={{ fontSize: 9, color: COLORS.amber, marginBottom: 4 }}>
                           ⚠ Test isolé — ne modifie pas le réglage live tant que tu ne le forces pas ailleurs.
                         </div>
