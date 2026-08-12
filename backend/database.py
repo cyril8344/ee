@@ -1040,11 +1040,11 @@ def get_weekly_report(week_offset: int = 0, symbol: str | None = None) -> Dict[s
 
     sl_direct = exit_counts.get("sl", 0) + exit_counts.get("sl_realtime", 0)
     sl_after_tp1 = exit_counts.get("sl_after_tp1", 0)
-    tp2_count = exit_counts.get("tp2", 0)
+    tp2_count = exit_counts.get("tp2", 0) + exit_counts.get("tp2_realtime", 0)
     tp1_count = exit_counts.get("tp1", 0)
     timeout_count = exit_counts.get("timeout", 0)
     early_exit_count = exit_counts.get("early_exit", 0)
-    _known_reasons = {"sl", "sl_realtime", "sl_after_tp1", "tp1", "tp2", "timeout", "early_exit"}
+    _known_reasons = {"sl", "sl_realtime", "sl_after_tp1", "tp1", "tp2", "tp2_realtime", "timeout", "early_exit"}
     other_count = sum(v for k, v in exit_counts.items() if k not in _known_reasons)
 
     # Breakdown par jour de semaine
@@ -1195,11 +1195,11 @@ def get_monthly_report(month_offset: int = 0, symbol: str | None = None) -> Dict
 
     sl_direct = exit_counts.get("sl", 0) + exit_counts.get("sl_realtime", 0)
     sl_after_tp1 = exit_counts.get("sl_after_tp1", 0)
-    tp2_count = exit_counts.get("tp2", 0)
+    tp2_count = exit_counts.get("tp2", 0) + exit_counts.get("tp2_realtime", 0)
     tp1_count = exit_counts.get("tp1", 0)
     timeout_count = exit_counts.get("timeout", 0)
     early_exit_count = exit_counts.get("early_exit", 0)
-    _known_reasons = {"sl", "sl_realtime", "sl_after_tp1", "tp1", "tp2", "timeout", "early_exit"}
+    _known_reasons = {"sl", "sl_realtime", "sl_after_tp1", "tp1", "tp2", "tp2_realtime", "timeout", "early_exit"}
     other_count = sum(v for k, v in exit_counts.items() if k not in _known_reasons)
 
     _by_week: Dict[str, Dict] = defaultdict(lambda: {"n": 0, "wins": 0, "pnl": 0.0})

@@ -1,9 +1,10 @@
 """Regression test: get_weekly_report()/get_monthly_report() must account for
-every real exit_reason value (sl, sl_realtime, sl_after_tp1, tp1, tp2, timeout,
-early_exit, ...), not just the 4 originally hardcoded ("sl"/"tp2"/"tp1"/
-"timeout") — otherwise most closed trades (typically "sl_after_tp1", the
-breakeven exit after TP1, which is a very common outcome) silently vanish
-from the "Sorties" breakdown without appearing in any bucket.
+every real exit_reason value (sl, sl_realtime, sl_after_tp1, tp1, tp2,
+tp2_realtime, timeout, early_exit, ...), not just the 4 originally hardcoded
+("sl"/"tp2"/"tp1"/"timeout") — otherwise trades silently vanish from the
+"Sorties" breakdown into no bucket at all. "sl_after_tp1" (BE after TP1) and
+"tp2_realtime" (TP2 hit by the real-time price tick between two bar closes,
+see main.py::_price_tick) are both common in practice, not edge cases.
 """
 import uuid
 from datetime import datetime, timezone
@@ -32,7 +33,7 @@ def test_weekly_report_accounts_for_every_exit_reason():
     db.init_db()
     symbol = _unique_symbol("TESTSYM_EXITS_WK")
     reasons = ["sl", "sl_realtime", "sl_after_tp1", "sl_after_tp1",
-               "tp1", "tp2", "timeout", "early_exit", "manual"]
+               "tp1", "tp2", "tp2_realtime", "timeout", "early_exit", "manual"]
     for r in reasons:
         _insert_closed_trade(symbol, r)
 
@@ -44,7 +45,7 @@ def test_weekly_report_accounts_for_every_exit_reason():
     assert ex["sl_direct"] == 2       # "sl" + "sl_realtime"
     assert ex["sl_after_tp1"] == 2
     assert ex["tp1_only"] == 1
-    assert ex["tp2"] == 1
+    assert ex["tp2"] == 2      # "tp2" + "tp2_realtime" (hit temps réel entre 2 bougies)
     assert ex["timeout"] == 1
     assert ex["early_exit"] == 1
     assert ex["other"] == 1           # "manual"
@@ -58,7 +59,7 @@ def test_monthly_report_accounts_for_every_exit_reason():
     db.init_db()
     symbol = _unique_symbol("TESTSYM_EXITS_MO")
     reasons = ["sl", "sl_realtime", "sl_after_tp1", "sl_after_tp1",
-               "tp1", "tp2", "timeout", "early_exit", "manual"]
+               "tp1", "tp2", "tp2_realtime", "timeout", "early_exit", "manual"]
     for r in reasons:
         _insert_closed_trade(symbol, r)
 
@@ -70,7 +71,7 @@ def test_monthly_report_accounts_for_every_exit_reason():
     assert ex["sl_direct"] == 2
     assert ex["sl_after_tp1"] == 2
     assert ex["tp1_only"] == 1
-    assert ex["tp2"] == 1
+    assert ex["tp2"] == 2      # "tp2" + "tp2_realtime" (hit temps réel entre 2 bougies)
     assert ex["timeout"] == 1
     assert ex["early_exit"] == 1
     assert ex["other"] == 1
