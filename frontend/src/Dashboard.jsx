@@ -3351,8 +3351,9 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
             {overrideAudit && (
               <div style={{ fontSize: 12 }}>
                 <div style={{ color: COLORS.sub, marginBottom: 4 }}>
-                  {overrideAudit.windows_logged} fenêtre(s) enregistrée(s)
-                  {overrideAudit.first_window_at ? ` depuis le ${new Date(overrideAudit.first_window_at).toLocaleString("fr-FR")}` : ""}
+                  {overrideAudit.windows_logged} fenêtre(s) précise(s)
+                  {overrideAudit.estimated_windows > 0 ? ` + ${overrideAudit.estimated_windows} estimée(s) (runs auto ±15min)` : ""}
+                  {overrideAudit.first_window_at ? ` · depuis le ${new Date(overrideAudit.first_window_at).toLocaleString("fr-FR")}` : ""}
                   {" "}· {overrideAudit.trades_checked} trades vérifiés
                 </div>
                 {overrideAudit.trades_at_risk.length === 0 ? (
@@ -3366,6 +3367,7 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                       <div key={t.id} style={{ fontSize: 11, color: COLORS.sub, marginBottom: 2 }}>
                         #{t.id} · {t.direction} · {new Date(t.entry_time).toLocaleString("fr-FR")}
                         {" "}· PnL {t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}${t.pnl}$` : "?"} · {t.exit_reason || "?"}
+                        {t.estimated ? <span style={{ color: COLORS.amber }}> · estimé</span> : null}
                       </div>
                     ))}
                   </div>

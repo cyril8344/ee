@@ -91,3 +91,27 @@ def test_trade_during_still_open_window_is_not_flagged():
     assert result["open_windows"] >= 1
     at_risk_entries = [t["entry_time"] for t in result["trades_at_risk"]]
     assert trade_time not in at_risk_entries
+
+
+def test_trade_near_auto_wf_monitor_run_is_flagged_as_estimated():
+    """wf_monitor_runs n'a que l'horaire de FIN d'un run auto (pas de début exact) —
+    on doit quand même signaler, en l'étiquetant explicitement "estimated", un trade
+    tombé dans la fenêtre approximative [fin - 15min, fin]."""
+    db.init_db()
+    symbol = _unique_symbol("TESTSYM_AUTOWF")
+    now = datetime.now(timezone.utc)
+    db.wf_monitor_log_run(symbol, "period-test", 1.1, 0.2, 60.0, True)
+    with db.get_conn() as conn:
+        conn.execute(
+            "UPDATE wf_monitor_runs SET created_at = ? WHERE symbol = ?",
+            (now.isoformat(), symbol),
+        )
+
+    trade_time = (now - timedelta(minutes=5)).isoformat()  # dans les 15min avant la fin du run
+    _insert_trade_at(symbol, trade_time)
+
+    result = db.find_trades_in_override_windows(symbol=symbol)
+    assert result["estimated_windows"] >= 1
+    matches = [t for t in result["trades_at_risk"] if t["entry_time"] == trade_time]
+    assert len(matches) == 1
+    assert matches[0]["estimated"] is True

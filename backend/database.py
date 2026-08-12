@@ -872,10 +872,34 @@ def find_trades_in_override_windows(symbol: str = "XAUUSD", limit: int = 500) ->
             "FROM trades WHERE symbol = ? ORDER BY entry_time DESC LIMIT 2000",
             (symbol,),
         ).fetchall()
+        # wf_monitor_runs.created_at n'horodate que la FIN du run (12 fenêtres, appel
+        # unique à run_walk_forward) — pas de début exact enregistré. On approxime la
+        # fenêtre à risque comme [created_at - 15min, created_at], marquée "estimated"
+        # pour la distinguer des fenêtres précises loguées depuis ce commit. Seul signal
+        # disponible pour les runs automatiques antérieurs à ce fix — rien d'équivalent
+        # n'existe pour les runs manuels (walk-forward/Optuna déclenchés depuis le panel),
+        # jamais horodatés avant.
+        auto_runs = conn.execute(
+            "SELECT id, created_at FROM wf_monitor_runs WHERE symbol = ? ORDER BY id DESC",
+            (symbol,),
+        ).fetchall()
 
     windows_list = [dict(w) for w in windows]
     open_windows = [w for w in windows_list if w["ended_at"] is None]
     closed_windows = [w for w in windows_list if w["ended_at"] is not None]
+
+    estimated_windows = []
+    for r in auto_runs:
+        try:
+            end_dt = datetime.fromisoformat(r["created_at"])
+            start_dt = end_dt - timedelta(minutes=15)
+            estimated_windows.append({
+                "id": f"wf_monitor_run_{r['id']}", "started_at": start_dt.isoformat(),
+                "ended_at": end_dt.isoformat(), "symbol": symbol, "estimated": True,
+            })
+        except Exception:
+            continue
+    closed_windows = closed_windows + estimated_windows
 
     at_risk = []
     for t in trades:
@@ -885,17 +909,20 @@ def find_trades_in_override_windows(symbol: str = "XAUUSD", limit: int = 500) ->
         for w in closed_windows:
             if w["started_at"] <= entry <= w["ended_at"]:
                 at_risk.append({**dict(t), "window_id": w["id"], "window_started_at": w["started_at"],
-                                 "window_ended_at": w["ended_at"]})
+                                 "window_ended_at": w["ended_at"], "estimated": w.get("estimated", False)})
                 break
 
     return {
         "windows_logged":     len(windows_list),
         "open_windows":       len(open_windows),
+        "estimated_windows":  len(estimated_windows),
         "first_window_at":    windows_list[-1]["started_at"] if windows_list else None,
         "trades_checked":     len(trades),
         "trades_at_risk":     at_risk,
-        "note": ("Seules les fenêtres enregistrées depuis l'ajout de ce log sont couvertes — "
-                 "les tests walk-forward lancés avant ne sont pas vérifiables rétroactivement."),
+        "note": ("Fenêtres précises depuis ce commit + fenêtres ESTIMÉES (±15min) pour les runs "
+                 "wf_monitor automatiques antérieurs (seuls horodatés). Les tests manuels "
+                 "(walk-forward/Optuna lancés depuis le panel) antérieurs à ce commit ne sont "
+                 "pas vérifiables — jamais horodatés."),
     }
 
 
