@@ -49,11 +49,13 @@ _TS = pd.Timestamp(2024, 1, 1, 10, 5)
 def setup_function(_):
     strategy.TRAIL_AFTER_TP1_ENABLED = False
     strategy.TRAIL_AFTER_TP1_ATR_MULT = 1.0
+    strategy.TRAIL_AFTER_TP1_LONG_ONLY = False
 
 
 def teardown_function(_):
     strategy.TRAIL_AFTER_TP1_ENABLED = False
     strategy.TRAIL_AFTER_TP1_ATR_MULT = 1.0
+    strategy.TRAIL_AFTER_TP1_LONG_ONLY = False
 
 
 def test_trailing_disabled_by_default_sl_stays_at_be_after_tp1():
@@ -134,3 +136,32 @@ def test_trailing_skipped_when_atr_is_zero():
     exit_info = _try_exit(t, _bar(2010.0, 2009.0, 2009.5, atr=0.0), _TS, 0.0, 1.0)
     assert exit_info is None
     assert t["stop_loss"] == t["entry"]  # pas d'ATR dispo -> pas de mise a jour du trailing
+
+
+def test_long_only_restriction_still_trails_long():
+    strategy.TRAIL_AFTER_TP1_ENABLED = True
+    strategy.TRAIL_AFTER_TP1_ATR_MULT = 1.0
+    strategy.TRAIL_AFTER_TP1_LONG_ONLY = True
+    t = _make_long_trade()
+    _try_exit(t, _bar(2001.5, 2000.5, 2001.0, atr=5.0), _TS, 0.0, 1.0)
+    assert t["stop_loss"] == t["entry"]
+
+    exit_info = _try_exit(t, _bar(2008.0, 2006.0, 2007.0, atr=5.0), _TS, 0.0, 1.0)
+    assert exit_info is None
+    assert t["stop_loss"] == 2003.0  # trailing toujours actif pour le LONG
+
+
+def test_long_only_restriction_leaves_short_at_fixed_be():
+    strategy.TRAIL_AFTER_TP1_ENABLED = True
+    strategy.TRAIL_AFTER_TP1_ATR_MULT = 1.0
+    strategy.TRAIL_AFTER_TP1_LONG_ONLY = True
+    t = _make_short_trade()
+    _try_exit(t, _bar(2000.0, 1998.5, 1999.0, atr=5.0), _TS, 0.0, 1.0)
+    assert t["stop_loss"] == t["entry"]
+
+    # sans la restriction, ce mouvement resserrerait le stop a 1995 (voir
+    # test_trailing_ratchets_sl_down_for_short_after_tp1) ; avec LONG_ONLY, le
+    # SHORT garde le saut fixe a BE, le stop ne doit pas bouger
+    exit_info = _try_exit(t, _bar(1993.0, 1990.0, 1991.0, atr=5.0), _TS, 0.0, 1.0)
+    assert exit_info is None
+    assert t["stop_loss"] == t["entry"]

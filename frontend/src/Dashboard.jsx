@@ -445,6 +445,7 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
   const [h4TrendFilter, setH4TrendFilter] = useState(false);
   const [trailAfterTp1, setTrailAfterTp1] = useState(false);
   const [wfTrailAtrMult, setWfTrailAtrMult] = useState("");
+  const [trailLongOnly, setTrailLongOnly] = useState(false);
   const [wfBeBufferR, setWfBeBufferR] = useState("");
   const [obRequireLiquidity, setObRequireLiquidity] = useState(false);
   const [wfEarlyExitOverride, setWfEarlyExitOverride] = useState("");
@@ -887,7 +888,8 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
         sl_long_extra_atr_override: wfSlLongExtra !== "" ? parseFloat(wfSlLongExtra) : null,
         h4_trend_filter_override: h4TrendFilter ? true : null,
         trail_after_tp1_override: trailAfterTp1 ? true : null,
-        trail_after_tp1_atr_mult_override: wfTrailAtrMult !== "" ? parseFloat(wfTrailAtrMult) : null }),
+        trail_after_tp1_atr_mult_override: wfTrailAtrMult !== "" ? parseFloat(wfTrailAtrMult) : null,
+        trail_after_tp1_long_only_override: trailLongOnly ? true : null }),
     }).then(() => setWfLoading(false)).catch(() => setWfLoading(false));
   };
 
@@ -2693,6 +2695,13 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                           style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, cursor: "pointer" }}>
+                        <input type="checkbox" checked={trailLongOnly} onChange={e => setTrailLongOnly(e.target.checked)}
+                          style={{ accentColor: COLORS.amber }} />
+                        <span style={{ fontSize: 9, color: trailLongOnly ? COLORS.amber : COLORS.sub }}>
+                          ↳ restreindre le trailing au LONG uniquement (SHORT garde le saut fixe à BE)
+                        </span>
+                      </label>
                       </>)}
                       {strategyMode === "B" && (<>
                       <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, cursor: "pointer" }}>
@@ -2739,7 +2748,7 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
                       )}
-                      {(wfAdxOverride !== "" || wfRsiLongOverride !== "" || wfRsiShortOverride !== "" || wfAtrMinOverride !== "" || wfTrendBiasOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "" || obRequireBos || wfBeBufferR !== "" || obRequireLiquidity || wfEarlyExitOverride !== "" || wfAdxH1Override !== "" || emaSlopeFilter || wfEmaSlopeLookback !== "" || wfSlLongExtra !== "" || h4TrendFilter || trailAfterTp1 || wfTrailAtrMult !== "") && (
+                      {(wfAdxOverride !== "" || wfRsiLongOverride !== "" || wfRsiShortOverride !== "" || wfAtrMinOverride !== "" || wfTrendBiasOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "" || obRequireBos || wfBeBufferR !== "" || obRequireLiquidity || wfEarlyExitOverride !== "" || wfAdxH1Override !== "" || emaSlopeFilter || wfEmaSlopeLookback !== "" || wfSlLongExtra !== "" || h4TrendFilter || trailAfterTp1 || wfTrailAtrMult !== "" || trailLongOnly) && (
                         <div style={{ fontSize: 9, color: COLORS.amber, marginBottom: 4 }}>
                           ⚠ Test isolé — ne modifie pas le réglage live tant que tu ne le forces pas ailleurs.
                         </div>
@@ -4092,7 +4101,7 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                             <th style={th}>Dir</th>
                             <th style={th}>Entrée</th>
                             <th style={th}>Sortie</th>
-                            <th style={th}>Mise</th>
+                            <th style={th}>Risque max</th>
                             <th style={th}>Gain pot.</th>
                             <th style={th}>Résultat</th>
                             <th style={th}>Raison</th>
@@ -4103,10 +4112,13 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                     {filteredTrades.slice().reverse().map((t) => {
                       const cs = t.symbol === "EURUSD" ? 100000 : 100;
                       const sign = t.direction === "long" ? 1 : -1;
+                      // Split réel 50%/50% (TP1 puis TP2 sur le reste), comme le panel du
+                      // trade actif ci-dessus (gainTp1/gainTp2) — pas "100% de la mise à
+                      // chaque niveau", qui ne correspond à aucun scénario réel de la stratégie.
                       const gTp1 = t.take_profit1 && t.entry_price && t.volume
-                        ? sign * (t.take_profit1 - t.entry_price) * t.volume * cs : null;
-                      const gTp2 = t.take_profit2 && t.entry_price && t.volume
-                        ? sign * (t.take_profit2 - t.entry_price) * t.volume * cs : null;
+                        ? sign * (t.take_profit1 - t.entry_price) * (t.volume * 0.5) * cs : null;
+                      const gTp2 = (t.take_profit2 && t.entry_price && t.volume && gTp1 != null)
+                        ? gTp1 + sign * (t.take_profit2 - t.entry_price) * (t.volume * 0.5) * cs : null;
                       const dp = t.symbol === "EURUSD" ? 5 : 2;
                       return (
                         <tr key={t.id} style={{ borderTop: `1px solid ${COLORS.border}` }}>
@@ -4136,15 +4148,15 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                               SL: {fmt(t.stop_loss, dp + 1)}
                             </div>
                           </td>
-                          <td style={{ ...td, color: COLORS.amber }}>
-                            {t.risk_amount ? money(t.risk_amount) : "—"}
+                          <td style={{ ...td, color: COLORS.red }} title="Perte si le SL est touché avant TP1 (position complète)">
+                            {t.risk_amount ? money(-t.risk_amount) : "—"}
                             <div style={{ fontSize: 9, color: COLORS.sub }}>
                               {t.volume != null ? `${fmt(t.volume, 3)} lots` : "—"}
                             </div>
                           </td>
                           <td style={{ ...td, fontSize: 11 }}>
                             {gTp1 != null ? (
-                              <span title={`TP1: ${money(gTp1)} · TP2: ${money(gTp2)}`}>
+                              <span title={`Si TP1 puis BE (reste à 0) : ${money(gTp1)} · Si TP1+TP2 atteints : ${money(gTp2)}`}>
                                 <span style={{ color: COLORS.green }}>{money(gTp1)}</span>
                                 {gTp2 != null && (
                                   <span style={{ color: COLORS.sub }}> / {money(gTp2)}</span>

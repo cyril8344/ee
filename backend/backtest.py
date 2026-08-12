@@ -389,7 +389,12 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
     # testable au saut unique à BE — resserre le SL derrière le plus haut/bas de la
     # bougie courante, jamais en dessous du plancher BE déjà posé ci-dessus (ratchet
     # à sens unique, comparaison via max/min avec le stop courant).
-    if t["tp1_done"] and strategy.TRAIL_AFTER_TP1_ENABLED:
+    # TRAIL_AFTER_TP1_LONG_ONLY restreint ce mécanisme au LONG — le SHORT garde alors
+    # le saut fixe à BE (voir strategy.TRAIL_AFTER_TP1_LONG_ONLY).
+    _trail_applies = strategy.TRAIL_AFTER_TP1_ENABLED and (
+        not strategy.TRAIL_AFTER_TP1_LONG_ONLY or direction == "long"
+    )
+    if t["tp1_done"] and _trail_applies:
         atr_val = float(bar.get("atr", 0) or 0)
         if atr_val > 0:
             trail_dist = strategy.TRAIL_AFTER_TP1_ATR_MULT * atr_val
