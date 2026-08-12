@@ -1,5 +1,7 @@
 """Tests for pretrain.py's shared-state isolation between standalone runs and
 internal walk-forward/Optuna windows (write_to_db=False)."""
+import pytest
+
 import database as db
 import pretrain
 
@@ -76,3 +78,41 @@ def test_compare_window_regimes_returns_none_when_all_same_side():
         _fake_window(pf=1.4, n_trades=35, adx=26.0, sl_pct=19.0, wr=57.0),
     ]
     assert pretrain._compare_window_regimes(windows) is None
+
+
+def _fake_trade(direction, h4_bias, won, pnl=10.0):
+    return {"direction": direction, "h4_bias": h4_bias, "won": won, "pnl": pnl}
+
+
+def test_diag_by_direction_regime_splits_long_by_h4_alignment():
+    trades = (
+        [_fake_trade("long", 1, True, 20.0) for _ in range(6)]      # LONG, H4 aligné, tous gagnants
+        + [_fake_trade("long", 1, False, -10.0) for _ in range(2)]
+        + [_fake_trade("long", -1, False, -15.0) for _ in range(5)]  # LONG, H4 PAS aligné, tous perdants
+        + [_fake_trade("long", 0, False, -12.0)]
+    )
+    result = pretrain._diag_by_direction_regime(trades)
+
+    assert result["long_h4_aligné"]["n"] == 8
+    assert result["long_h4_aligné"]["wr"] == pytest.approx(75.0)
+    assert result["long_h4_non_aligné"]["n"] == 6
+    assert result["long_h4_non_aligné"]["wr"] == pytest.approx(0.0)
+
+
+def test_diag_by_direction_regime_matches_short_alignment_on_h4_minus_one():
+    trades = (
+        [_fake_trade("short", -1, True, 15.0) for _ in range(4)]
+        + [_fake_trade("short", 1, False, -8.0) for _ in range(3)]
+    )
+    result = pretrain._diag_by_direction_regime(trades)
+
+    assert result["short_h4_aligné"]["n"] == 4
+    assert result["short_h4_aligné"]["wr"] == pytest.approx(100.0)
+    assert result["short_h4_non_aligné"]["n"] == 3
+    assert result["short_h4_non_aligné"]["wr"] == pytest.approx(0.0)
+
+
+def test_diag_by_direction_regime_drops_groups_under_min_sample():
+    trades = [_fake_trade("long", 1, True) for _ in range(2)]  # n=2, sous le seuil de 3
+    result = pretrain._diag_by_direction_regime(trades)
+    assert "long_h4_aligné" not in result

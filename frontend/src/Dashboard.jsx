@@ -2364,6 +2364,53 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                                     </div>
                                   );
                                 })()}
+
+                                {/* LONG/SHORT par alignement H4 — teste si la faiblesse LONG dépend
+                                    du régime H4 ou persiste même quand H4 confirme une vraie tendance */}
+                                {(() => {
+                                  const dbr = pretrainStats.diag_by_direction_regime || {};
+                                  const keys = ["long_h4_aligné", "long_h4_non_aligné", "short_h4_aligné", "short_h4_non_aligné"];
+                                  if (!keys.some(k => dbr[k])) return null;
+                                  return (
+                                    <div style={{ marginTop: 10 }}>
+                                      <div style={{ color: COLORS.sub, marginBottom: 5 }}>
+                                        LONG/SHORT selon alignement H4 — le LONG tient-il mieux quand H4 confirme la tendance ?
+                                      </div>
+                                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 9 }}>
+                                        <thead>
+                                          <tr>
+                                            <th style={{ textAlign: "left", color: COLORS.sub, fontWeight: "normal", paddingBottom: 3 }}>Groupe</th>
+                                            <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>Trades</th>
+                                            <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>WR%</th>
+                                            <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>PnL</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {keys.map((k) => {
+                                            const v = dbr[k];
+                                            if (!v) return null;
+                                            const isLong = k.startsWith("long");
+                                            const aligned = k.endsWith("aligné") && !k.endsWith("non_aligné");
+                                            return (
+                                              <tr key={k}>
+                                                <td style={{ color: isLong ? COLORS.green : COLORS.amber, paddingTop: 2, paddingRight: 4 }}>
+                                                  {isLong ? "LONG" : "SHORT"} {aligned ? "· H4 aligné" : "· H4 non aligné"}
+                                                </td>
+                                                <td style={{ textAlign: "right", color: COLORS.sub, paddingTop: 2 }}>{v.n}</td>
+                                                <td style={{ textAlign: "right", color: v.wr >= 52 ? COLORS.green : v.wr >= 45 ? COLORS.amber : COLORS.red, paddingTop: 2, fontWeight: 600 }}>{v.wr}%</td>
+                                                <td style={{ textAlign: "right", color: v.pnl >= 0 ? COLORS.green : COLORS.red, paddingTop: 2 }}>{v.pnl >= 0 ? "+" : ""}{v.pnl}$</td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                      <div style={{ color: COLORS.sub, fontSize: 8, marginTop: 3 }}>
+                                        "H4 aligné" = biais H4 (EMA50/EMA200) dans le même sens que le trade. Si le LONG
+                                        "H4 aligné" reste faible, le problème n'est pas juste un mauvais timing de régime.
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             );
                           })()}
