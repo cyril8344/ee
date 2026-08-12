@@ -1697,6 +1697,16 @@ def trade_audit_endpoint(start: str, end: str, symbol: str = "XAUUSD",
         raise HTTPException(400, detail=str(exc))
 
 
+@app.get("/api/admin/override-overlap-audit")
+def override_overlap_audit_endpoint(symbol: str = "XAUUSD", _user: dict = Depends(get_current_user)):
+    """Liste les trades dont l'entrée est tombée dans une fenêtre où un pretrain/
+    walk-forward/Optuna mutait temporairement strategy.*/strategy_ict.* (protégé
+    depuis PR #336, mais historiquement pas — voir trading_tick()). Ne couvre que
+    les fenêtres enregistrées depuis l'ajout de ce log (strategy_override_windows) ;
+    les tests lancés avant ne sont pas vérifiables rétroactivement."""
+    return db.find_trades_in_override_windows(symbol=symbol)
+
+
 @app.delete("/api/trades/{trade_id}")
 def delete_trade_by_id(trade_id: int, _user: dict = Depends(get_current_user)):
     """Supprime manuellement un trade de l'historique et resynchronise le P&L du jour."""

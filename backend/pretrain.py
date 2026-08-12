@@ -145,6 +145,13 @@ def run_pretrain(
     # deux côtés (constaté : un walk-forward lancé pendant un Optuna en cours a vu
     # son nombre de trades s'effondrer sur une fenêtre sans raison liée aux données).
     _STRATEGY_OVERRIDE_LOCK.acquire()
+    # Horodate la fenêtre pour l'audit rétroactif (voir main.py::trading_tick et
+    # database.py::find_trades_in_override_windows) — ne doit jamais faire planter le
+    # run lui-même si la DB est momentanément indisponible.
+    try:
+        _override_window_id = db.log_override_window_start(symbol)
+    except Exception:
+        _override_window_id = None
     _saved_strategy: Dict[str, Any] = {}
     _saved_ict: Dict[str, Any] = {}
     try:
@@ -912,6 +919,11 @@ def run_pretrain(
             for k, v in _saved_ict.items():
                 setattr(strategy_ict, k, v)
         finally:
+            try:
+                if _override_window_id is not None:
+                    db.log_override_window_end(_override_window_id)
+            except Exception:
+                pass
             _STRATEGY_OVERRIDE_LOCK.release()
 
 

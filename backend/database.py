@@ -203,6 +203,13 @@ def init_db() -> None:
                 is_robust       INTEGER NOT NULL,
                 created_at      TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS strategy_override_windows (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at  TEXT NOT NULL,
+                ended_at    TEXT,
+                symbol      TEXT
+            );
             """
         )
 
@@ -818,6 +825,78 @@ def wf_monitor_history(symbol: str, limit: int = 20) -> list:
         }
         for r in rows
     ]
+
+
+def log_override_window_start(symbol: str | None) -> int:
+    """Enregistre le début d'une fenêtre où pretrain._STRATEGY_OVERRIDE_LOCK est tenu
+    (pretrain manuel, walk-forward, Optuna, ou wf_monitor auto — tous passent par
+    run_pretrain()). Sert uniquement à l'audit rétroactif (voir
+    find_trades_in_override_windows()) : savoir a posteriori si un trade live/paper a
+    pu être évalué avec des paramètres de test au lieu des paramètres live. Retourne
+    l'id de la fenêtre pour log_override_window_end()."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO strategy_override_windows (started_at, ended_at, symbol) VALUES (?, NULL, ?)",
+            (_utcnow_iso(), symbol),
+        )
+        return cur.lastrowid
+
+
+def log_override_window_end(window_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE strategy_override_windows SET ended_at = ? WHERE id = ?",
+            (_utcnow_iso(), window_id),
+        )
+
+
+def find_trades_in_override_windows(symbol: str = "XAUUSD", limit: int = 500) -> Dict[str, Any]:
+    """Audit rétroactif : trades dont l'entry_time tombe dans une fenêtre où le
+    verrou de mutation des paramètres était tenu — donc potentiellement évalués avec
+    des seuils de test au lieu des seuils live (voir main.py::trading_tick). Ne
+    couvre que les fenêtres enregistrées depuis l'ajout de ce log — les runs
+    walk-forward antérieurs n'ont jamais été horodatés et restent invérifiables.
+
+    Volontairement PAS filtré par symbole de fenêtre : run_pretrain() mute
+    strategy.* ET strategy_ict.* ensemble quel que soit le symbole demandé
+    (aucune isolation par marché dans le mécanisme de setattr) — une fenêtre
+    ouverte pour tester EUR/USD est donc tout aussi à risque pour des trades
+    XAU/USD concurrents, et inversement."""
+    with get_conn() as conn:
+        windows = conn.execute(
+            "SELECT id, started_at, ended_at, symbol FROM strategy_override_windows "
+            "ORDER BY id DESC LIMIT ?", (limit,),
+        ).fetchall()
+        trades = conn.execute(
+            "SELECT id, symbol, direction, entry_time, exit_time, pnl, exit_reason, status "
+            "FROM trades WHERE symbol = ? ORDER BY entry_time DESC LIMIT 2000",
+            (symbol,),
+        ).fetchall()
+
+    windows_list = [dict(w) for w in windows]
+    open_windows = [w for w in windows_list if w["ended_at"] is None]
+    closed_windows = [w for w in windows_list if w["ended_at"] is not None]
+
+    at_risk = []
+    for t in trades:
+        entry = t["entry_time"]
+        if not entry:
+            continue
+        for w in closed_windows:
+            if w["started_at"] <= entry <= w["ended_at"]:
+                at_risk.append({**dict(t), "window_id": w["id"], "window_started_at": w["started_at"],
+                                 "window_ended_at": w["ended_at"]})
+                break
+
+    return {
+        "windows_logged":     len(windows_list),
+        "open_windows":       len(open_windows),
+        "first_window_at":    windows_list[-1]["started_at"] if windows_list else None,
+        "trades_checked":     len(trades),
+        "trades_at_risk":     at_risk,
+        "note": ("Seules les fenêtres enregistrées depuis l'ajout de ce log sont couvertes — "
+                 "les tests walk-forward lancés avant ne sont pas vérifiables rétroactivement."),
+    }
 
 
 # --------------------------------------------------------------------------- #

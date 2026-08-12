@@ -448,6 +448,8 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
   const [wfEarlyExitOverride, setWfEarlyExitOverride] = useState("");
   const [wfAdxH1Override, setWfAdxH1Override] = useState("");
   const [optunaTrials, setOptunaTrials]       = useState(30);
+  const [overrideAudit, setOverrideAudit]         = useState(null);
+  const [overrideAuditLoading, setOverrideAuditLoading] = useState(false);
   const [pretrainTrades, setPretrainTrades]   = useState(null);
   const [pretrainFilter, setPretrainFilter]   = useState("losses");
   const [pretrainPage, setPretrainPage]       = useState(0);
@@ -3287,7 +3289,7 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
               </button>
             </div>
             <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 4 }}>
-              Tourne automatiquement toutes les {state?.wf_monitor?.interval_hours ?? 168}h hors session — ne modifie jamais la stratégie, alerte seulement si hors critères.
+              Tourne automatiquement toutes les {state?.wf_monitor?.interval_hours ?? 168}h hors session — ne modifie jamais le réglage live persisté, alerte seulement si hors critères. Le trading live est mis en pause le temps du calcul (voir audit ci-dessous).
             </div>
             {state?.wf_monitor?.last_run ? (
               <div style={{ fontSize: 12 }}>
@@ -3318,6 +3320,56 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+          </div>
+
+          {/* ===== Audit chevauchement test/live (PR #336) ===== */}
+          <div className="dashboard-panel section-gap" style={{ ...panel(), marginTop: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <h3 style={{ margin: 0, fontSize: 13 }}>Audit trades pendant un test en cours</h3>
+              <button
+                onClick={() => {
+                  setOverrideAuditLoading(true);
+                  fetch(`${API}/api/admin/override-overlap-audit?symbol=${activeMarket}`, { headers: authHeaders() })
+                    .then(r => r.json())
+                    .then(d => { setOverrideAudit(d); setOverrideAuditLoading(false); })
+                    .catch(() => setOverrideAuditLoading(false));
+                }}
+                disabled={overrideAuditLoading}
+                style={{ fontSize: 10, background: "transparent", border: `1px solid ${COLORS.border}`,
+                  borderRadius: 4, color: COLORS.sub, padding: "2px 8px", cursor: "pointer" }}
+              >
+                {overrideAuditLoading ? "⏳..." : "Vérifier"}
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 4 }}>
+              Vérifie si des trades sont tombés dans une fenêtre où un pretrain/walk-forward/Optuna
+              mutait temporairement les paramètres (protégé depuis le fix — voir PR #336). Ne couvre
+              que les fenêtres enregistrées depuis ce fix ; les tests antérieurs ne sont pas vérifiables.
+            </div>
+            {overrideAudit && (
+              <div style={{ fontSize: 12 }}>
+                <div style={{ color: COLORS.sub, marginBottom: 4 }}>
+                  {overrideAudit.windows_logged} fenêtre(s) enregistrée(s)
+                  {overrideAudit.first_window_at ? ` depuis le ${new Date(overrideAudit.first_window_at).toLocaleString("fr-FR")}` : ""}
+                  {" "}· {overrideAudit.trades_checked} trades vérifiés
+                </div>
+                {overrideAudit.trades_at_risk.length === 0 ? (
+                  <div style={{ color: COLORS.green }}>✓ Aucun trade trouvé dans une fenêtre à risque</div>
+                ) : (
+                  <div>
+                    <div style={{ color: COLORS.red, fontWeight: 600, marginBottom: 4 }}>
+                      ⚠ {overrideAudit.trades_at_risk.length} trade(s) potentiellement affecté(s)
+                    </div>
+                    {overrideAudit.trades_at_risk.map((t) => (
+                      <div key={t.id} style={{ fontSize: 11, color: COLORS.sub, marginBottom: 2 }}>
+                        #{t.id} · {t.direction} · {new Date(t.entry_time).toLocaleString("fr-FR")}
+                        {" "}· PnL {t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}${t.pnl}$` : "?"} · {t.exit_reason || "?"}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
