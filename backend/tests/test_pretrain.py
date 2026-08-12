@@ -116,3 +116,43 @@ def test_diag_by_direction_regime_drops_groups_under_min_sample():
     trades = [_fake_trade("long", 1, True) for _ in range(2)]  # n=2, sous le seuil de 3
     result = pretrain._diag_by_direction_regime(trades)
     assert "long_h4_aligné" not in result
+
+
+def _fake_exit_trade(direction, exit_reason, won, pnl):
+    return {"direction": direction, "exit_reason": exit_reason, "won": won, "pnl": pnl}
+
+
+def test_diag_by_direction_exit_reason_splits_by_bucket_and_direction():
+    trades = (
+        [_fake_exit_trade("long", "tp1", True, 5.0) for _ in range(4)]
+        + [_fake_exit_trade("long", "sl", False, -10.0) for _ in range(6)]
+        + [_fake_exit_trade("short", "tp2", True, 20.0) for _ in range(5)]
+        + [_fake_exit_trade("short", "sl", False, -10.0) for _ in range(3)]
+    )
+    result = pretrain._diag_by_direction_exit_reason(trades)
+
+    assert result["long_tp1"]["n"] == 4
+    assert result["long_tp1"]["pct"] == pytest.approx(40.0)  # 4/10 trades LONG
+    assert result["long_tp1"]["avg_pnl"] == pytest.approx(5.0)
+    assert result["long_sl"]["n"] == 6
+    assert result["long_sl"]["pct"] == pytest.approx(60.0)
+    assert result["short_tp2"]["n"] == 5
+    assert result["short_tp2"]["pct"] == pytest.approx(62.5)  # 5/8 trades SHORT
+    assert result["short_sl"]["n"] == 3
+    assert result["short_sl"]["pct"] == pytest.approx(37.5)
+
+
+def test_diag_by_direction_exit_reason_buckets_unknown_reasons_as_other():
+    trades = (
+        [_fake_exit_trade("long", "sl_realtime", False, -10.0) for _ in range(3)]
+        + [_fake_exit_trade("long", "tp1", True, 5.0) for _ in range(3)]
+    )
+    result = pretrain._diag_by_direction_exit_reason(trades)
+    assert result["long_other"]["n"] == 3
+    assert "long_sl_realtime" not in result
+
+
+def test_diag_by_direction_exit_reason_drops_groups_under_min_sample():
+    trades = [_fake_exit_trade("long", "tp1", True, 5.0) for _ in range(2)]  # n=2
+    result = pretrain._diag_by_direction_exit_reason(trades)
+    assert "long_tp1" not in result

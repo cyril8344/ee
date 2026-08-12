@@ -2411,6 +2411,61 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                                     </div>
                                   );
                                 })()}
+
+                                {/* LONG/SHORT par type de sortie — le WR est quasi identique LONG/SHORT
+                                    "H4 aligné" mais le PnL diverge (tableau ci-dessus) : ce diagnostic
+                                    isole si l'écart vient d'une distribution de sorties différente
+                                    (plus de SL direct, moins de TP2) plutôt que du régime. */}
+                                {(() => {
+                                  const der = pretrainStats.diag_by_direction_exit_reason || {};
+                                  const buckets = ["tp1", "tp2", "sl", "sl_after_tp1", "timeout", "early_exit", "other"];
+                                  const bucketLabel = { tp1: "TP1", tp2: "TP2", sl: "SL direct", sl_after_tp1: "SL après TP1", timeout: "Timeout", early_exit: "Early exit", other: "Autre" };
+                                  const keys = buckets.flatMap((b) => [`long_${b}`, `short_${b}`]);
+                                  if (!keys.some(k => der[k])) return null;
+                                  return (
+                                    <div style={{ marginTop: 10 }}>
+                                      <div style={{ color: COLORS.sub, marginBottom: 5 }}>
+                                        LONG/SHORT selon le type de sortie — l'écart de PnL vient-il d'une distribution de sorties différente ?
+                                      </div>
+                                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 9 }}>
+                                        <thead>
+                                          <tr>
+                                            <th style={{ textAlign: "left", color: COLORS.sub, fontWeight: "normal", paddingBottom: 3 }}>Sortie</th>
+                                            <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>Trades</th>
+                                            <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>% dir.</th>
+                                            <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>PnL moy.</th>
+                                            <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>PnL total</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {buckets.map((b) => (
+                                            ["long", "short"].map((dir) => {
+                                              const k = `${dir}_${b}`;
+                                              const v = der[k];
+                                              if (!v) return null;
+                                              const isLong = dir === "long";
+                                              return (
+                                                <tr key={k}>
+                                                  <td style={{ color: isLong ? COLORS.green : COLORS.amber, paddingTop: 2, paddingRight: 4 }}>
+                                                    {isLong ? "LONG" : "SHORT"} · {bucketLabel[b]}
+                                                  </td>
+                                                  <td style={{ textAlign: "right", color: COLORS.sub, paddingTop: 2 }}>{v.n}</td>
+                                                  <td style={{ textAlign: "right", color: COLORS.sub, paddingTop: 2 }}>{v.pct}%</td>
+                                                  <td style={{ textAlign: "right", color: v.avg_pnl >= 0 ? COLORS.green : COLORS.red, paddingTop: 2 }}>{v.avg_pnl >= 0 ? "+" : ""}{v.avg_pnl}$</td>
+                                                  <td style={{ textAlign: "right", color: v.pnl >= 0 ? COLORS.green : COLORS.red, paddingTop: 2, fontWeight: 600 }}>{v.pnl >= 0 ? "+" : ""}{v.pnl}$</td>
+                                                </tr>
+                                              );
+                                            })
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                      <div style={{ color: COLORS.sub, fontSize: 8, marginTop: 3 }}>
+                                        "% dir." = part de cette sortie parmi tous les trades de cette direction.
+                                        Compare le "PnL moy." LONG vs SHORT par type de sortie, pas juste le WR global.
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             );
                           })()}
