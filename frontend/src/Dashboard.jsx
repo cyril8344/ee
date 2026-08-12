@@ -3642,8 +3642,11 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                       {[
                         { label: "TP2 atteint", n: ex.tp2, pct: ex.tp2_pct, color: COLORS.green },
                         { label: "TP1 seulement", n: ex.tp1_only, pct: s.total > 0 ? Math.round(ex.tp1_only / s.total * 100) : 0, color: COLORS.amber },
+                        { label: "SL après TP1 (BE)", n: ex.sl_after_tp1, pct: ex.sl_after_tp1_pct, color: COLORS.amber },
                         { label: "SL direct", n: ex.sl_direct, pct: ex.sl_direct_pct, color: COLORS.red },
+                        { label: "Early exit (15min)", n: ex.early_exit, pct: s.total > 0 ? Math.round(ex.early_exit / s.total * 100) : 0, color: COLORS.sub },
                         { label: "Timeout", n: ex.timeout, pct: s.total > 0 ? Math.round(ex.timeout / s.total * 100) : 0, color: COLORS.sub },
+                        ...(ex.other > 0 ? [{ label: "Autre", n: ex.other, pct: s.total > 0 ? Math.round(ex.other / s.total * 100) : 0, color: COLORS.sub }] : []),
                       ].map(({ label, n, pct, color }) => (
                         <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, fontSize: 11 }}>
                           <span style={{ color: COLORS.sub }}>{label}</span>
@@ -3755,8 +3758,11 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                       {[
                         { label: "TP2 atteint", n: ex.tp2, pct: ex.tp2_pct, color: COLORS.green },
                         { label: "TP1 seulement", n: ex.tp1_only, pct: s.total > 0 ? Math.round(ex.tp1_only / s.total * 100) : 0, color: COLORS.amber },
+                        { label: "SL après TP1 (BE)", n: ex.sl_after_tp1, pct: ex.sl_after_tp1_pct, color: COLORS.amber },
                         { label: "SL direct", n: ex.sl_direct, pct: ex.sl_direct_pct, color: COLORS.red },
+                        { label: "Early exit (15min)", n: ex.early_exit, pct: s.total > 0 ? Math.round(ex.early_exit / s.total * 100) : 0, color: COLORS.sub },
                         { label: "Timeout", n: ex.timeout, pct: s.total > 0 ? Math.round(ex.timeout / s.total * 100) : 0, color: COLORS.sub },
+                        ...(ex.other > 0 ? [{ label: "Autre", n: ex.other, pct: s.total > 0 ? Math.round(ex.other / s.total * 100) : 0, color: COLORS.sub }] : []),
                       ].map(({ label, n, pct, color }) => (
                         <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, fontSize: 11 }}>
                           <span style={{ color: COLORS.sub }}>{label}</span>
