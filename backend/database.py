@@ -17,7 +17,7 @@ backend.  All timestamps are stored as ISO-8601 strings in UTC.
 import os
 import sqlite3
 import json
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 from contextlib import contextmanager
 from typing import Optional, List, Dict, Any
 
@@ -1028,16 +1028,24 @@ def get_weekly_report(week_offset: int = 0, symbol: str | None = None) -> Dict[s
     gross_loss = abs(sum(t["pnl"] for t in losses)) if losses else 0.0
     total_pnl = sum(t["pnl"] for t in closed)
 
-    # Breakdown exit_reason
+    # Breakdown exit_reason — couvre toutes les valeurs réelles posées par broker.py/
+    # main.py (sl, sl_realtime, sl_after_tp1, tp1, tp2, timeout, early_exit,
+    # emergency_stop, manual) ; auparavant seuls "sl"/"tp2"/"tp1"/"timeout" étaient
+    # comptés et la majorité des trades (typiquement "sl_after_tp1", le BE après TP1)
+    # disparaissait silencieusement du récap "Sorties" sans apparaître nulle part.
     exit_counts: Dict[str, int] = defaultdict(int)
     for t in closed:
         reason = t.get("exit_reason") or "?"
         exit_counts[reason] += 1
 
-    sl_direct = exit_counts.get("sl", 0)
+    sl_direct = exit_counts.get("sl", 0) + exit_counts.get("sl_realtime", 0)
+    sl_after_tp1 = exit_counts.get("sl_after_tp1", 0)
     tp2_count = exit_counts.get("tp2", 0)
     tp1_count = exit_counts.get("tp1", 0)
     timeout_count = exit_counts.get("timeout", 0)
+    early_exit_count = exit_counts.get("early_exit", 0)
+    _known_reasons = {"sl", "sl_realtime", "sl_after_tp1", "tp1", "tp2", "timeout", "early_exit"}
+    other_count = sum(v for k, v in exit_counts.items() if k not in _known_reasons)
 
     # Breakdown par jour de semaine
     _by_day: Dict[str, Dict] = defaultdict(lambda: {"n": 0, "wins": 0, "pnl": 0.0})
@@ -1090,10 +1098,14 @@ def get_weekly_report(week_offset: int = 0, symbol: str | None = None) -> Dict[s
         },
         "exit_reasons": {
             "sl_direct": sl_direct,
+            "sl_after_tp1": sl_after_tp1,
             "tp1_only": tp1_count,
             "tp2": tp2_count,
             "timeout": timeout_count,
+            "early_exit": early_exit_count,
+            "other": other_count,
             "sl_direct_pct": round(sl_direct / total * 100, 1) if total > 0 else 0.0,
+            "sl_after_tp1_pct": round(sl_after_tp1 / total * 100, 1) if total > 0 else 0.0,
             "tp2_pct": round(tp2_count / total * 100, 1) if total > 0 else 0.0,
         },
         "by_day": _agg(_by_day),
@@ -1174,14 +1186,21 @@ def get_monthly_report(month_offset: int = 0, symbol: str | None = None) -> Dict
     gross_loss = abs(sum(t["pnl"] for t in losses)) if losses else 0.0
     total_pnl = sum(t["pnl"] for t in closed)
 
+    # Voir get_weekly_report() : couvre toutes les valeurs réelles d'exit_reason,
+    # pas seulement "sl"/"tp2"/"tp1"/"timeout" (sinon "sl_after_tp1" — le BE après
+    # TP1, très fréquent — disparaissait silencieusement du récap "Sorties").
     exit_counts: Dict[str, int] = defaultdict(int)
     for t in closed:
         exit_counts[t.get("exit_reason") or "?"] += 1
 
-    sl_direct = exit_counts.get("sl", 0)
+    sl_direct = exit_counts.get("sl", 0) + exit_counts.get("sl_realtime", 0)
+    sl_after_tp1 = exit_counts.get("sl_after_tp1", 0)
     tp2_count = exit_counts.get("tp2", 0)
     tp1_count = exit_counts.get("tp1", 0)
     timeout_count = exit_counts.get("timeout", 0)
+    early_exit_count = exit_counts.get("early_exit", 0)
+    _known_reasons = {"sl", "sl_realtime", "sl_after_tp1", "tp1", "tp2", "timeout", "early_exit"}
+    other_count = sum(v for k, v in exit_counts.items() if k not in _known_reasons)
 
     _by_week: Dict[str, Dict] = defaultdict(lambda: {"n": 0, "wins": 0, "pnl": 0.0})
     _by_sess: Dict[str, Dict] = defaultdict(lambda: {"n": 0, "wins": 0, "pnl": 0.0})
@@ -1239,10 +1258,14 @@ def get_monthly_report(month_offset: int = 0, symbol: str | None = None) -> Dict
         },
         "exit_reasons": {
             "sl_direct": sl_direct,
+            "sl_after_tp1": sl_after_tp1,
             "tp1_only": tp1_count,
             "tp2": tp2_count,
             "timeout": timeout_count,
+            "early_exit": early_exit_count,
+            "other": other_count,
             "sl_direct_pct": round(sl_direct / total * 100, 1) if total > 0 else 0.0,
+            "sl_after_tp1_pct": round(sl_after_tp1 / total * 100, 1) if total > 0 else 0.0,
             "tp2_pct": round(tp2_count / total * 100, 1) if total > 0 else 0.0,
         },
         "by_week": _agg(_by_week),

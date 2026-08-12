@@ -41,13 +41,16 @@ class ErrorBoundary extends React.Component {
  *
  * If a valid token exists in localStorage → show Dashboard.
  * Otherwise → show LoginPage.
- * The Dashboard receives an `onLogout` prop that clears the token and forces
- * a return to the login screen.
+ *
+ * "xau" et "eur" rendent le même composant Dashboard, verrouillé sur un seul
+ * marché via la prop `lockMarket` — page dédiée à 100 % (chart, conditions,
+ * réglages, pretrain/walk-forward, rapports) sans aucun bouton vers l'autre
+ * marché ni donnée croisée. "es" reste son propre composant séparé.
  * ==========================================================================*/
 
 export default function App() {
   const [token,   setToken]   = useState(() => localStorage.getItem("token") || null);
-  const [page,    setPage]    = useState("xau"); // "xau" | "es"
+  const [page,    setPage]    = useState("xau"); // "xau" | "eur" | "es"
 
   // Sync state if localStorage changes in another tab
   useEffect(() => {
@@ -81,9 +84,19 @@ export default function App() {
     );
   }
 
+  if (page === "eur") {
+    return (
+      <ErrorBoundary>
+        <Dashboard key="eur" onLogout={handleLogout} lockMarket="EURUSD"
+          onNavigateOtherMarket={() => setPage("xau")} />
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <ErrorBoundary>
-      <Dashboard onLogout={handleLogout} onNavigateES={() => setPage("es")} />
+      <Dashboard key="xau" onLogout={handleLogout} lockMarket="XAUUSD" onNavigateES={() => setPage("es")}
+        onNavigateOtherMarket={() => setPage("eur")} />
     </ErrorBoundary>
   );
 }

@@ -396,21 +396,21 @@ function logout401(onLogout) {
 }
 
 /* ============================ Dashboard ================================== */
-export default function Dashboard({ onLogout, onNavigateES }) {
-  const [activeMarket, setActiveMarket] = useState("XAUUSD");
+export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNavigateOtherMarket }) {
+  const [activeMarket, setActiveMarket] = useState(lockMarket || "XAUUSD");
   const [weightsOpen, setWeightsOpen] = useState(false);
   const [state, setState] = useState(null);
   const [chart, setChart] = useState(null);
   const [tf, setTf] = useState("M5");
   const [trades, setTrades] = useState({ trades: [], equity_curve: [] });
   const [tradesScope, setTradesScope] = useState("today");
-  const [tradesSymbol, setTradesSymbol] = useState("ALL");
+  const [tradesSymbol, setTradesSymbol] = useState(lockMarket || "ALL");
   const [weeklyReport, setWeeklyReport] = useState(null);
   const [weeklyOffset, setWeeklyOffset] = useState(0);
-  const [weeklySymbol, setWeeklySymbol] = useState("ALL");
+  const [weeklySymbol, setWeeklySymbol] = useState(lockMarket || "ALL");
   const [monthlyReport, setMonthlyReport] = useState(null);
   const [monthlyOffset, setMonthlyOffset] = useState(0);
-  const [monthlySymbol, setMonthlySymbol] = useState("ALL");
+  const [monthlySymbol, setMonthlySymbol] = useState(lockMarket || "ALL");
   const [cleanupLoading, setCleanupLoading] = useState(false);
   const [cleanupResult, setCleanupResult] = useState(null);
   const [blockedHours, setBlockedHours] = useState([]);
@@ -509,7 +509,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [fedData, setFedData] = useState(null);
   const [tradeReport, setTradeReport] = useState(null);
   const [reportError, setReportError] = useState(null);
-  const [reportSymbol, setReportSymbol] = useState("ALL");
+  const [reportSymbol, setReportSymbol] = useState(lockMarket || "ALL");
   const [reportLlmOpen, setReportLlmOpen] = useState(false);
   const [aiReport, setAiReport] = useState(null);
   const [aiReportLoading, setAiReportLoading] = useState(false);
@@ -1166,9 +1166,9 @@ export default function Dashboard({ onLogout, onNavigateES }) {
           {state?.mode === "live" ? "LIVE" : "PAPER"}
         </span>
         <div className="header-tabs" style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          {Object.keys(state?.markets || { XAUUSD: 1 }).map((sym) => (
-            <button key={sym} onClick={() => setActiveMarket(sym)}
-              style={tabBtn(activeMarket === sym)}>
+          {(lockMarket ? [lockMarket] : Object.keys(state?.markets || { XAUUSD: 1 })).map((sym) => (
+            <button key={sym} onClick={() => { if (!lockMarket) setActiveMarket(sym); }}
+              style={tabBtn(activeMarket === sym)} disabled={!!lockMarket}>
               {sym === "XAUUSD" ? "XAU/USD" : sym === "EURUSD" ? "EUR/USD" : sym === "XAGUSD" ? "XAG/USD" : sym}
             </button>
           ))}
@@ -1189,6 +1189,24 @@ export default function Dashboard({ onLogout, onNavigateES }) {
               title="Dashboard ES (S&P 500)"
             >
               ES →
+            </button>
+          )}
+          {onNavigateOtherMarket && (
+            <button
+              onClick={onNavigateOtherMarket}
+              style={{
+                background: "transparent",
+                color: COLORS.amber,
+                border: `1px solid ${COLORS.amber}`,
+                borderRadius: 6,
+                padding: "6px 14px",
+                fontSize: 13,
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+              title={lockMarket === "XAUUSD" ? "Dashboard EUR/USD" : "Dashboard XAU/USD"}
+            >
+              {lockMarket === "XAUUSD" ? "EUR/USD →" : "XAU/USD →"}
             </button>
           )}
           <button
@@ -3596,10 +3614,12 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                 <button onClick={() => setWeeklyOffset(w => w - 1)} style={{ ...tabBtn(false), fontSize: 11, padding: "3px 8px" }}>← Préc.</button>
                 <button onClick={() => setWeeklyOffset(0)} style={{ ...tabBtn(weeklyOffset === 0), fontSize: 11, padding: "3px 8px" }}>Cette sem.</button>
                 {weeklyOffset < 0 && <button onClick={() => setWeeklyOffset(w => w + 1)} style={{ ...tabBtn(false), fontSize: 11, padding: "3px 8px" }}>Suiv. →</button>}
+                {!lockMarket && (<>
                 <span style={{ color: COLORS.border, margin: "0 2px" }}>|</span>
                 <button onClick={() => setWeeklySymbol("ALL")} style={{ ...tabBtn(weeklySymbol === "ALL"), fontSize: 11, padding: "3px 8px" }}>Tous</button>
                 <button onClick={() => setWeeklySymbol("XAUUSD")} style={{ ...tabBtn(weeklySymbol === "XAUUSD"), fontSize: 11, padding: "3px 8px", color: weeklySymbol === "XAUUSD" ? undefined : COLORS.amber }}>XAU</button>
                 <button onClick={() => setWeeklySymbol("EURUSD")} style={{ ...tabBtn(weeklySymbol === "EURUSD"), fontSize: 11, padding: "3px 8px", color: weeklySymbol === "EURUSD" ? undefined : "#6ab0f5" }}>EUR</button>
+                </>)}
                 {weeklyReport && weeklyReport.stats.total > 0 && (
                   <button onClick={() => exportReportPdf("weekly", weeklyReport, weeklySymbol)} style={{ fontSize: 11, padding: "3px 8px", background: "transparent", border: `1px solid ${COLORS.sub}`, color: COLORS.sub, borderRadius: 4, cursor: "pointer" }}>⬇ PDF</button>
                 )}
@@ -3642,8 +3662,11 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                       {[
                         { label: "TP2 atteint", n: ex.tp2, pct: ex.tp2_pct, color: COLORS.green },
                         { label: "TP1 seulement", n: ex.tp1_only, pct: s.total > 0 ? Math.round(ex.tp1_only / s.total * 100) : 0, color: COLORS.amber },
+                        { label: "SL après TP1 (BE)", n: ex.sl_after_tp1, pct: ex.sl_after_tp1_pct, color: COLORS.amber },
                         { label: "SL direct", n: ex.sl_direct, pct: ex.sl_direct_pct, color: COLORS.red },
+                        { label: "Early exit (15min)", n: ex.early_exit, pct: s.total > 0 ? Math.round(ex.early_exit / s.total * 100) : 0, color: COLORS.sub },
                         { label: "Timeout", n: ex.timeout, pct: s.total > 0 ? Math.round(ex.timeout / s.total * 100) : 0, color: COLORS.sub },
+                        ...(ex.other > 0 ? [{ label: "Autre", n: ex.other, pct: s.total > 0 ? Math.round(ex.other / s.total * 100) : 0, color: COLORS.sub }] : []),
                       ].map(({ label, n, pct, color }) => (
                         <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, fontSize: 11 }}>
                           <span style={{ color: COLORS.sub }}>{label}</span>
@@ -3716,10 +3739,12 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                 <button onClick={() => setMonthlyOffset(m => m - 1)} style={{ ...tabBtn(false), fontSize: 11, padding: "3px 8px" }}>← Préc.</button>
                 <button onClick={() => setMonthlyOffset(0)} style={{ ...tabBtn(monthlyOffset === 0), fontSize: 11, padding: "3px 8px" }}>Ce mois</button>
                 {monthlyOffset < 0 && <button onClick={() => setMonthlyOffset(m => m + 1)} style={{ ...tabBtn(false), fontSize: 11, padding: "3px 8px" }}>Suiv. →</button>}
+                {!lockMarket && (<>
                 <span style={{ color: COLORS.border, margin: "0 2px" }}>|</span>
                 <button onClick={() => setMonthlySymbol("ALL")} style={{ ...tabBtn(monthlySymbol === "ALL"), fontSize: 11, padding: "3px 8px" }}>Tous</button>
                 <button onClick={() => setMonthlySymbol("XAUUSD")} style={{ ...tabBtn(monthlySymbol === "XAUUSD"), fontSize: 11, padding: "3px 8px", color: monthlySymbol === "XAUUSD" ? undefined : COLORS.amber }}>XAU</button>
                 <button onClick={() => setMonthlySymbol("EURUSD")} style={{ ...tabBtn(monthlySymbol === "EURUSD"), fontSize: 11, padding: "3px 8px", color: monthlySymbol === "EURUSD" ? undefined : "#6ab0f5" }}>EUR</button>
+                </>)}
                 {monthlyReport && monthlyReport.stats.total > 0 && (
                   <button onClick={() => exportReportPdf("monthly", monthlyReport, monthlySymbol)} style={{ fontSize: 11, padding: "3px 8px", background: "transparent", border: `1px solid ${COLORS.sub}`, color: COLORS.sub, borderRadius: 4, cursor: "pointer" }}>⬇ PDF</button>
                 )}
@@ -3755,8 +3780,11 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                       {[
                         { label: "TP2 atteint", n: ex.tp2, pct: ex.tp2_pct, color: COLORS.green },
                         { label: "TP1 seulement", n: ex.tp1_only, pct: s.total > 0 ? Math.round(ex.tp1_only / s.total * 100) : 0, color: COLORS.amber },
+                        { label: "SL après TP1 (BE)", n: ex.sl_after_tp1, pct: ex.sl_after_tp1_pct, color: COLORS.amber },
                         { label: "SL direct", n: ex.sl_direct, pct: ex.sl_direct_pct, color: COLORS.red },
+                        { label: "Early exit (15min)", n: ex.early_exit, pct: s.total > 0 ? Math.round(ex.early_exit / s.total * 100) : 0, color: COLORS.sub },
                         { label: "Timeout", n: ex.timeout, pct: s.total > 0 ? Math.round(ex.timeout / s.total * 100) : 0, color: COLORS.sub },
+                        ...(ex.other > 0 ? [{ label: "Autre", n: ex.other, pct: s.total > 0 ? Math.round(ex.other / s.total * 100) : 0, color: COLORS.sub }] : []),
                       ].map(({ label, n, pct, color }) => (
                         <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, fontSize: 11 }}>
                           <span style={{ color: COLORS.sub }}>{label}</span>
@@ -3825,10 +3853,12 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                 <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                   <button onClick={() => setTradesScope("today")} style={{ ...tabBtn(tradesScope === "today"), fontSize: 11, padding: "3px 8px" }}>Aujourd'hui</button>
                   <button onClick={() => setTradesScope("all")} style={{ ...tabBtn(tradesScope === "all"), fontSize: 11, padding: "3px 8px" }}>Tout</button>
+                  {!lockMarket && (<>
                   <span style={{ color: COLORS.border, margin: "0 2px" }}>|</span>
                   <button onClick={() => setTradesSymbol("ALL")} style={{ ...tabBtn(tradesSymbol === "ALL"), fontSize: 11, padding: "3px 8px" }}>Tous</button>
                   <button onClick={() => setTradesSymbol("XAUUSD")} style={{ ...tabBtn(tradesSymbol === "XAUUSD"), fontSize: 11, padding: "3px 8px", color: tradesSymbol === "XAUUSD" ? undefined : COLORS.amber }}>XAU</button>
                   <button onClick={() => setTradesSymbol("EURUSD")} style={{ ...tabBtn(tradesSymbol === "EURUSD"), fontSize: 11, padding: "3px 8px", color: tradesSymbol === "EURUSD" ? undefined : "#6ab0f5" }}>EUR</button>
+                  </>)}
                   <button onClick={handleCleanupDuplicates} disabled={cleanupLoading}
                     title="Supprimer les trades en double (même entrée, même minute)"
                     style={{ fontSize: 10, padding: "3px 7px", background: "transparent", border: `1px solid ${COLORS.red}`, color: COLORS.red, borderRadius: 4, cursor: "pointer", opacity: cleanupLoading ? 0.5 : 1 }}>
@@ -3998,11 +4028,13 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                 <h3 style={{ margin: 0, fontSize: 14 }}>
                   Rapport historique{reportSymbol !== "ALL" ? ` — ${reportSymbol}` : ""}
                 </h3>
+                {!lockMarket && (
                 <div style={{ display: "flex", gap: 4 }}>
                   <button onClick={() => setReportSymbol("ALL")} style={{ ...tabBtn(reportSymbol === "ALL"), fontSize: 11, padding: "3px 8px" }}>Tous</button>
                   <button onClick={() => setReportSymbol("XAUUSD")} style={{ ...tabBtn(reportSymbol === "XAUUSD"), fontSize: 11, padding: "3px 8px", color: reportSymbol === "XAUUSD" ? undefined : COLORS.amber }}>XAU</button>
                   <button onClick={() => setReportSymbol("EURUSD")} style={{ ...tabBtn(reportSymbol === "EURUSD"), fontSize: 11, padding: "3px 8px", color: reportSymbol === "EURUSD" ? undefined : "#6ab0f5" }}>EUR</button>
                 </div>
+                )}
               </div>
               {reportError && (
                 <div style={{ fontSize: 12, color: COLORS.red, marginBottom: 8 }}>
