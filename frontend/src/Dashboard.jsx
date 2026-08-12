@@ -442,6 +442,7 @@ export default function Dashboard({ onLogout, onNavigateES }) {
   const [emaSlopeFilter, setEmaSlopeFilter] = useState(false);
   const [wfEmaSlopeLookback, setWfEmaSlopeLookback] = useState("");
   const [wfSlLongExtra, setWfSlLongExtra] = useState("");
+  const [h4TrendFilter, setH4TrendFilter] = useState(false);
   const [wfBeBufferR, setWfBeBufferR] = useState("");
   const [obRequireLiquidity, setObRequireLiquidity] = useState(false);
   const [wfEarlyExitOverride, setWfEarlyExitOverride] = useState("");
@@ -879,7 +880,8 @@ export default function Dashboard({ onLogout, onNavigateES }) {
         adx_min_h1_override: wfAdxH1Override !== "" ? parseFloat(wfAdxH1Override) : null,
         ema_slope_filter_override: emaSlopeFilter ? true : null,
         ema_slope_lookback_override: wfEmaSlopeLookback !== "" ? parseInt(wfEmaSlopeLookback, 10) : null,
-        sl_long_extra_atr_override: wfSlLongExtra !== "" ? parseFloat(wfSlLongExtra) : null }),
+        sl_long_extra_atr_override: wfSlLongExtra !== "" ? parseFloat(wfSlLongExtra) : null,
+        h4_trend_filter_override: h4TrendFilter ? true : null }),
     }).then(() => setWfLoading(false)).catch(() => setWfLoading(false));
   };
 
@@ -2541,6 +2543,13 @@ export default function Dashboard({ onLogout, onNavigateES }) {
                           style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, cursor: "pointer" }}>
+                        <input type="checkbox" checked={h4TrendFilter} onChange={e => setH4TrendFilter(e.target.checked)}
+                          style={{ accentColor: COLORS.amber }} />
+                        <span style={{ fontSize: 9, color: h4TrendFilter ? COLORS.amber : COLORS.sub }}>
+                          Strat A — exiger close H4 aligné avec l'EMA200 H4 (LONG au-dessus, SHORT en-dessous)
+                        </span>
+                      </label>
                       <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, cursor: "pointer" }}>
                         <input type="checkbox" checked={obRequireBos} onChange={e => setObRequireBos(e.target.checked)}
                           style={{ accentColor: COLORS.amber }} />

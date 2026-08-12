@@ -95,6 +95,12 @@ ADX_REGIME_LOOKBACK   = 20       # nb bougies H1 pour la moyenne glissante ADX d
 EMA_SLOPE_FILTER_ENABLED = False # EMA9 et EMA21 M5 doivent pencher dans le sens du biais — désactivé
                                   # par défaut (test walk-forward only, ne touche jamais le live tel quel)
 EMA_SLOPE_LOOKBACK    = 5        # nb bougies M5 en arrière pour juger la pente
+H4_TREND_FILTER_ENABLED = False  # exige close H4 > EMA200 H4 pour LONG (et inverse pour SHORT) —
+                                  # même logique que h4_long_ok/h4_short_ok dans batch_signals(),
+                                  # jamais branchée dans evaluate() (voir commit 95ddfca, "H1 suffit
+                                  # pour le biais directionnel" — assertion sans walk-forward associé
+                                  # dans l'historique du repo). Désactivé par défaut (test walk-forward
+                                  # only, ne touche jamais le live tel quel).
 DRAWDOWN_SIZING_ENABLED       = False  # réduit risk_pct en drawdown — False = désactivé (test walk-forward only)
 DRAWDOWN_SIZING_THRESHOLD_PCT = 5.0    # % de recul depuis le plus haut d'equity qui déclenche la réduction
 DRAWDOWN_SIZING_FACTOR        = 0.5    # multiplicateur appliqué à risk_pct une fois le seuil dépassé
@@ -883,7 +889,16 @@ def evaluate(
             if price_vs_ema200 < -TREND_BIAS_DISTANCE and bias == "LONG":
                 _rej(_reject_log, "h1_ema200"); return None
 
-    # H4 EMA200 bias filter supprimé — H1 suffit pour le biais directionnel
+    # 2b-bis) H4 trend alignment (test walk-forward only, voir H4_TREND_FILTER_ENABLED)
+    if H4_TREND_FILTER_ENABLED and h4 is not None and len(h4) > 0 and "ema200" in h4.columns:
+        h4_last = h4.iloc[-1]
+        h4_ema200_val = float(h4_last.get("ema200", float("nan")))
+        if not pd.isna(h4_ema200_val):
+            h4_close_val = float(h4_last["close"])
+            if bias == "LONG" and h4_close_val < h4_ema200_val:
+                _rej(_reject_log, "h4_trend"); return None
+            if bias == "SHORT" and h4_close_val > h4_ema200_val:
+                _rej(_reject_log, "h4_trend"); return None
 
     # 2c) H1 RSI momentum alignment — évite d'entrer contre le momentum H1
     if H1_RSI_FILTER_ENABLED and len(h1) > 0:

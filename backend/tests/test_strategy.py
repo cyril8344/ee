@@ -203,6 +203,45 @@ def test_ema_slope_filter_rejects_long_against_declining_emas(monkeypatch):
     assert "ema_slope" not in log_off
 
 
+def test_h4_trend_filter_rejects_long_against_bearish_h4(monkeypatch):
+    """H4_TREND_FILTER_ENABLED (test walk-forward only, désactivé par défaut) :
+    doit rejeter un LONG quand le close H4 est sous l'EMA200 H4, même si le
+    biais H1 est LONG franc et que les autres filtres sont satisfaits."""
+    rng = np.random.default_rng(11)
+    closes = 2000 + np.cumsum(rng.normal(0, 0.05, 600))
+    m5 = add_indicators(_frame(closes))
+    agg = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+    m15 = add_indicators(m5[["open", "high", "low", "close", "volume"]]
+                         .resample("15min", label="right", closed="right").agg(agg).dropna())
+    h1 = add_indicators(m5[["open", "high", "low", "close", "volume"]]
+                        .resample("60min", label="right", closed="right").agg(agg).dropna())
+    h1 = h1.copy()
+    h1.iloc[-1, h1.columns.get_loc("close")] = float(h1.iloc[-1]["ema50"]) + 5.0  # biais LONG franc
+
+    h4 = add_indicators(m5[["open", "high", "low", "close", "volume"]]
+                        .resample("240min", label="right", closed="right").agg(agg).dropna())
+    h4 = h4.copy()
+    h4.iloc[-1, h4.columns.get_loc("close")] = float(h4.iloc[-1]["ema200"]) - 10.0  # H4 sous sa propre EMA200
+
+    monkeypatch.setattr(strategy, "BOOTSTRAP_MODE", True)
+    monkeypatch.setattr(strategy, "EMA9_FILTER_ENABLED", False)
+    monkeypatch.setattr(strategy, "M15_FILTER_ENABLED", False)
+    monkeypatch.setattr(strategy, "H1_RSI_FILTER_ENABLED", False)
+    monkeypatch.setattr(strategy, "ADX_MIN", 0.0)
+    monkeypatch.setattr(strategy, "ATR_MIN", 0.0)
+
+    monkeypatch.setattr(strategy, "H4_TREND_FILTER_ENABLED", True)
+    log_on: dict = {}
+    sig_on = evaluate(m5, m15, h1, h4=h4, check_session=False, _reject_log=log_on)
+    assert sig_on is None
+    assert log_on.get("h4_trend", 0) >= 1
+
+    monkeypatch.setattr(strategy, "H4_TREND_FILTER_ENABLED", False)
+    log_off: dict = {}
+    evaluate(m5, m15, h1, h4=h4, check_session=False, _reject_log=log_off)
+    assert "h4_trend" not in log_off
+
+
 def test_snapshot_conditions_ema9_aligned_is_python_bool_not_numpy():
     """Regression (même famille que market_structure_ok) : conditions["ema9_aligned"]
     était un numpy.bool_ (cur5["close"] non casté avant comparaison) — un 2e numpy.bool_
