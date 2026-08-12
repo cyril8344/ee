@@ -74,6 +74,15 @@ BE_BUFFER_R      = 0.0      # marge (en R) sous/sur l'entrée pour le SL breakev
                              # atteint TP2 dans les 20 bougies suivantes (false_be) — un peu
                              # de marge pourrait laisser respirer ces trades sans réintroduire
                              # tout le risque initial.
+TRAIL_AFTER_TP1_ENABLED  = False  # trailing ATR après TP1 (resserre progressivement le SL derrière
+                             # le prix) au lieu du saut unique à BE — désactivé par défaut (test
+                             # walk-forward only). Diagnostic pretrain : le taux de conversion
+                             # TP1→TP2 diverge fortement LONG (41.7%) vs SHORT (60.8%) alors que le
+                             # taux d'atteinte de TP1 est quasi identique (49.3% vs 49.4%) — le SL
+                             # figé à BE encaisse peut-être le bruit normal côté LONG sans distinction.
+TRAIL_AFTER_TP1_ATR_MULT = 1.0    # distance du trailing stop derrière le plus haut/bas atteint
+                             # depuis TP1 (× ATR) — ne resserre jamais en dessous du plancher BE déjà
+                             # posé, ne se desserre jamais (ratchet à sens unique).
 EARLY_EXIT_MINUTES = 15     # sortie si MFE < EARLY_EXIT_MFE_R après ce délai (pas de conviction)
 EARLY_EXIT_MFE_R   = 0.2    # seuil MFE/R en dessous duquel le trade est jugé sans conviction
 SWING_LOOKBACK = 5          # bars each side for swing detection

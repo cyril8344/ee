@@ -385,6 +385,19 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
                 t["stop_loss"] = t["entry"] - be_buffer * sign
                 return None
 
+    # 1b) Trailing ATR après TP1 (voir strategy.TRAIL_AFTER_TP1_ENABLED) : alternative
+    # testable au saut unique à BE — resserre le SL derrière le plus haut/bas de la
+    # bougie courante, jamais en dessous du plancher BE déjà posé ci-dessus (ratchet
+    # à sens unique, comparaison via max/min avec le stop courant).
+    if t["tp1_done"] and strategy.TRAIL_AFTER_TP1_ENABLED:
+        atr_val = float(bar.get("atr", 0) or 0)
+        if atr_val > 0:
+            trail_dist = strategy.TRAIL_AFTER_TP1_ATR_MULT * atr_val
+            if direction == "long":
+                t["stop_loss"] = max(t["stop_loss"], high - trail_dist)
+            else:
+                t["stop_loss"] = min(t["stop_loss"], low + trail_dist)
+
     # 2) Stop loss
     hit_sl = (low <= t["stop_loss"]) if direction == "long" else (high >= t["stop_loss"])
     if hit_sl:

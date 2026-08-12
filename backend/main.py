@@ -2229,6 +2229,8 @@ class WalkForwardRequest(BaseModel):
     ema_slope_lookback_override: Optional[int] = None  # nb bougies M5 pour juger la pente (5 par défaut)
     sl_long_extra_atr_override: Optional[float] = None  # ATR additionnel sur le SL, LONG uniquement
     h4_trend_filter_override: Optional[bool] = None  # exige close H4 vs EMA200 H4 aligné avec le biais
+    trail_after_tp1_override: Optional[bool] = None  # trailing ATR après TP1 au lieu du saut unique à BE
+    trail_after_tp1_atr_mult_override: Optional[float] = None  # distance du trailing (×ATR)
 
 
 @app.post("/api/pretrain/walkforward")
@@ -2284,6 +2286,10 @@ def start_walkforward(req: WalkForwardRequest, _user: dict = Depends(get_current
                 _overrides["SL_LONG_EXTRA_ATR"] = req.sl_long_extra_atr_override
             if req.h4_trend_filter_override is not None:
                 _overrides["H4_TREND_FILTER_ENABLED"] = req.h4_trend_filter_override
+            if req.trail_after_tp1_override is not None:
+                _overrides["TRAIL_AFTER_TP1_ENABLED"] = req.trail_after_tp1_override
+            if req.trail_after_tp1_atr_mult_override is not None:
+                _overrides["TRAIL_AFTER_TP1_ATR_MULT"] = req.trail_after_tp1_atr_mult_override
             _overrides = _overrides or None
             r = _pretrain_module.run_walk_forward(
                 start=req.start, end=req.end,

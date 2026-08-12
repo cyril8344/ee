@@ -443,6 +443,8 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
   const [wfEmaSlopeLookback, setWfEmaSlopeLookback] = useState("");
   const [wfSlLongExtra, setWfSlLongExtra] = useState("");
   const [h4TrendFilter, setH4TrendFilter] = useState(false);
+  const [trailAfterTp1, setTrailAfterTp1] = useState(false);
+  const [wfTrailAtrMult, setWfTrailAtrMult] = useState("");
   const [wfBeBufferR, setWfBeBufferR] = useState("");
   const [obRequireLiquidity, setObRequireLiquidity] = useState(false);
   const [wfEarlyExitOverride, setWfEarlyExitOverride] = useState("");
@@ -883,7 +885,9 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
         ema_slope_filter_override: emaSlopeFilter ? true : null,
         ema_slope_lookback_override: wfEmaSlopeLookback !== "" ? parseInt(wfEmaSlopeLookback, 10) : null,
         sl_long_extra_atr_override: wfSlLongExtra !== "" ? parseFloat(wfSlLongExtra) : null,
-        h4_trend_filter_override: h4TrendFilter ? true : null }),
+        h4_trend_filter_override: h4TrendFilter ? true : null,
+        trail_after_tp1_override: trailAfterTp1 ? true : null,
+        trail_after_tp1_atr_mult_override: wfTrailAtrMult !== "" ? parseFloat(wfTrailAtrMult) : null }),
     }).then(() => setWfLoading(false)).catch(() => setWfLoading(false));
   };
 
@@ -2673,6 +2677,22 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                           Strat A — exiger close H4 aligné avec l'EMA200 H4 (LONG au-dessus, SHORT en-dessous)
                         </span>
                       </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, cursor: "pointer" }}>
+                        <input type="checkbox" checked={trailAfterTp1} onChange={e => setTrailAfterTp1(e.target.checked)}
+                          style={{ accentColor: COLORS.amber }} />
+                        <span style={{ fontSize: 9, color: trailAfterTp1 ? COLORS.amber : COLORS.sub }}>
+                          Strat A — trailing ATR après TP1 au lieu du saut unique à BE
+                        </span>
+                      </label>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          ↳ distance du trailing en ×ATR (vide = défaut 1.0)
+                        </span>
+                        <input type="number" step="0.1" placeholder="1.0" value={wfTrailAtrMult}
+                          onChange={e => setWfTrailAtrMult(e.target.value)}
+                          style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
                       </>)}
                       {strategyMode === "B" && (<>
                       <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, cursor: "pointer" }}>
@@ -2719,7 +2739,7 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
                       )}
-                      {(wfAdxOverride !== "" || wfRsiLongOverride !== "" || wfRsiShortOverride !== "" || wfAtrMinOverride !== "" || wfTrendBiasOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "" || obRequireBos || wfBeBufferR !== "" || obRequireLiquidity || wfEarlyExitOverride !== "" || wfAdxH1Override !== "" || emaSlopeFilter || wfEmaSlopeLookback !== "" || wfSlLongExtra !== "" || h4TrendFilter) && (
+                      {(wfAdxOverride !== "" || wfRsiLongOverride !== "" || wfRsiShortOverride !== "" || wfAtrMinOverride !== "" || wfTrendBiasOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "" || obRequireBos || wfBeBufferR !== "" || obRequireLiquidity || wfEarlyExitOverride !== "" || wfAdxH1Override !== "" || emaSlopeFilter || wfEmaSlopeLookback !== "" || wfSlLongExtra !== "" || h4TrendFilter || trailAfterTp1 || wfTrailAtrMult !== "") && (
                         <div style={{ fontSize: 9, color: COLORS.amber, marginBottom: 4 }}>
                           ⚠ Test isolé — ne modifie pas le réglage live tant que tu ne le forces pas ailleurs.
                         </div>
