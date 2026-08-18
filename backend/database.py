@@ -929,6 +929,45 @@ def find_trades_in_override_windows(symbol: str = "XAUUSD", limit: int = 500) ->
 # --------------------------------------------------------------------------- #
 # Trade report (pour dashboard + agent IA)
 # --------------------------------------------------------------------------- #
+def get_closed_trades(symbol: str | None = None, limit: int = 2000) -> List[Dict[str, Any]]:
+    """Trades RÉELS fermés (pas une simulation pretrain), avec date_cet calculée —
+    pour les diagnostics qui doivent croiser l'historique déjà exécuté avec des
+    données de marché (ex. volatilité du jour), contrairement aux diag_by_direction_*
+    qui opèrent sur un trades_log de pretrain déjà en mémoire."""
+    try:
+        import pytz as _pytz
+        _CET = _pytz.timezone("Europe/Paris")
+    except Exception:
+        _CET = None
+
+    with get_conn() as conn:
+        if symbol:
+            rows = conn.execute(
+                "SELECT * FROM trades WHERE status = 'closed' AND symbol = ? ORDER BY entry_time ASC LIMIT ?",
+                (symbol, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM trades WHERE status = 'closed' ORDER BY entry_time ASC LIMIT ?",
+                (limit,),
+            ).fetchall()
+
+    trades_list = [_row_to_dict(r) for r in rows]
+    for t in trades_list:
+        try:
+            raw = t.get("entry_time", "")
+            ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            ts_cet = ts.astimezone(_CET) if _CET else ts
+            t["date_cet"] = ts_cet.strftime("%Y-%m-%d")
+            t["entry_ts_utc"] = ts.astimezone(timezone.utc).isoformat()
+        except Exception:
+            t["date_cet"] = "?"
+            t["entry_ts_utc"] = None
+    return trades_list
+
+
 def get_trade_report(limit: int = 500, symbol: str | None = None) -> Dict[str, Any]:
     """Rapport complet de l'historique pour le dashboard et l'agent IA."""
     try:

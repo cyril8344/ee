@@ -1707,6 +1707,19 @@ def override_overlap_audit_endpoint(symbol: str = "XAUUSD", _user: dict = Depend
     return db.find_trades_in_override_windows(symbol=symbol)
 
 
+@app.get("/api/diagnostics/real-trades-volatility")
+def real_trades_volatility_diagnostic(symbol: str = "XAUUSD", _user: dict = Depends(get_current_user)):
+    """Diagnostic sur l'historique RÉEL des trades déjà exécutés (pas une simulation
+    pretrain) : regroupe par jour calendaire CET et croise le % de sorties
+    "early_exit" avec l'ATR M5 réel de ce jour-là — pour vérifier si les jours
+    calmes (faible volatilité) produisent disproportionnellement plus d'early_exit,
+    plutôt que de le déduire de quelques exemples visuels."""
+    try:
+        return _pretrain_module.diag_real_trades_by_day_volatility(symbol=symbol)
+    except Exception as exc:
+        return {"days": [], "correlation_atr_vs_early_exit_pct": None, "error": str(exc)}
+
+
 @app.delete("/api/trades/{trade_id}")
 def delete_trade_by_id(trade_id: int, _user: dict = Depends(get_current_user)):
     """Supprime manuellement un trade de l'historique et resynchronise le P&L du jour."""
