@@ -453,6 +453,8 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
   const [optunaTrials, setOptunaTrials]       = useState(30);
   const [overrideAudit, setOverrideAudit]         = useState(null);
   const [overrideAuditLoading, setOverrideAuditLoading] = useState(false);
+  const [realTradesVolatility, setRealTradesVolatility] = useState(null);
+  const [realTradesVolatilityLoading, setRealTradesVolatilityLoading] = useState(false);
   const [pretrainTrades, setPretrainTrades]   = useState(null);
   const [pretrainFilter, setPretrainFilter]   = useState("losses");
   const [pretrainPage, setPretrainPage]       = useState(0);
@@ -3502,6 +3504,74 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                       </div>
                     ))}
                   </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ===== Diagnostic volatilité vs early exit sur l'historique réel ===== */}
+          <div className="dashboard-panel section-gap" style={{ ...panel(), marginTop: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <h3 style={{ margin: 0, fontSize: 13 }}>Jours calmes vs early exit (historique réel)</h3>
+              <button
+                onClick={() => {
+                  setRealTradesVolatilityLoading(true);
+                  fetch(`${API}/api/diagnostics/real-trades-volatility?symbol=${activeMarket}`, { headers: authHeaders() })
+                    .then(r => r.json())
+                    .then(d => { setRealTradesVolatility(d); setRealTradesVolatilityLoading(false); })
+                    .catch(() => setRealTradesVolatilityLoading(false));
+                }}
+                disabled={realTradesVolatilityLoading}
+                style={{ fontSize: 10, background: "transparent", border: `1px solid ${COLORS.border}`,
+                  borderRadius: 4, color: COLORS.sub, padding: "2px 8px", cursor: "pointer" }}
+              >
+                {realTradesVolatilityLoading ? "⏳..." : "Vérifier"}
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 4 }}>
+              Regroupe les VRAIS trades déjà exécutés par jour et croise le % de sorties "early exit"
+              (15min, sans conviction) avec l'ATR M5 réel de ce jour — pour vérifier si les jours calmes
+              produisent disproportionnellement plus d'early exit.
+            </div>
+            {realTradesVolatility && (
+              <div style={{ fontSize: 12 }}>
+                {realTradesVolatility.note && (
+                  <div style={{ color: COLORS.sub }}>{realTradesVolatility.note}</div>
+                )}
+                {realTradesVolatility.error && (
+                  <div style={{ color: COLORS.red }}>{realTradesVolatility.error}</div>
+                )}
+                {realTradesVolatility.correlation_atr_vs_early_exit_pct != null && (
+                  <div style={{ marginBottom: 6, color: realTradesVolatility.correlation_atr_vs_early_exit_pct < -0.3 ? COLORS.green : COLORS.sub }}>
+                    Corrélation ATR ↔ % early exit : <b>{fmt(realTradesVolatility.correlation_atr_vs_early_exit_pct, 3)}</b>
+                    {realTradesVolatility.correlation_atr_vs_early_exit_pct < -0.3
+                      ? " — négative marquée : les jours calmes ont bien plus d'early exit"
+                      : " — pas de lien net entre volatilité du jour et early exit"}
+                  </div>
+                )}
+                {realTradesVolatility.days && realTradesVolatility.days.length > 0 && (
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ textAlign: "left", color: COLORS.sub, fontWeight: "normal" }}>Jour</th>
+                        <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>Trades</th>
+                        <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>ATR moy.</th>
+                        <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>% early exit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {realTradesVolatility.days.map((d) => (
+                        <tr key={d.day}>
+                          <td style={{ color: COLORS.sub, paddingTop: 2 }}>{d.day}</td>
+                          <td style={{ textAlign: "right", color: COLORS.sub, paddingTop: 2 }}>{d.n}</td>
+                          <td style={{ textAlign: "right", color: COLORS.sub, paddingTop: 2 }}>{d.avg_atr != null ? fmt(d.avg_atr, 2) : "—"}</td>
+                          <td style={{ textAlign: "right", paddingTop: 2, color: d.early_exit_pct >= 40 ? COLORS.red : d.early_exit_pct >= 20 ? COLORS.amber : COLORS.sub }}>
+                            {d.early_exit_pct}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 )}
               </div>
             )}

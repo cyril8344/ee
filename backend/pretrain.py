@@ -1112,6 +1112,103 @@ def _diag_by_direction_exit_reason(trades_log: List[Dict[str, Any]]) -> Dict[str
     }
 
 
+def diag_real_trades_by_day_volatility(symbol: str = "XAUUSD", _trades: Optional[List[Dict[str, Any]]] = None,
+                                        _m5: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
+    """Diagnostic sur les VRAIS trades déjà exécutés (pas une simulation pretrain) :
+    regroupe l'historique réel par jour calendaire CET et calcule, pour chaque jour,
+    le % de sorties "early_exit" et l'ATR M5 moyen ce jour-là — pour vérifier
+    l'hypothèse "un jour calme (faible ATR) produit disproportionnellement plus de
+    sorties early_exit" plutôt que de le déduire de quelques exemples visuels.
+
+    L'ATR à l'entrée n'est PAS stocké sur le trade réel (sig.meta ne contient que
+    rsi_m5/rsi_m15 — voir main.py::_open_trade) : on le retrouve en rechargeant les
+    données M5 réelles couvrant la période des trades, une seule fois pour toute la
+    période (même précaution anti rate-limit que run_walk_forward), puis en cherchant
+    la dernière bougie M5 à ou avant chaque entry_time.
+
+    _trades/_m5 : injection pour les tests (évite un vrai fetch réseau + DB).
+    """
+    trades = _trades if _trades is not None else db.get_closed_trades(symbol=symbol)
+    if not trades:
+        return {"days": [], "correlation_atr_vs_early_exit_pct": None,
+                "note": "Aucun trade fermé trouvé pour ce symbole."}
+
+    entry_dts = []
+    for t in trades:
+        raw = t.get("entry_ts_utc") or t.get("entry_time")
+        if not raw:
+            continue
+        try:
+            ts = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            entry_dts.append(ts)
+        except Exception:
+            continue
+    if not entry_dts:
+        return {"days": [], "correlation_atr_vs_early_exit_pct": None,
+                "note": "Aucune date d'entrée exploitable."}
+
+    if _m5 is not None:
+        m5 = _m5
+    else:
+        start = (min(entry_dts) - timedelta(days=2)).date().isoformat()
+        end = (max(entry_dts) + timedelta(days=2)).date().isoformat()
+        raw_data = load_m5_data(start, end, symbol=symbol)
+        if raw_data is None or len(raw_data) == 0:
+            return {"days": [], "correlation_atr_vs_early_exit_pct": None,
+                    "note": "Impossible de recharger les données M5 pour cette période."}
+        m5 = add_indicators(raw_data)
+
+    m5_index = m5.index
+    from collections import defaultdict as _dd
+    by_day: dict = _dd(lambda: {"n": 0, "early_exit": 0, "atr_sum": 0.0, "atr_n": 0})
+
+    for t in trades:
+        raw = t.get("entry_ts_utc") or t.get("entry_time")
+        if not raw:
+            continue
+        try:
+            ts = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+        except Exception:
+            continue
+        day_key = t.get("date_cet") or ts.date().isoformat()
+        by_day[day_key]["n"] += 1
+        if t.get("exit_reason") == "early_exit":
+            by_day[day_key]["early_exit"] += 1
+
+        pos = m5_index.searchsorted(ts, side="right") - 1
+        if 0 <= pos < len(m5):
+            atr_val = m5["atr"].iloc[pos] if "atr" in m5.columns else None
+            if atr_val is not None and atr_val == atr_val:  # exclut NaN
+                by_day[day_key]["atr_sum"] += float(atr_val)
+                by_day[day_key]["atr_n"] += 1
+
+    days = []
+    for day_key in sorted(by_day.keys()):
+        v = by_day[day_key]
+        days.append({
+            "day": day_key,
+            "n": v["n"],
+            "early_exit_pct": round(v["early_exit"] / v["n"] * 100, 1) if v["n"] else 0.0,
+            "avg_atr": round(v["atr_sum"] / v["atr_n"], 3) if v["atr_n"] else None,
+        })
+
+    correlation = None
+    valid = [d for d in days if d["avg_atr"] is not None and d["n"] >= 2]
+    if len(valid) >= 3:
+        import statistics as _st
+        try:
+            correlation = round(_st.correlation(
+                [d["avg_atr"] for d in valid], [d["early_exit_pct"] for d in valid]), 3)
+        except Exception:
+            correlation = None
+
+    return {"days": days, "correlation_atr_vs_early_exit_pct": correlation}
+
+
 # --------------------------------------------------------------------------- #
 # Walk-forward : robustesse sur N fenêtres indépendantes
 # --------------------------------------------------------------------------- #
