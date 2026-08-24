@@ -1133,6 +1133,12 @@ def diag_real_trades_by_day_volatility(symbol: str = "XAUUSD", _trades: Optional
     "synthetic", la corrélation calculée ici ne reflète pas le vrai marché et ne
     doit pas être utilisée pour trancher l'hypothèse testée.
 
+    Si le fallback synthétique a eu lieu, "data_provider_debug" donne la vraie
+    cause : "backtest_key_configured" (TWELVEDATA_API_KEY_BACKTEST[_2] détecté ou
+    non) et "errors" (dernière erreur par provider — voir
+    data_provider.get_last_errors(), qui avalait silencieusement l'échec du fetch
+    paginé avant ce correctif).
+
     _trades/_m5 : injection pour les tests (évite un vrai fetch réseau + DB).
     """
     trades = _trades if _trades is not None else db.get_closed_trades(symbol=symbol)
@@ -1156,6 +1162,7 @@ def diag_real_trades_by_day_volatility(symbol: str = "XAUUSD", _trades: Optional
         return {"days": [], "correlation_atr_vs_early_exit_pct": None,
                 "note": "Aucune date d'entrée exploitable."}
 
+    data_provider_debug = None
     if _m5 is not None:
         m5 = _m5
         data_provider_used = "injected"
@@ -1168,6 +1175,14 @@ def diag_real_trades_by_day_volatility(symbol: str = "XAUUSD", _trades: Optional
                     "note": "Impossible de recharger les données M5 pour cette période."}
         data_provider_used = raw_data.attrs.get("provider", "unknown")
         m5 = add_indicators(raw_data)
+        if data_provider_used == "synthetic":
+            # Diagnostic de la vraie cause du fallback — voir data_provider.get_last_errors(),
+            # auparavant avalée silencieusement pour le fetch paginé (backtest range).
+            _errs = _dp.get_last_errors()
+            data_provider_debug = {
+                "backtest_key_configured": _dp.has_backtest_key(),
+                "errors": {k: v for k, v in _errs.items() if symbol in k or "twelvedata" in k},
+            }
 
     m5_index = m5.index
     from collections import defaultdict as _dd
@@ -1216,7 +1231,8 @@ def diag_real_trades_by_day_volatility(symbol: str = "XAUUSD", _trades: Optional
             correlation = None
 
     return {"days": days, "correlation_atr_vs_early_exit_pct": correlation,
-            "data_provider_used": data_provider_used}
+            "data_provider_used": data_provider_used,
+            "data_provider_debug": data_provider_debug}
 
 
 def diag_real_trades_early_exit_by_hour(symbol: str = "XAUUSD",

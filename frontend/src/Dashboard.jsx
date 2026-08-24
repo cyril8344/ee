@@ -4376,9 +4376,23 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                 )}
                 {realTradesVolatility.data_provider_used && (
                   realTradesVolatility.data_provider_used === "synthetic" ? (
-                    <div style={{ marginBottom: 6, color: COLORS.red, fontWeight: 600 }}>
-                      ⚠ Données synthétiques utilisées (le vrai fournisseur a échoué) — l'ATR affiché
-                      ne reflète PAS le vrai marché, ne pas se fier à la corrélation ci-dessous.
+                    <div style={{ marginBottom: 6 }}>
+                      <div style={{ color: COLORS.red, fontWeight: 600 }}>
+                        ⚠ Données synthétiques utilisées (le vrai fournisseur a échoué) — l'ATR affiché
+                        ne reflète PAS le vrai marché, ne pas se fier à la corrélation ci-dessous.
+                      </div>
+                      {realTradesVolatility.data_provider_debug && (
+                        <div style={{ fontSize: 10, color: COLORS.sub, marginTop: 4 }}>
+                          Clé backtest configurée : {realTradesVolatility.data_provider_debug.backtest_key_configured ? "oui" : "non"}
+                          {Object.keys(realTradesVolatility.data_provider_debug.errors || {}).length > 0 && (
+                            <div style={{ marginTop: 2 }}>
+                              {Object.entries(realTradesVolatility.data_provider_debug.errors).map(([k, v]) => (
+                                <div key={k}>{k} : {v}</div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div style={{ marginBottom: 6, fontSize: 10, color: COLORS.sub }}>
