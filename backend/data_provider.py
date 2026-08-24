@@ -547,13 +547,25 @@ def available_providers() -> List[str]:
 
 
 def get_m5(start: Optional[str] = None, end: Optional[str] = None,
-           bars: int = 500, symbol: str = "XAUUSD") -> tuple[pd.DataFrame, str]:
+           bars: int = 500, symbol: str = "XAUUSD",
+           min_coverage: float = 0.99) -> tuple[pd.DataFrame, str]:
     """
     Return (dataframe, provider_name_used).
 
     Honors XAU_DATA_PROVIDER if set to a concrete provider; otherwise walks the
     auto order and falls back through providers until one succeeds. Synthetic is
     the guaranteed last resort so callers never get an empty result.
+
+    min_coverage : fraction minimale de la plage demandée qu'un provider doit
+    couvrir pour être accepté sur une requête par plage. 0.99 par défaut — exigé
+    par le walk-forward, où une fenêtre incomplète fausse silencieusement le
+    résultat. Un appelant qui ne fait que des lookups ponctuels (ex.
+    diag_real_trades_by_day_volatility, qui cherche l'ATR à des horodatages
+    précis et ignore proprement les trous) peut l'abaisser : les week-ends aux
+    bornes suffisent à faire échouer 99% sur une plage de quelques semaines.
+    Le CACHE, lui, reste toujours écrit au seuil strict de 0.99 — sinon un
+    résultat partiel accepté ici serait relu plus tard par un walk-forward,
+    qui exige la couverture complète.
     """
     chosen = os.environ.get("XAU_DATA_PROVIDER", "auto").strip().lower()
     if chosen and chosen != "auto" and chosen in _PROVIDERS:
@@ -594,8 +606,11 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
                 # 99% — 95% laissait encore jusqu'à ~9 jours manquants sur une fenêtre
                 # de 6 mois sans déclencher l'alerte, assez pour faire bouger un résultat
                 # de walk-forward d'un run à l'autre sur les mêmes dates demandées.
-                coverage_ok = got_days >= req_days * 0.99
-                if _is_range and coverage_ok:
+                strict_ok = got_days >= req_days * 0.99
+                coverage_ok = got_days >= req_days * min_coverage
+                # Cache toujours au seuil strict : une entrée partielle serait
+                # relue telle quelle par un walk-forward, qui exige 99%.
+                if _is_range and strict_ok:
                     _cache_save(symbol, start, end, df, "twelvedata")
                 if coverage_ok:
                     _last_errors.pop(f"{symbol}:twelvedata_range", None)
@@ -630,7 +645,7 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
                     # si c'était la bonne, ce qui fausse le walk-forward.
                     req_days = (pd.Timestamp(end, tz="UTC") - pd.Timestamp(start, tz="UTC")).days
                     got_days = (df.index.max() - df.index.min()).days if len(df) > 1 else 0
-                    if req_days > 0 and got_days < req_days * 0.99:
+                    if req_days > 0 and got_days < req_days * min_coverage:
                         last_err = RuntimeError(
                             f"{name}: couverture insuffisante ({got_days}j obtenus / {req_days}j demandés)"
                         )
@@ -642,7 +657,8 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
                     # du vrai historique). Sans ce garde-fou, une panne transitoire (clé
                     # invalide, rate limit) restait invisible jusqu'à expiration du cache
                     # ou vidage manuel, même après correction de la cause réelle.
-                    if name != "synthetic":
+                    # Cache toujours au seuil strict, jamais au min_coverage assoupli.
+                    if name != "synthetic" and got_days >= req_days * 0.99:
                         _cache_save(symbol, start, end, df, name)
                 # Clear error on success
                 _last_errors.pop(f"{symbol}:{name}", None)

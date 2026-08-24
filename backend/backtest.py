@@ -61,15 +61,21 @@ def _normalise_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def load_m5_data(start: str, end: str, symbol: str = "XAUUSD") -> pd.DataFrame:
+def load_m5_data(start: str, end: str, symbol: str = "XAUUSD",
+                 min_coverage: float = 0.99) -> pd.DataFrame:
     """Load 5-minute gold data via the unified data provider.
 
     Uses the configured/real provider (Twelve Data, Polygon, Alpha Vantage,
     yfinance) when a key is available, otherwise falls back to a deterministic
     synthetic series so the backtest never hard-fails.
+
+    min_coverage : voir data_provider.get_m5. 0.99 par défaut (exigence
+    walk-forward) ; à abaisser seulement pour un appelant qui fait des lookups
+    ponctuels et tolère des trous, pas une simulation continue.
     """
     try:
-        df, _provider = data_provider.get_m5(start=start, end=end, bars=5000, symbol=symbol)
+        df, _provider = data_provider.get_m5(start=start, end=end, bars=5000, symbol=symbol,
+                                              min_coverage=min_coverage)
         if df is not None and len(df) > 0:
             df.attrs["provider"] = _provider
             return df

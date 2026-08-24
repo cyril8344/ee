@@ -1168,8 +1168,16 @@ def diag_real_trades_by_day_volatility(symbol: str = "XAUUSD", _trades: Optional
         data_provider_used = "injected"
     else:
         start = (min(entry_dts) - timedelta(days=2)).date().isoformat()
-        end = (max(entry_dts) + timedelta(days=2)).date().isoformat()
-        raw_data = load_m5_data(start, end, symbol=symbol)
+        # Jamais au-delà de maintenant : le marché n'a pas encore produit ces
+        # bougies, donc une marge en avant garantissait un déficit de couverture
+        # (observé : 49j obtenus / 51j demandés, rejeté par le seuil strict).
+        _end_dt = min(max(entry_dts) + timedelta(days=1), datetime.now(timezone.utc))
+        end = _end_dt.date().isoformat()
+        # Seuil assoupli : ce diagnostic fait des lookups ponctuels d'ATR (les
+        # trous sont ignorés proprement plus bas), il n'a pas besoin de la
+        # couverture continue qu'exige le walk-forward — un week-end à une borne
+        # suffirait sinon à faire échouer 99% sur une plage de quelques semaines.
+        raw_data = load_m5_data(start, end, symbol=symbol, min_coverage=0.85)
         if raw_data is None or len(raw_data) == 0:
             return {"days": [], "correlation_atr_vs_early_exit_pct": None,
                     "note": "Impossible de recharger les données M5 pour cette période."}

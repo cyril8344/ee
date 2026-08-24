@@ -161,6 +161,67 @@ def test_synthetic_fallback_is_never_cached(monkeypatch):
     assert db.ohlcv_cache_load(cache_key) is None
 
 
+def _partial_range_df(days: int):
+    idx = pd.date_range("2024-01-01", periods=days, freq="D", tz="UTC")
+    return pd.DataFrame({
+        "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 10.0,
+    }, index=idx)
+
+
+def _setup_partial_fetch(monkeypatch, symbol, days):
+    db.init_db()
+    db.ohlcv_cache_clear(symbol)
+    monkeypatch.setenv("XAU_DATA_PROVIDER", "auto")
+    monkeypatch.setenv("TWELVEDATA_API_KEY", "live_key")
+    monkeypatch.setenv("TWELVEDATA_API_KEY_BACKTEST", "key_a")
+    monkeypatch.delenv("POLYGON_API_KEY", raising=False)
+    monkeypatch.delenv("ALPHAVANTAGE_API_KEY", raising=False)
+    data_provider._last_errors.clear()
+    monkeypatch.setattr(data_provider, "_fetch_twelvedata_range",
+                         lambda *a, **k: _partial_range_df(days))
+    monkeypatch.setitem(data_provider._PROVIDERS, "yfinance",
+                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no network")))
+
+
+def test_relaxed_min_coverage_accepts_partial_range(monkeypatch):
+    """Une plage de quelques semaines perd facilement 2 jours aux bornes
+    (week-end, ou marge demandée au-delà de maintenant) — 96% de couverture, ce
+    qui échouait le seuil strict de 99% et faisait basculer sur le synthétique
+    alors que les données réelles étaient là. Un appelant qui fait des lookups
+    ponctuels doit pouvoir accepter ça explicitement."""
+    symbol = "XAUUSD_TESTRELAXED"
+    # 49 jours de données réelles sur les 51 demandés ≈ 96% — cas réel observé.
+    _setup_partial_fetch(monkeypatch, symbol, days=49)
+
+    df, provider = data_provider.get_m5(start="2024-01-01", end="2024-02-21",
+                                         symbol=symbol, min_coverage=0.85)
+    assert provider == "twelvedata"
+    assert len(df) > 0
+
+
+def test_strict_min_coverage_still_rejects_same_partial_range(monkeypatch):
+    symbol = "XAUUSD_TESTSTRICT"
+    _setup_partial_fetch(monkeypatch, symbol, days=49)
+
+    df, provider = data_provider.get_m5(start="2024-01-01", end="2024-02-21", symbol=symbol)
+    assert provider == "synthetic"  # défaut 0.99 inchangé pour le walk-forward
+
+
+def test_relaxed_acceptance_is_never_written_to_cache(monkeypatch):
+    """Le cache est partagé par clé symbol+start+end : une entrée partielle
+    acceptée via min_coverage assoupli serait relue telle quelle par un
+    walk-forward, qui exige 99%."""
+    symbol = "XAUUSD_TESTRELAXEDCACHE"
+    _setup_partial_fetch(monkeypatch, symbol, days=49)
+
+    df, provider = data_provider.get_m5(start="2024-01-01", end="2024-02-21",
+                                         symbol=symbol, min_coverage=0.85)
+    assert provider == "twelvedata"
+
+    cache_key = data_provider._cache_key(symbol, "2024-01-01", "2024-02-21")
+    assert db.ohlcv_cache_load(cache_key) is None
+
+
 def test_fetch_twelvedata_range_rotates_key_on_429(monkeypatch):
     """A 429 on the first backtest key must roll over to the second one
     (TWELVEDATA_API_KEY_BACKTEST_2) instead of just re-hitting the same key."""
