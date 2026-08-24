@@ -1126,6 +1126,13 @@ def diag_real_trades_by_day_volatility(symbol: str = "XAUUSD", _trades: Optional
     période (même précaution anti rate-limit que run_walk_forward), puis en cherchant
     la dernière bougie M5 à ou avant chaque entry_time.
 
+    Le résultat inclut "data_provider_used" (ex. "twelvedata", "yfinance",
+    "synthetic") : load_m5_data() retombe silencieusement sur des données
+    synthétiques si le vrai fournisseur échoue (voir CLAUDE.md — "avoid drawing
+    conclusions from synthetic backtest results"). Si data_provider_used vaut
+    "synthetic", la corrélation calculée ici ne reflète pas le vrai marché et ne
+    doit pas être utilisée pour trancher l'hypothèse testée.
+
     _trades/_m5 : injection pour les tests (évite un vrai fetch réseau + DB).
     """
     trades = _trades if _trades is not None else db.get_closed_trades(symbol=symbol)
@@ -1151,6 +1158,7 @@ def diag_real_trades_by_day_volatility(symbol: str = "XAUUSD", _trades: Optional
 
     if _m5 is not None:
         m5 = _m5
+        data_provider_used = "injected"
     else:
         start = (min(entry_dts) - timedelta(days=2)).date().isoformat()
         end = (max(entry_dts) + timedelta(days=2)).date().isoformat()
@@ -1158,6 +1166,7 @@ def diag_real_trades_by_day_volatility(symbol: str = "XAUUSD", _trades: Optional
         if raw_data is None or len(raw_data) == 0:
             return {"days": [], "correlation_atr_vs_early_exit_pct": None,
                     "note": "Impossible de recharger les données M5 pour cette période."}
+        data_provider_used = raw_data.attrs.get("provider", "unknown")
         m5 = add_indicators(raw_data)
 
     m5_index = m5.index
@@ -1206,7 +1215,8 @@ def diag_real_trades_by_day_volatility(symbol: str = "XAUUSD", _trades: Optional
         except Exception:
             correlation = None
 
-    return {"days": days, "correlation_atr_vs_early_exit_pct": correlation}
+    return {"days": days, "correlation_atr_vs_early_exit_pct": correlation,
+            "data_provider_used": data_provider_used}
 
 
 # --------------------------------------------------------------------------- #

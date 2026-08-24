@@ -4372,6 +4372,18 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                 {realTradesVolatility.error && (
                   <div style={{ color: COLORS.red }}>{realTradesVolatility.error}</div>
                 )}
+                {realTradesVolatility.data_provider_used && (
+                  realTradesVolatility.data_provider_used === "synthetic" ? (
+                    <div style={{ marginBottom: 6, color: COLORS.red, fontWeight: 600 }}>
+                      ⚠ Données synthétiques utilisées (le vrai fournisseur a échoué) — l'ATR affiché
+                      ne reflète PAS le vrai marché, ne pas se fier à la corrélation ci-dessous.
+                    </div>
+                  ) : (
+                    <div style={{ marginBottom: 6, fontSize: 10, color: COLORS.sub }}>
+                      Source : {realTradesVolatility.data_provider_used}
+                    </div>
+                  )
+                )}
                 {realTradesVolatility.correlation_atr_vs_early_exit_pct != null && (
                   <div style={{ marginBottom: 6, color: realTradesVolatility.correlation_atr_vs_early_exit_pct < -0.3 ? COLORS.green : COLORS.sub }}>
                     Corrélation ATR ↔ % early exit : <b>{fmt(realTradesVolatility.correlation_atr_vs_early_exit_pct, 3)}</b>

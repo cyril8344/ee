@@ -58,6 +58,50 @@ def test_groups_by_day_and_flags_early_exit_pct():
     assert days["2024-06-04"]["n"] == 4
     assert days["2024-06-04"]["early_exit_pct"] == pytest.approx(0.0)
     assert days["2024-06-04"]["avg_atr"] == pytest.approx(8.0)
+    assert result["data_provider_used"] == "injected"
+
+
+def _raw_ohlcv_two_days():
+    """Données OHLCV brutes (pas encore indicateurs) — ce que load_m5_data()
+    renvoie réellement, avant add_indicators()."""
+    idx = pd.to_datetime([
+        "2024-06-03T09:00:00Z", "2024-06-03T09:05:00Z", "2024-06-03T09:10:00Z",
+        "2024-06-04T09:00:00Z", "2024-06-04T09:05:00Z", "2024-06-04T09:10:00Z",
+    ], utc=True)
+    return pd.DataFrame({
+        "open":  [2000.0] * 6, "high": [2001.0] * 6, "low": [1999.0] * 6,
+        "close": [2000.5] * 6, "volume": [100.0] * 6,
+    }, index=idx)
+
+
+def test_flags_synthetic_fallback_so_the_correlation_isnt_trusted_blindly(monkeypatch):
+    """load_m5_data() retombe silencieusement sur des données synthétiques si le
+    vrai fournisseur échoue (voir CLAUDE.md). Le diagnostic doit exposer quelle
+    source a été utilisée, pas juste calculer une corrélation sur des prix
+    potentiellement inventés sans le signaler."""
+    raw = _raw_ohlcv_two_days()
+    raw.attrs["provider"] = "synthetic"
+
+    def _fake_load_m5_data(start, end, symbol="XAUUSD"):
+        return raw
+
+    monkeypatch.setattr(pretrain, "load_m5_data", _fake_load_m5_data)
+    trades = [_trade("2024-06-03T09:06:00Z", "2024-06-03", "tp1")]
+    result = pretrain.diag_real_trades_by_day_volatility(symbol="XAUUSD", _trades=trades)
+    assert result["data_provider_used"] == "synthetic"
+
+
+def test_flags_real_provider_when_fetch_succeeds(monkeypatch):
+    raw = _raw_ohlcv_two_days()
+    raw.attrs["provider"] = "twelvedata"
+
+    def _fake_load_m5_data(start, end, symbol="XAUUSD"):
+        return raw
+
+    monkeypatch.setattr(pretrain, "load_m5_data", _fake_load_m5_data)
+    trades = [_trade("2024-06-03T09:06:00Z", "2024-06-03", "tp1")]
+    result = pretrain.diag_real_trades_by_day_volatility(symbol="XAUUSD", _trades=trades)
+    assert result["data_provider_used"] == "twelvedata"
 
 
 def test_correlation_is_negative_when_low_atr_means_more_early_exit():
