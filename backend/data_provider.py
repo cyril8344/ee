@@ -636,7 +636,14 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
                         )
                         _last_errors[f"{symbol}:{name}"] = str(last_err)
                         continue
-                    _cache_save(symbol, start, end, df, name)
+                    # "synthetic" est juste la dernière entrée de _AUTO_ORDER, traitée
+                    # par cette même boucle — mais c'est un échec des vrais fournisseurs,
+                    # pas une donnée de marché "immuable" à figer 7 jours (TTL pensé pour
+                    # du vrai historique). Sans ce garde-fou, une panne transitoire (clé
+                    # invalide, rate limit) restait invisible jusqu'à expiration du cache
+                    # ou vidage manuel, même après correction de la cause réelle.
+                    if name != "synthetic":
+                        _cache_save(symbol, start, end, df, name)
                 # Clear error on success
                 _last_errors.pop(f"{symbol}:{name}", None)
                 return df, name

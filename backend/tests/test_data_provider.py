@@ -129,6 +129,38 @@ def test_get_m5_records_insufficient_coverage_reason(monkeypatch):
     assert "couverture insuffisante" in errs[f"{symbol}:twelvedata_range"]
 
 
+def test_synthetic_fallback_is_never_cached(monkeypatch):
+    """Le TTL du cache OHLCV (7 jours) suppose des données de marché réelles et
+    immuables — "synthetic" traverse la même boucle providers que les vrais
+    fournisseurs (voir get_m5) et se faisait donc mettre en cache comme eux. Un
+    échec transitoire (clé invalide, rate limit) restait alors invisible pendant
+    7 jours même après correction de la cause réelle, puisque get_m5() sert le
+    cache avant même de retenter un fetch. Ce test vérifie qu'un résultat
+    "synthetic" ne laisse plus aucune trace dans le cache disque."""
+    symbol = "XAUUSD_TESTNOCACHE"
+    db.init_db()
+    db.ohlcv_cache_clear(symbol)
+    monkeypatch.setenv("XAU_DATA_PROVIDER", "auto")
+    monkeypatch.setenv("TWELVEDATA_API_KEY", "live_key")
+    monkeypatch.setenv("TWELVEDATA_API_KEY_BACKTEST", "key_a")
+    monkeypatch.delenv("POLYGON_API_KEY", raising=False)
+    monkeypatch.delenv("ALPHAVANTAGE_API_KEY", raising=False)
+    data_provider._last_errors.clear()
+
+    monkeypatch.setattr(data_provider, "_fetch_twelvedata_range",
+                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("401 Unauthorized")))
+    monkeypatch.setattr(data_provider, "_fetch_twelvedata",
+                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no data")))
+    monkeypatch.setitem(data_provider._PROVIDERS, "yfinance",
+                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no network")))
+
+    df, provider = data_provider.get_m5(start="2024-01-01", end="2024-03-01", symbol=symbol)
+    assert provider == "synthetic"
+
+    cache_key = data_provider._cache_key(symbol, "2024-01-01", "2024-03-01")
+    assert db.ohlcv_cache_load(cache_key) is None
+
+
 def test_fetch_twelvedata_range_rotates_key_on_429(monkeypatch):
     """A 429 on the first backtest key must roll over to the second one
     (TWELVEDATA_API_KEY_BACKTEST_2) instead of just re-hitting the same key."""
