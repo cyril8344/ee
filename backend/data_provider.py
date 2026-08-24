@@ -91,6 +91,13 @@ def get_last_errors() -> dict:
     return dict(_last_errors)
 
 
+def has_backtest_key() -> bool:
+    """True if TWELVEDATA_API_KEY_BACKTEST[_2] is configured — the most direct
+    way to check the backtest/live key separation without reading a "private"
+    (underscore-prefixed) helper from outside this module."""
+    return bool(_get_twelvedata_keys(backtest=True))
+
+
 def _cache_key(symbol: str, start: str, end: str) -> str:
     raw = f"{symbol}_{start}_{end}"
     return hashlib.md5(raw.encode()).hexdigest()
@@ -591,10 +598,18 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
                 if _is_range and coverage_ok:
                     _cache_save(symbol, start, end, df, "twelvedata")
                 if coverage_ok:
+                    _last_errors.pop(f"{symbol}:twelvedata_range", None)
                     return df, "twelvedata"
                 # Couverture insuffisante → on tombe dans les autres providers
-        except Exception:  # noqa: BLE001 - fall through to normal providers
-            pass
+                _last_errors[f"{symbol}:twelvedata_range"] = (
+                    f"couverture insuffisante ({got_days}j obtenus / {req_days}j demandés)"
+                )
+        except Exception as e:  # noqa: BLE001 - fall through to normal providers
+            # Auparavant avalée sans trace : get_last_errors() n'avait alors jamais
+            # la vraie cause (clé backtest absente, 429 épuisé, erreur API...) pour
+            # un fetch paginé qui échoue avant même d'atteindre la boucle providers
+            # ci-dessous — impossible à diagnostiquer depuis l'extérieur.
+            _last_errors[f"{symbol}:twelvedata_range"] = str(e)
 
     last_err = None
     for name in order:

@@ -4,6 +4,7 @@ from unittest.mock import patch, MagicMock
 import pandas as pd
 
 import data_provider
+import database as db
 
 
 def test_synthetic_always_returns_data():
@@ -36,6 +37,96 @@ def test_ohlc_integrity():
     assert (df["high"] >= df["low"]).all()
     assert (df["high"] >= df["close"]).all()
     assert (df["low"] <= df["close"]).all()
+
+
+def test_has_backtest_key_reflects_env(monkeypatch):
+    monkeypatch.delenv("TWELVEDATA_API_KEY_BACKTEST", raising=False)
+    monkeypatch.delenv("TWELVEDATA_API_KEY_BACKTEST_2", raising=False)
+    assert data_provider.has_backtest_key() is False
+
+    monkeypatch.setenv("TWELVEDATA_API_KEY_BACKTEST", "key_a")
+    assert data_provider.has_backtest_key() is True
+
+
+def test_get_m5_records_error_when_paginated_range_fetch_raises(monkeypatch):
+    """Avant ce correctif, une exception dans le fetch paginé (backtest range)
+    était avalée silencieusement (except Exception: pass) — get_last_errors()
+    n'avait alors jamais la vraie cause du fallback synthétique, rendant le
+    diagnostic "jours calmes vs early exit" impossible à déboguer depuis
+    l'extérieur (voir diag_real_trades_by_day_volatility::data_provider_debug).
+
+    Symbole unique + cache vidé explicitement : "synthetic" est juste une entrée
+    de plus dans _AUTO_ORDER (le fallback ultime n'est qu'un filet de sécurité
+    théorique) — un run réussi met donc bien le résultat synthétique en cache
+    disque partagé entre invocations pytest (XAU_DB_PATH pointe vers un fichier
+    temp fixe, pas recréé à chaque run). Sans ce nettoyage, relancer ce test
+    après un premier succès lit le cache et ne touche plus aux mocks du tout,
+    laissant get_last_errors() vide silencieusement."""
+    symbol = "XAUUSD_TESTRANGEERR"
+    db.init_db()
+    db.ohlcv_cache_clear(symbol)
+    monkeypatch.setenv("XAU_DATA_PROVIDER", "auto")
+    # order = [...] n'inclut "twelvedata" que si la clé LIVE (pas juste backtest)
+    # est présente (voir get_m5 : _KEY_ENV["twelvedata"] = TWELVEDATA_API_KEY) —
+    # cohérent avec la config réelle de l'utilisateur (les deux existent).
+    monkeypatch.setenv("TWELVEDATA_API_KEY", "live_key")
+    monkeypatch.setenv("TWELVEDATA_API_KEY_BACKTEST", "key_a")
+    monkeypatch.delenv("POLYGON_API_KEY", raising=False)
+    monkeypatch.delenv("ALPHAVANTAGE_API_KEY", raising=False)
+    data_provider._last_errors.clear()
+
+    def _raise_range(*a, **k):
+        raise RuntimeError("429 Too Many Requests (key rotated)")
+
+    def _raise_single(*a, **k):
+        raise RuntimeError("no data")
+
+    def _raise_yf(*a, **k):
+        raise RuntimeError("no network")
+
+    monkeypatch.setattr(data_provider, "_fetch_twelvedata_range", _raise_range)
+    monkeypatch.setattr(data_provider, "_fetch_twelvedata", _raise_single)
+    # _PROVIDERS est un dict figé au chargement du module — patcher juste
+    # _fetch_yfinance ne suffit pas, la boucle providers appelle _PROVIDERS[name].
+    monkeypatch.setitem(data_provider._PROVIDERS, "yfinance", _raise_yf)
+
+    df, provider = data_provider.get_m5(start="2024-01-01", end="2024-03-01", symbol=symbol)
+    assert provider == "synthetic"
+    assert len(df) > 0
+
+    errs = data_provider.get_last_errors()
+    assert f"{symbol}:twelvedata_range" in errs
+    assert "429" in errs[f"{symbol}:twelvedata_range"]
+
+
+def test_get_m5_records_insufficient_coverage_reason(monkeypatch):
+    symbol = "XAUUSD_TESTCOVERAGE"
+    db.init_db()
+    db.ohlcv_cache_clear(symbol)
+    monkeypatch.setenv("XAU_DATA_PROVIDER", "auto")
+    monkeypatch.setenv("TWELVEDATA_API_KEY", "live_key")
+    monkeypatch.setenv("TWELVEDATA_API_KEY_BACKTEST", "key_a")
+    monkeypatch.delenv("POLYGON_API_KEY", raising=False)
+    monkeypatch.delenv("ALPHAVANTAGE_API_KEY", raising=False)
+    data_provider._last_errors.clear()
+
+    # Ne couvre que 5 jours sur les 2 mois demandés -> couverture insuffisante
+    short_idx = pd.date_range("2024-01-01", periods=5, freq="D", tz="UTC")
+    partial_df = pd.DataFrame({
+        "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 10.0,
+    }, index=short_idx)
+
+    monkeypatch.setattr(data_provider, "_fetch_twelvedata_range", lambda *a, **k: partial_df)
+    monkeypatch.setattr(data_provider, "_fetch_twelvedata", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no data")))
+    monkeypatch.setitem(data_provider._PROVIDERS, "yfinance",
+                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no network")))
+
+    df, provider = data_provider.get_m5(start="2024-01-01", end="2024-03-01", symbol=symbol)
+    assert provider == "synthetic"
+
+    errs = data_provider.get_last_errors()
+    assert f"{symbol}:twelvedata_range" in errs
+    assert "couverture insuffisante" in errs[f"{symbol}:twelvedata_range"]
 
 
 def test_fetch_twelvedata_range_rotates_key_on_429(monkeypatch):

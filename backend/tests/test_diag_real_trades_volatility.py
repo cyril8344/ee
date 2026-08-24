@@ -86,9 +86,25 @@ def test_flags_synthetic_fallback_so_the_correlation_isnt_trusted_blindly(monkey
         return raw
 
     monkeypatch.setattr(pretrain, "load_m5_data", _fake_load_m5_data)
+    monkeypatch.setattr(pretrain._dp, "has_backtest_key", lambda: False)
+    monkeypatch.setattr(pretrain._dp, "get_last_errors",
+                         lambda: {"XAUUSD:twelvedata_range": "429 Too Many Requests"})
     trades = [_trade("2024-06-03T09:06:00Z", "2024-06-03", "tp1")]
     result = pretrain.diag_real_trades_by_day_volatility(symbol="XAUUSD", _trades=trades)
     assert result["data_provider_used"] == "synthetic"
+    assert result["data_provider_debug"]["backtest_key_configured"] is False
+    assert "XAUUSD:twelvedata_range" in result["data_provider_debug"]["errors"]
+
+
+def test_no_debug_info_when_real_provider_succeeds(monkeypatch):
+    raw = _raw_ohlcv_two_days()
+    raw.attrs["provider"] = "twelvedata"
+
+    monkeypatch.setattr(pretrain, "load_m5_data", lambda start, end, symbol="XAUUSD": raw)
+    trades = [_trade("2024-06-03T09:06:00Z", "2024-06-03", "tp1")]
+    result = pretrain.diag_real_trades_by_day_volatility(symbol="XAUUSD", _trades=trades)
+    assert result["data_provider_used"] == "twelvedata"
+    assert result["data_provider_debug"] is None
 
 
 def test_flags_real_provider_when_fetch_succeeds(monkeypatch):
