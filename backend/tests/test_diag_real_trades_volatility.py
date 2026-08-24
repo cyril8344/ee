@@ -4,6 +4,8 @@ M5 ATR at each entry, grouped by calendar day. Added to test the hypothesis that
 quiet (low-ATR) days produce disproportionately more early_exit outcomes, instead
 of eyeballing a handful of examples in a screenshot.
 """
+from datetime import datetime, timezone
+
 import pandas as pd
 import pytest
 
@@ -82,7 +84,7 @@ def test_flags_synthetic_fallback_so_the_correlation_isnt_trusted_blindly(monkey
     raw = _raw_ohlcv_two_days()
     raw.attrs["provider"] = "synthetic"
 
-    def _fake_load_m5_data(start, end, symbol="XAUUSD"):
+    def _fake_load_m5_data(start, end, symbol="XAUUSD", **kwargs):
         return raw
 
     monkeypatch.setattr(pretrain, "load_m5_data", _fake_load_m5_data)
@@ -100,18 +102,46 @@ def test_no_debug_info_when_real_provider_succeeds(monkeypatch):
     raw = _raw_ohlcv_two_days()
     raw.attrs["provider"] = "twelvedata"
 
-    monkeypatch.setattr(pretrain, "load_m5_data", lambda start, end, symbol="XAUUSD": raw)
+    monkeypatch.setattr(pretrain, "load_m5_data", lambda start, end, symbol="XAUUSD", **kw: raw)
     trades = [_trade("2024-06-03T09:06:00Z", "2024-06-03", "tp1")]
     result = pretrain.diag_real_trades_by_day_volatility(symbol="XAUUSD", _trades=trades)
     assert result["data_provider_used"] == "twelvedata"
     assert result["data_provider_debug"] is None
 
 
+def test_never_requests_market_data_beyond_now(monkeypatch):
+    """Demander une marge en avant sur la dernière entrée fait sortir la plage
+    dans le futur quand un trade a eu lieu aujourd'hui — le marché n'a pas
+    produit ces bougies, donc la couverture était structurellement déficitaire
+    (49j obtenus / 51j demandés) et le résultat basculait sur le synthétique."""
+    raw = _raw_ohlcv_two_days()
+    raw.attrs["provider"] = "twelvedata"
+    captured = {}
+
+    def _fake_load_m5_data(start, end, symbol="XAUUSD", **kwargs):
+        captured["start"] = start
+        captured["end"] = end
+        captured["min_coverage"] = kwargs.get("min_coverage")
+        return raw
+
+    monkeypatch.setattr(pretrain, "load_m5_data", _fake_load_m5_data)
+
+    now = datetime.now(timezone.utc)
+    today_entry = now.isoformat()
+    trades = [_trade(today_entry, now.date().isoformat(), "tp1")]
+    pretrain.diag_real_trades_by_day_volatility(symbol="XAUUSD", _trades=trades)
+
+    assert captured["end"] <= now.date().isoformat()
+    # Seuil assoupli transmis : ce diagnostic tolère les trous (lookups ponctuels).
+    assert captured["min_coverage"] is not None
+    assert captured["min_coverage"] < 0.99
+
+
 def test_flags_real_provider_when_fetch_succeeds(monkeypatch):
     raw = _raw_ohlcv_two_days()
     raw.attrs["provider"] = "twelvedata"
 
-    def _fake_load_m5_data(start, end, symbol="XAUUSD"):
+    def _fake_load_m5_data(start, end, symbol="XAUUSD", **kwargs):
         return raw
 
     monkeypatch.setattr(pretrain, "load_m5_data", _fake_load_m5_data)
