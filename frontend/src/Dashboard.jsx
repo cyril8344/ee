@@ -455,6 +455,8 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
   const [overrideAuditLoading, setOverrideAuditLoading] = useState(false);
   const [realTradesVolatility, setRealTradesVolatility] = useState(null);
   const [realTradesVolatilityLoading, setRealTradesVolatilityLoading] = useState(false);
+  const [earlyExitByHour, setEarlyExitByHour] = useState(null);
+  const [earlyExitByHourLoading, setEarlyExitByHourLoading] = useState(false);
   const [pretrainTrades, setPretrainTrades]   = useState(null);
   const [pretrainFilter, setPretrainFilter]   = useState("losses");
   const [pretrainPage, setPretrainPage]       = useState(0);
@@ -4410,6 +4412,63 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                           <td style={{ textAlign: "right", color: COLORS.sub, paddingTop: 2 }}>{d.avg_atr != null ? fmt(d.avg_atr, 2) : "—"}</td>
                           <td style={{ textAlign: "right", paddingTop: 2, color: d.early_exit_pct >= 40 ? COLORS.red : d.early_exit_pct >= 20 ? COLORS.amber : COLORS.sub }}>
                             {d.early_exit_pct}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ===== Diagnostic early exit par heure (historique réel) ===== */}
+          <div className="dashboard-panel section-gap" style={{ ...panel(), marginTop: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <h3 style={{ margin: 0, fontSize: 13 }}>Early exit par heure d'entrée (historique réel)</h3>
+              <button
+                onClick={() => {
+                  setEarlyExitByHourLoading(true);
+                  fetch(`${API}/api/diagnostics/real-trades-early-exit-by-hour?symbol=${reportSymbol !== "ALL" ? reportSymbol : activeMarket}`, { headers: authHeaders() })
+                    .then(r => r.json())
+                    .then(d => { setEarlyExitByHour(d); setEarlyExitByHourLoading(false); })
+                    .catch(() => setEarlyExitByHourLoading(false));
+                }}
+                disabled={earlyExitByHourLoading}
+                style={{ fontSize: 10, background: "transparent", border: `1px solid ${COLORS.border}`,
+                  borderRadius: 4, color: COLORS.sub, padding: "2px 8px", cursor: "pointer" }}
+              >
+                {earlyExitByHourLoading ? "⏳..." : "Vérifier"}
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 4 }}>
+              Suite au diagnostic ATR/jour ci-dessus (aucun lien trouvé) : regroupe les VRAIS trades par
+              heure CET d'entrée pour voir si l'early exit dépend plutôt du moment précis de la journée.
+            </div>
+            {earlyExitByHour && (
+              <div style={{ fontSize: 12 }}>
+                {earlyExitByHour.note && (
+                  <div style={{ color: COLORS.sub }}>{earlyExitByHour.note}</div>
+                )}
+                {earlyExitByHour.error && (
+                  <div style={{ color: COLORS.red }}>{earlyExitByHour.error}</div>
+                )}
+                {earlyExitByHour.hours && earlyExitByHour.hours.length > 0 && (
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ textAlign: "left", color: COLORS.sub, fontWeight: "normal" }}>Heure CET</th>
+                        <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>Trades</th>
+                        <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>% early exit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {earlyExitByHour.hours.map((h) => (
+                        <tr key={h.hour}>
+                          <td style={{ color: COLORS.sub, paddingTop: 2 }}>{h.hour}h</td>
+                          <td style={{ textAlign: "right", color: COLORS.sub, paddingTop: 2 }}>{h.n}</td>
+                          <td style={{ textAlign: "right", paddingTop: 2, color: h.early_exit_pct >= 40 ? COLORS.red : h.early_exit_pct >= 20 ? COLORS.amber : COLORS.sub }}>
+                            {h.early_exit_pct}%
                           </td>
                         </tr>
                       ))}

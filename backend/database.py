@@ -961,9 +961,11 @@ def get_closed_trades(symbol: str | None = None, limit: int = 2000) -> List[Dict
                 ts = ts.replace(tzinfo=timezone.utc)
             ts_cet = ts.astimezone(_CET) if _CET else ts
             t["date_cet"] = ts_cet.strftime("%Y-%m-%d")
+            t["hour_cet"] = ts_cet.hour
             t["entry_ts_utc"] = ts.astimezone(timezone.utc).isoformat()
         except Exception:
             t["date_cet"] = "?"
+            t["hour_cet"] = None
             t["entry_ts_utc"] = None
     return trades_list
 

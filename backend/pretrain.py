@@ -1219,6 +1219,47 @@ def diag_real_trades_by_day_volatility(symbol: str = "XAUUSD", _trades: Optional
             "data_provider_used": data_provider_used}
 
 
+def diag_real_trades_early_exit_by_hour(symbol: str = "XAUUSD",
+                                         _trades: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """Diagnostic sur les VRAIS trades déjà exécutés : taux d'early_exit par heure
+    CET d'entrée. Suite à diag_real_trades_by_day_volatility (ATR moyen du jour ↔
+    early_exit : corrélation quasi nulle, 0.019, sur données réelles confirmées
+    twelvedata — pas de lien avec la volatilité journalière). Teste si le
+    phénomène dépend plutôt du moment précis de la journée (ex. ouverture Londres
+    8h, creux 15h NY) plutôt que du niveau de volatilité moyen du jour — cohérent
+    avec les écarts déjà observés par heure sur WR/PnL dans le rapport historique.
+    Ne nécessite aucun refetch réseau : hour_cet est déjà calculé sur chaque trade
+    par db.get_closed_trades().
+
+    _trades : injection pour les tests (évite un vrai accès DB).
+    """
+    trades = _trades if _trades is not None else db.get_closed_trades(symbol=symbol)
+    if not trades:
+        return {"hours": [], "note": "Aucun trade fermé trouvé pour ce symbole."}
+
+    from collections import defaultdict as _dd
+    by_hour: dict = _dd(lambda: {"n": 0, "early_exit": 0})
+
+    for t in trades:
+        h = t.get("hour_cet")
+        if h is None:
+            continue
+        by_hour[h]["n"] += 1
+        if t.get("exit_reason") == "early_exit":
+            by_hour[h]["early_exit"] += 1
+
+    hours = []
+    for h in sorted(by_hour.keys()):
+        v = by_hour[h]
+        hours.append({
+            "hour": h,
+            "n": v["n"],
+            "early_exit_pct": round(v["early_exit"] / v["n"] * 100, 1) if v["n"] else 0.0,
+        })
+
+    return {"hours": hours}
+
+
 # --------------------------------------------------------------------------- #
 # Walk-forward : robustesse sur N fenêtres indépendantes
 # --------------------------------------------------------------------------- #

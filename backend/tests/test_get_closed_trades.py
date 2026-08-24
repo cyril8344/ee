@@ -37,6 +37,7 @@ def test_get_closed_trades_returns_only_closed_for_symbol_with_date_cet():
     assert trades[0]["exit_reason"] == "early_exit"
     assert trades[0]["date_cet"] != "?"
     assert trades[0]["entry_ts_utc"] is not None
+    assert trades[0]["hour_cet"] == 11  # 09:06 UTC -> CEST (UTC+2 en juin) = 11h
 
 
 def test_get_closed_trades_excludes_open_trades():

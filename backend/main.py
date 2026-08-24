@@ -1720,6 +1720,18 @@ def real_trades_volatility_diagnostic(symbol: str = "XAUUSD", _user: dict = Depe
         return {"days": [], "correlation_atr_vs_early_exit_pct": None, "error": str(exc)}
 
 
+@app.get("/api/diagnostics/real-trades-early-exit-by-hour")
+def real_trades_early_exit_by_hour_diagnostic(symbol: str = "XAUUSD", _user: dict = Depends(get_current_user)):
+    """Diagnostic sur l'historique RÉEL des trades déjà exécutés : taux de sorties
+    "early_exit" par heure CET d'entrée — suite à real-trades-volatility (aucun
+    lien avec l'ATR moyen du jour), pour vérifier si le moment précis de la
+    journée explique mieux le phénomène que la volatilité journalière moyenne."""
+    try:
+        return _pretrain_module.diag_real_trades_early_exit_by_hour(symbol=symbol)
+    except Exception as exc:
+        return {"hours": [], "error": str(exc)}
+
+
 @app.delete("/api/trades/{trade_id}")
 def delete_trade_by_id(trade_id: int, _user: dict = Depends(get_current_user)):
     """Supprime manuellement un trade de l'historique et resynchronise le P&L du jour."""
