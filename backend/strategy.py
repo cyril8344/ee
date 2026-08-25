@@ -59,6 +59,17 @@ ADX_MIN = 28.0   # force tendance minimale H1 (LiveAdaptiveAgent peut ajuster)
 SR_PROXIMITY_ATR = 0.7
 SR_ZONE_ATR      = 1.5   # zone S/R pour flip de biais (× ATR M5)
 SR_TP_MIN_R      = 1.0   # distance minimale S/R cible pour remplacer TP2 fixe
+SR_ENTRY_FILTER_ENABLED = False  # bloque l'entrée si un niveau S/R H1 opposé se trouve entre
+                         # l'entrée et l'objectif — désactivé par défaut (test walk-forward only).
+                         # Les niveaux viennent de h1_sr_levels (H1, >= N touches), PAS de
+                         # swing_levels (M5, 1 swing = 1 niveau, ~6 lignes dans 20 points : trop
+                         # bruité pour filtrer quoi que ce soit).
+SR_ENTRY_FILTER_R       = 0.7    # objectif considéré, en multiples de R (0.7 = TP1, 1.8 = TP2)
+SR_H1_LOOKBACK          = 30     # bougies H1 analysées (~30h de structure)
+SR_H1_MIN_TOUCHES       = 2      # touches minimales pour valider un niveau H1
+SR_H1_TOL_ATR           = 0.3    # largeur de zone H1 = tol × ATR H1. 0.5 (défaut strat B) donne
+                         # ~8-10 pts sur l'or, soit plus large que le SL typique (6-7 pts) — d'où
+                         # un défaut plus serré ici, à confirmer en walk-forward.
 SPREAD_MAX_PIPS = 0.8       # block entry if spread > 0.8 pip
 SL_ATR_MULT      = 1.8      # multiplicateur SL normal (plafond max)
 SL_ATR_MULT_HIGH = 2.0      # multiplicateur SL haute volatilité (ATR > ATR_HIGH)
@@ -294,6 +305,60 @@ def nearest_resistance_above(price: float, sr: Dict[str, List[float]], min_gap: 
     """Résistance la plus proche au-dessus de price (avec gap minimum)."""
     candidates = [r for r in sr.get("resistance", []) if r > price + min_gap]
     return min(candidates) if candidates else None
+
+
+def h1_sr_levels(h1: pd.DataFrame, lookback: int = 30,
+                 min_touches: int = 2, tol_atr: float = 0.5) -> Dict[str, List[float]]:
+    """
+    Niveaux S/R significatifs sur un timeframe supérieur (touchés >= min_touches fois).
+    Un niveau = swing high/low avec k=2 bougies de chaque côté.
+    La force = nombre de fois que le prix est revenu dans tol_atr x ATR du niveau.
+
+    Contrairement à swing_levels() (M5, aucune touche exigée, tolérance en % du prix),
+    ce détecteur exige une validation par répétition et exprime la largeur de zone en
+    ATR — d'où beaucoup moins de niveaux, et des niveaux qui veulent dire quelque chose.
+
+    Vit ici (et pas dans strategy_ict.py, son appelant d'origine) parce que strategy_ict
+    importe déjà depuis strategy : l'inverse créerait un import circulaire. Sans défaut
+    lié à une constante de module, pour que chaque stratégie garde ses propres réglages.
+    """
+    if len(h1) < 8:
+        return {"resistance": [], "support": []}
+
+    sub = h1.tail(lookback)
+    h1_atr = float(sub["atr"].iloc[-1] or 1)
+    tol = tol_atr * h1_atr
+    n = len(sub)
+    k = 2  # bougies de chaque côté pour un swing sur ce timeframe
+
+    highs_arr = sub["high"].values
+    lows_arr = sub["low"].values
+
+    raw_highs: List[float] = []
+    raw_lows: List[float] = []
+    for i in range(k, n - k):
+        if highs_arr[i] == max(highs_arr[i - k: i + k + 1]):
+            raw_highs.append(float(highs_arr[i]))
+        if lows_arr[i] == min(lows_arr[i - k: i + k + 1]):
+            raw_lows.append(float(lows_arr[i]))
+
+    def _count_touches(level: float) -> int:
+        return sum(
+            1 for i in range(n)
+            if abs(highs_arr[i] - level) < tol or abs(lows_arr[i] - level) < tol
+        )
+
+    def _dedupe(levels: List[float]) -> List[float]:
+        result: List[float] = []
+        for lv in sorted(levels):
+            if not result or abs(lv - result[-1]) > tol:
+                result.append(lv)
+        return result
+
+    strong_res = [lv for lv in _dedupe(raw_highs) if _count_touches(lv) >= min_touches]
+    strong_sup = [lv for lv in _dedupe(raw_lows) if _count_touches(lv) >= min_touches]
+
+    return {"resistance": strong_res, "support": strong_sup}
 
 
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -1041,6 +1106,22 @@ def evaluate(
         tp1 = entry - 0.7 * risk
         tp2 = entry - 1.8 * risk
 
+    # 7b) Obstacle S/R H1 entre l'entrée et l'objectif (voir SR_ENTRY_FILTER_ENABLED).
+    # Placé ici et pas plus haut dans le pipeline : il faut `risk` (donc le SL) pour
+    # savoir où se situe l'objectif. Le test porte sur le niveau lui-même, pas sur sa
+    # zone élargie — la tolérance ne sert qu'à détecter/valider le niveau en amont,
+    # sinon une zone de ~6 pts autour d'un objectif à ~4 pts bloquerait presque tout.
+    if SR_ENTRY_FILTER_ENABLED and h1 is not None and len(h1) >= 8 and "atr" in h1.columns:
+        _sr_h1 = h1_sr_levels(h1, lookback=SR_H1_LOOKBACK,
+                              min_touches=SR_H1_MIN_TOUCHES, tol_atr=SR_H1_TOL_ATR)
+        _sr_target = (entry + SR_ENTRY_FILTER_R * risk) if direction == "long" \
+            else (entry - SR_ENTRY_FILTER_R * risk)
+        if direction == "long":
+            _blocked = any(entry < lv < _sr_target for lv in _sr_h1.get("resistance", []))
+        else:
+            _blocked = any(_sr_target < lv < entry for lv in _sr_h1.get("support", []))
+        if _blocked:
+            _rej(_reject_log, "sr_zone"); return None
 
     meta: Dict[str, Any] = {
         "rsi_m5":  round(float(cur["rsi"]), 1),

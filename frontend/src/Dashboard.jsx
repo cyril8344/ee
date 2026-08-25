@@ -446,6 +446,10 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
   const [trailAfterTp1, setTrailAfterTp1] = useState(false);
   const [wfTrailAtrMult, setWfTrailAtrMult] = useState("");
   const [trailLongOnly, setTrailLongOnly] = useState(false);
+  const [srEntryFilter, setSrEntryFilter] = useState(false);
+  const [wfSrFilterR, setWfSrFilterR] = useState("");
+  const [wfSrMinTouches, setWfSrMinTouches] = useState("");
+  const [wfSrTolAtr, setWfSrTolAtr] = useState("");
   const [wfBeBufferR, setWfBeBufferR] = useState("");
   const [obRequireLiquidity, setObRequireLiquidity] = useState(false);
   const [wfEarlyExitOverride, setWfEarlyExitOverride] = useState("");
@@ -893,7 +897,11 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
         h4_trend_filter_override: h4TrendFilter ? true : null,
         trail_after_tp1_override: trailAfterTp1 ? true : null,
         trail_after_tp1_atr_mult_override: wfTrailAtrMult !== "" ? parseFloat(wfTrailAtrMult) : null,
-        trail_after_tp1_long_only_override: trailLongOnly ? true : null }),
+        trail_after_tp1_long_only_override: trailLongOnly ? true : null,
+        sr_entry_filter_override: srEntryFilter ? true : null,
+        sr_entry_filter_r_override: wfSrFilterR !== "" ? parseFloat(wfSrFilterR) : null,
+        sr_h1_min_touches_override: wfSrMinTouches !== "" ? parseInt(wfSrMinTouches, 10) : null,
+        sr_h1_tol_atr_override: wfSrTolAtr !== "" ? parseFloat(wfSrTolAtr) : null }),
     }).then(() => setWfLoading(false)).catch(() => setWfLoading(false));
   };
 
@@ -2706,6 +2714,40 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                           ↳ restreindre le trailing au LONG uniquement (SHORT garde le saut fixe à BE)
                         </span>
                       </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, cursor: "pointer" }}>
+                        <input type="checkbox" checked={srEntryFilter} onChange={e => setSrEntryFilter(e.target.checked)}
+                          style={{ accentColor: COLORS.amber }} />
+                        <span style={{ fontSize: 9, color: srEntryFilter ? COLORS.amber : COLORS.sub }}>
+                          Strat A — bloquer si un niveau S/R H1 barre la route à l'objectif
+                        </span>
+                      </label>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          ↳ objectif visé en R (vide = 0.7 = TP1 · 1.8 = TP2)
+                        </span>
+                        <input type="number" step="0.1" placeholder="0.7" value={wfSrFilterR}
+                          onChange={e => setWfSrFilterR(e.target.value)}
+                          style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          ↳ touches min. pour valider un niveau H1 (vide = défaut 2)
+                        </span>
+                        <input type="number" step="1" placeholder="2" value={wfSrMinTouches}
+                          onChange={e => setWfSrMinTouches(e.target.value)}
+                          style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          ↳ largeur de zone H1 en ×ATR H1 (vide = défaut 0.3)
+                        </span>
+                        <input type="number" step="0.05" placeholder="0.3" value={wfSrTolAtr}
+                          onChange={e => setWfSrTolAtr(e.target.value)}
+                          style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
                       </>)}
                       {strategyMode === "B" && (<>
                       <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, cursor: "pointer" }}>
@@ -2752,7 +2794,7 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
                       )}
-                      {(wfAdxOverride !== "" || wfRsiLongOverride !== "" || wfRsiShortOverride !== "" || wfAtrMinOverride !== "" || wfTrendBiasOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "" || obRequireBos || wfBeBufferR !== "" || obRequireLiquidity || wfEarlyExitOverride !== "" || wfAdxH1Override !== "" || emaSlopeFilter || wfEmaSlopeLookback !== "" || wfSlLongExtra !== "" || h4TrendFilter || trailAfterTp1 || wfTrailAtrMult !== "" || trailLongOnly) && (
+                      {(wfAdxOverride !== "" || wfRsiLongOverride !== "" || wfRsiShortOverride !== "" || wfAtrMinOverride !== "" || wfTrendBiasOverride !== "" || wfAdxRegimeOverride !== "" || wfAtrRegimeMaxOverride !== "" || wfDdSizingThreshold !== "" || wfDdSizingFactor !== "" || wfBadHoursOverride !== "" || obRequireBos || wfBeBufferR !== "" || obRequireLiquidity || wfEarlyExitOverride !== "" || wfAdxH1Override !== "" || emaSlopeFilter || wfEmaSlopeLookback !== "" || wfSlLongExtra !== "" || h4TrendFilter || trailAfterTp1 || wfTrailAtrMult !== "" || trailLongOnly || srEntryFilter || wfSrFilterR !== "" || wfSrMinTouches !== "" || wfSrTolAtr !== "") && (
                         <div style={{ fontSize: 9, color: COLORS.amber, marginBottom: 4 }}>
                           ⚠ Test isolé — ne modifie pas le réglage live tant que tu ne le forces pas ailleurs.
                         </div>
