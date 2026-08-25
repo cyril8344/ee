@@ -24,7 +24,8 @@ from typing import Optional, Dict, Any, List
 import pandas as pd
 
 from strategy import (Signal, active_session, is_bad_timing, ATR_MIN,
-                      nearest_support_below, nearest_resistance_above, CET)
+                      nearest_support_below, nearest_resistance_above,
+                      h1_sr_levels, CET)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Paramètres
@@ -232,51 +233,8 @@ def _in_ob(bar_low: float, bar_high: float, ob: Dict) -> bool:
 # ──────────────────────────────────────────────────────────────────────────────
 # 3. Niveaux S/R H1 avec critère de force
 # ──────────────────────────────────────────────────────────────────────────────
-def _h1_sr_levels(h1: pd.DataFrame, lookback: int = 30,
-                   min_touches: int = SR_MIN_TOUCHES,
-                   tol_atr: float = 0.5) -> dict:
-    """
-    Détecte les niveaux S/R H1 significatifs (touchés ≥ min_touches fois).
-    Un niveau = swing high/low H1 avec k=2 bougies de chaque côté.
-    La force = nombre de fois que le prix est revenu dans tol_atr×ATR du niveau.
-    """
-    if len(h1) < 8:
-        return {"resistance": [], "support": []}
-
-    sub  = h1.tail(lookback)
-    h1_atr = float(sub["atr"].iloc[-1] or 1)
-    tol  = tol_atr * h1_atr
-    n    = len(sub)
-    k    = 2  # bougies de chaque côté pour swing H1
-
-    highs_arr = sub["high"].values
-    lows_arr  = sub["low"].values
-
-    raw_highs: list = []
-    raw_lows:  list = []
-    for i in range(k, n - k):
-        if highs_arr[i] == max(highs_arr[i - k: i + k + 1]):
-            raw_highs.append(float(highs_arr[i]))
-        if lows_arr[i] == min(lows_arr[i - k: i + k + 1]):
-            raw_lows.append(float(lows_arr[i]))
-
-    def _count_touches(level: float) -> int:
-        return sum(
-            1 for i in range(n)
-            if abs(highs_arr[i] - level) < tol or abs(lows_arr[i] - level) < tol
-        )
-
-    def _dedupe(levels: list) -> list:
-        result: list = []
-        for lv in sorted(levels):
-            if not result or abs(lv - result[-1]) > tol:
-                result.append(lv)
-        return result
-
-    strong_res = [lv for lv in _dedupe(raw_highs) if _count_touches(lv) >= min_touches]
-    strong_sup = [lv for lv in _dedupe(raw_lows)  if _count_touches(lv) >= min_touches]
-
-    return {"resistance": strong_res, "support": strong_sup}
+# _h1_sr_levels a été déplacée dans strategy.py (h1_sr_levels) pour être partagée
+# avec la stratégie A sans import circulaire — voir l'appel plus bas.
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -323,7 +281,7 @@ def evaluate_ict(
     # 3b) S/R zone H1 — flip directionnel si prix sur un niveau fort (≥2 touches)
     _price    = float(cur["close"])
     h1_atr    = float(h1.iloc[-1].get("atr", atr_val) or atr_val)
-    _h1_sr    = _h1_sr_levels(h1, lookback=30)
+    _h1_sr    = h1_sr_levels(h1, lookback=30, min_touches=SR_MIN_TOUCHES, tol_atr=0.5)
     _zone_tol = SR_ZONE_ATR_H1 * h1_atr
     _sr_tp2_target = None
 

@@ -2257,6 +2257,10 @@ class WalkForwardRequest(BaseModel):
     trail_after_tp1_override: Optional[bool] = None  # trailing ATR après TP1 au lieu du saut unique à BE
     trail_after_tp1_atr_mult_override: Optional[float] = None  # distance du trailing (×ATR)
     trail_after_tp1_long_only_override: Optional[bool] = None  # restreint le trailing au LONG (SHORT garde le saut à BE)
+    sr_entry_filter_override: Optional[bool] = None  # bloque l'entrée si un S/R H1 opposé barre la route à l'objectif
+    sr_entry_filter_r_override: Optional[float] = None  # objectif visé, en multiples de R (0.7=TP1, 1.8=TP2)
+    sr_h1_min_touches_override: Optional[int] = None   # touches minimales pour valider un niveau H1
+    sr_h1_tol_atr_override: Optional[float] = None     # largeur de zone H1 (× ATR H1)
 
 
 @app.post("/api/pretrain/walkforward")
@@ -2318,6 +2322,14 @@ def start_walkforward(req: WalkForwardRequest, _user: dict = Depends(get_current
                 _overrides["TRAIL_AFTER_TP1_ATR_MULT"] = req.trail_after_tp1_atr_mult_override
             if req.trail_after_tp1_long_only_override is not None:
                 _overrides["TRAIL_AFTER_TP1_LONG_ONLY"] = req.trail_after_tp1_long_only_override
+            if req.sr_entry_filter_override is not None:
+                _overrides["SR_ENTRY_FILTER_ENABLED"] = req.sr_entry_filter_override
+            if req.sr_entry_filter_r_override is not None:
+                _overrides["SR_ENTRY_FILTER_R"] = req.sr_entry_filter_r_override
+            if req.sr_h1_min_touches_override is not None:
+                _overrides["SR_H1_MIN_TOUCHES"] = req.sr_h1_min_touches_override
+            if req.sr_h1_tol_atr_override is not None:
+                _overrides["SR_H1_TOL_ATR"] = req.sr_h1_tol_atr_override
             _overrides = _overrides or None
             r = _pretrain_module.run_walk_forward(
                 start=req.start, end=req.end,

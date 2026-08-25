@@ -259,3 +259,131 @@ def test_snapshot_conditions_ema9_aligned_is_python_bool_not_numpy():
     ema9_aligned = snap["conditions"]["ema9_aligned"]
     assert type(ema9_aligned) is bool
     json.dumps(snap["conditions"])  # ne doit pas lever TypeError
+
+
+# --------------------------------------------------------------------------- #
+# Niveaux S/R H1 + filtre d'entrée (SR_ENTRY_FILTER_ENABLED, désactivé par défaut)
+# --------------------------------------------------------------------------- #
+def _h1_frame_with_levels():
+    """30 bougies H1 : une résistance à 110 touchée 2x (i=5 et i=20) et une à 120
+    touchée 1x (i=12). ATR constant à 1.0 -> tol = 0.5 avec tol_atr=0.5."""
+    n = 30
+    highs = [100.0] * n
+    highs[5] = 110.0
+    highs[12] = 120.0
+    highs[20] = 110.0
+    idx = pd.date_range("2024-01-01", periods=n, freq="60min", tz="UTC")
+    return pd.DataFrame({
+        "open": [95.0] * n, "high": highs, "low": [90.0] * n,
+        "close": [95.0] * n, "volume": [1000] * n, "atr": [1.0] * n,
+    }, index=idx)
+
+
+def test_h1_sr_levels_keeps_only_levels_touched_enough():
+    """Le détecteur H1 doit jeter un swing isolé (1 touche) et garder celui que le
+    prix est venu retester — c'est toute la différence avec swing_levels() en M5,
+    où un seul point de swing suffit à créer un niveau."""
+    sr = strategy.h1_sr_levels(_h1_frame_with_levels(), lookback=30,
+                               min_touches=2, tol_atr=0.5)
+    assert 110.0 in sr["resistance"]      # retesté -> conservé
+    assert 120.0 not in sr["resistance"]  # swing isolé -> écarté
+    # NB : le plateau à 100 forme aussi un niveau, et c'est voulu — des sommets
+    # égaux répétés sont une vraie résistance ("equal highs"), pas un artefact.
+
+
+def test_h1_sr_levels_min_touches_one_keeps_the_isolated_swing():
+    sr = strategy.h1_sr_levels(_h1_frame_with_levels(), lookback=30,
+                               min_touches=1, tol_atr=0.5)
+    assert 110.0 in sr["resistance"]
+    assert 120.0 in sr["resistance"]
+
+
+def test_h1_sr_levels_returns_empty_on_short_input():
+    sr = strategy.h1_sr_levels(_h1_frame_with_levels().head(5))
+    assert sr == {"resistance": [], "support": []}
+
+
+def _long_setup():
+    """Jeu de données produisant un signal LONG stable (même recette que
+    test_sl_long_extra_atr_widens_long_stop_but_not_short)."""
+    rng = np.random.default_rng(11)
+    base = 2000 + np.cumsum(rng.normal(0, 0.05, 550))
+    tight = base[-1] + np.cumsum(rng.normal(0, 0.005, 20))
+    m5 = add_indicators(_frame(np.concatenate([base, tight])))
+    agg = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+    m15 = add_indicators(m5[["open", "high", "low", "close", "volume"]]
+                         .resample("15min", label="right", closed="right").agg(agg).dropna())
+    h1 = add_indicators(m5[["open", "high", "low", "close", "volume"]]
+                        .resample("60min", label="right", closed="right").agg(agg).dropna()).copy()
+    h1.iloc[-1, h1.columns.get_loc("close")] = float(h1.iloc[-1]["ema50"]) + 5.0  # force biais LONG
+    return m5, m15, h1
+
+
+def _relax_filters(monkeypatch):
+    monkeypatch.setattr(strategy, "BOOTSTRAP_MODE", True)
+    monkeypatch.setattr(strategy, "EMA9_FILTER_ENABLED", False)
+    monkeypatch.setattr(strategy, "M15_FILTER_ENABLED", False)
+    monkeypatch.setattr(strategy, "H1_RSI_FILTER_ENABLED", False)
+    monkeypatch.setattr(strategy, "ADX_MIN", 0.0)
+    monkeypatch.setattr(strategy, "ATR_MIN", 0.0)
+
+
+def test_sr_entry_filter_is_off_by_default(monkeypatch):
+    """Défaut inchangé : même avec une résistance H1 en plein milieu du chemin, le
+    signal passe tant que SR_ENTRY_FILTER_ENABLED reste False (le live ne doit rien
+    voir de ce filtre)."""
+    m5, m15, h1 = _long_setup()
+    _relax_filters(monkeypatch)
+    sig = evaluate(m5, m15, h1, check_session=False)
+    assert sig is not None and sig.direction == "long"
+
+    barrage = sig.entry + 0.5 * strategy.SR_ENTRY_FILTER_R * (sig.entry - sig.stop_loss)
+    monkeypatch.setattr(strategy, "h1_sr_levels",
+                        lambda *a, **k: {"resistance": [barrage], "support": []})
+    assert strategy.SR_ENTRY_FILTER_ENABLED is False
+    assert evaluate(m5, m15, h1, check_session=False) is not None
+
+
+def test_sr_entry_filter_blocks_long_when_resistance_before_target(monkeypatch):
+    m5, m15, h1 = _long_setup()
+    _relax_filters(monkeypatch)
+    sig = evaluate(m5, m15, h1, check_session=False)
+    assert sig is not None
+    risk = sig.entry - sig.stop_loss
+
+    monkeypatch.setattr(strategy, "SR_ENTRY_FILTER_ENABLED", True)
+    barrage = sig.entry + 0.5 * strategy.SR_ENTRY_FILTER_R * risk  # à mi-chemin de l'objectif
+    monkeypatch.setattr(strategy, "h1_sr_levels",
+                        lambda *a, **k: {"resistance": [barrage], "support": []})
+    assert evaluate(m5, m15, h1, check_session=False) is None
+
+
+def test_sr_entry_filter_allows_long_when_resistance_beyond_target(monkeypatch):
+    """Une résistance au-delà de l'objectif ne barre pas la route : elle ne doit pas
+    bloquer, sinon le filtre reviendrait à interdire toute entrée sous une résistance
+    quelle que soit sa distance."""
+    m5, m15, h1 = _long_setup()
+    _relax_filters(monkeypatch)
+    sig = evaluate(m5, m15, h1, check_session=False)
+    assert sig is not None
+    risk = sig.entry - sig.stop_loss
+
+    monkeypatch.setattr(strategy, "SR_ENTRY_FILTER_ENABLED", True)
+    loin = sig.entry + 5.0 * strategy.SR_ENTRY_FILTER_R * risk
+    monkeypatch.setattr(strategy, "h1_sr_levels",
+                        lambda *a, **k: {"resistance": [loin], "support": []})
+    assert evaluate(m5, m15, h1, check_session=False) is not None
+
+
+def test_sr_entry_filter_ignores_levels_on_the_wrong_side(monkeypatch):
+    """Pour un LONG, seuls les niveaux de RÉSISTANCE comptent : un support sous
+    l'entrée ne doit rien bloquer."""
+    m5, m15, h1 = _long_setup()
+    _relax_filters(monkeypatch)
+    sig = evaluate(m5, m15, h1, check_session=False)
+    assert sig is not None
+
+    monkeypatch.setattr(strategy, "SR_ENTRY_FILTER_ENABLED", True)
+    monkeypatch.setattr(strategy, "h1_sr_levels",
+                        lambda *a, **k: {"resistance": [], "support": [sig.entry - 1.0]})
+    assert evaluate(m5, m15, h1, check_session=False) is not None
