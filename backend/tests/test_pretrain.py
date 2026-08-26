@@ -4,6 +4,7 @@ import pytest
 
 import database as db
 import pretrain
+import strategy
 
 db.init_db()
 
@@ -156,3 +157,42 @@ def test_diag_by_direction_exit_reason_drops_groups_under_min_sample():
     trades = [_fake_exit_trade("long", "tp1", True, 5.0) for _ in range(2)]  # n=2
     result = pretrain._diag_by_direction_exit_reason(trades)
     assert "long_tp1" not in result
+
+
+def test_atr_min_override_actually_reaches_evaluate(monkeypatch):
+    """L'override ATR_MIN (champ "ATR minimum" du panel walk-forward) doit atteindre
+    evaluate(). Il ne l'atteignait pas : evaluate() reçoit atr_min en argument explicite,
+    et run_pretrain le calculait depuis un 3.0 codé en dur AVANT d'appliquer les
+    overrides — un setattr(strategy, "ATR_MIN", 4.5) restait donc sans effet, et le
+    walk-forward renvoyait exactement les mêmes trades qu'un run de contrôle."""
+    seen = []
+
+    def _spy_evaluate(*args, **kwargs):
+        seen.append(kwargs.get("atr_min"))
+        return None  # aucun signal : on ne teste que la valeur transmise
+
+    monkeypatch.setattr(pretrain, "evaluate", _spy_evaluate)
+    pretrain.run_pretrain("2024-01-01", "2024-01-10", symbol="XAUUSD",
+                          reset=True, write_to_db=False,
+                          extra_overrides={"ATR_MIN": 4.5})
+
+    assert seen, "evaluate() n'a jamais été appelée — test inopérant"
+    assert set(seen) == {4.5}
+
+
+def test_atr_min_defaults_to_live_setting_when_not_overridden(monkeypatch):
+    """Sans override, le walk-forward doit utiliser le réglage live (strategy.ATR_MIN),
+    pas une valeur de calibration divergente — sinon il ne valide pas ce qui tourne."""
+    seen = []
+
+    def _spy_evaluate(*args, **kwargs):
+        seen.append(kwargs.get("atr_min"))
+        return None
+
+    monkeypatch.setattr(pretrain, "evaluate", _spy_evaluate)
+    monkeypatch.setattr(strategy, "ATR_MIN", 3.0)
+    pretrain.run_pretrain("2024-01-01", "2024-01-10", symbol="XAUUSD",
+                          reset=True, write_to_db=False)
+
+    assert seen
+    assert set(seen) == {3.0}
