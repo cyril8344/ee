@@ -129,8 +129,11 @@ def run_pretrain(
 
     contract_size = 100.0   if symbol == "XAUUSD" else 100000.0
     pip_size      = 0.1     if symbol == "XAUUSD" else 0.0001
-    default_atr   = 3.0     if symbol == "XAUUSD" else strategy.EURUSD_ATR_MIN
-    effective_atr = atr_min if atr_min is not None else default_atr
+    # effective_atr est calculé plus bas, APRÈS l'application des overrides : evaluate()
+    # reçoit atr_min en argument explicite, donc un setattr(strategy, "ATR_MIN", ...) ne
+    # l'atteint pas (le défaut `atr_min: float = ATR_MIN` est figé à l'import). Le calculer
+    # ici, avant les overrides, rendait le champ "ATR minimum" du panel walk-forward
+    # silencieusement inopérant.
     if symbol == "XAUUSD":
         spread   = 2.0  * pip_size   # 2.0 pips XAU/USD = 0.20 (réaliste)
         slippage = 0.5  * pip_size   # 0.5 pips XAU/USD = 0.05
@@ -160,7 +163,11 @@ def run_pretrain(
         # → ML Gate apprend du bruit au lieu de vrais signaux de qualité (~200-300 trades).
         _PRETRAIN_OVERRIDES = {
             "BOOTSTRAP_MODE":        False,
-            "ATR_MIN":               2.5,
+            # ATR_MIN volontairement absent : il suit désormais le réglage live
+            # (strategy.ATR_MIN, 3.0) via default_atr plus bas. Il valait 2.5 ici, mais
+            # cette valeur n'a jamais été appliquée — evaluate() recevait le 3.0 codé en
+            # dur. La retirer garde donc le comportement historique inchangé, et évite de
+            # réintroduire un écart caché entre le walk-forward et le live.
             "ADX_MIN":               20.0,
             "RSI_M5_LONG_MIN":       45.0,
             "RSI_M5_SHORT_MAX":      55.0,
@@ -185,6 +192,11 @@ def run_pretrain(
                 setattr(strategy, k, v)
             if k in _saved_ict:
                 setattr(strategy_ict, k, v)
+
+        # Résolu ici pour que les overrides (walk-forward, Optuna) soient pris en compte :
+        # strategy.ATR_MIN vient d'être écrasé si l'appelant l'a demandé.
+        default_atr   = strategy.ATR_MIN if symbol == "XAUUSD" else strategy.EURUSD_ATR_MIN
+        effective_atr = atr_min if atr_min is not None else default_atr
 
         # ---- Charger et préparer les données ----
         if write_to_db:
