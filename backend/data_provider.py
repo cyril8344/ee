@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import math
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List
@@ -466,7 +467,14 @@ def _fetch_yfinance(start: Optional[str], end: Optional[str], bars: int,
         data = yf.download(sym, start=start, end=end, interval="5m",
                            progress=False, auto_adjust=False)
     else:
-        data = yf.download(sym, period="5d", interval="5m",
+        # period était figé à "5d" et ignorait `bars` : quand yfinance prenait le
+        # relais de Twelve Data, le contexte live retombait à ~1400 bougies M5 (~120
+        # bougies H1), trop court pour une EMA200 H1 convergée — le repli réintroduisait
+        # silencieusement le bug de fenêtre courte. On dérive donc la période du nombre
+        # de bougies demandé : ~276 bougies M5 par jour de cotation (23h × 12) et 5 jours
+        # de cotation par semaine, plafonné à 60 jours (limite yfinance en intraday 5m).
+        _cal_days = max(5, math.ceil(bars / 276 * 7 / 5) + 2)
+        data = yf.download(sym, period=f"{min(_cal_days, 60)}d", interval="5m",
                            progress=False, auto_adjust=False)
     if data is None or len(data) == 0:
         raise RuntimeError("yfinance returned no data")
