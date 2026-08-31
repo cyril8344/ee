@@ -4,17 +4,32 @@ live_agent.py
 Agent adaptatif live pour XAUUSD — apprend uniquement des trades paper réels.
 Aucun backtest. Aucune interaction avec pretrain.
 
-Fonctionnement :
-- Chaque trade fermé appelle on_trade_closed()
-- Tous les BATCH_SIZE trades : évalue la performance et ajuste 3 paramètres
-- Les paramètres sont modifiés directement sur le module strategy (sans redémarrage)
-- L'état est persisté en DB (table live_agent)
+AJUSTEMENT AUTOMATIQUE DÉSACTIVÉ (août 2026) — voir AUTO_ADJUST_ENABLED ci-dessous.
+L'agent ne fait plus que compter les trades et gérer la sortie de BOOTSTRAP_MODE.
 
-Paramètres ajustés :
-  strategy.RSI_M5_LONG_MIN   : seuil RSI M5 LONG  (bornes 40–52)
-  strategy.RSI_M5_SHORT_MAX  : seuil RSI M5 SHORT (bornes 48–60)
-  strategy.ATR_REGIME_MIN_RATIO : filtre régime   (bornes 0.60–0.90)
-  strategy.ADX_MIN           : force tendance minimale (bornes 15–30)
+Motifs de la désactivation :
+- Il évaluait le WR sur une fenêtre glissante de 20 trades (WINDOW). L'erreur-type
+  d'un WR sur 20 trades est de ±11 points : une stratégie qui gagne réellement 52 %
+  descend sous le seuil WR_LOW (42 %) environ une évaluation sur cinq, par pur hasard.
+  L'agent ne réagissait donc pas à une dégradation, mais au bruit.
+- _evaluate_and_adjust() modifiait QUATRE paramètres simultanément, alors que les
+  règles anti-overfitting du projet fixent un maximum de trois (voir CLAUDE.md).
+- Aucune validation walk-forward, en production, sur de l'argent réel — exactement
+  le motif pour lequel researcher_agent.py et adaptive_agent.py ont été désactivés
+  en juillet 2026.
+- Effet constaté : _load() prenait la valeur la PLUS PERMISSIVE entre la valeur
+  sauvegardée et le défaut module (min() pour les seuils plancher). Un desserrage
+  devenait donc irréversible — aucun redémarrage ne le rattrapait. strategy.ADX_MIN
+  est resté bloqué à 20 alors que le code déclarait 28, pendant des semaines, sans
+  la moindre alerte (le garde-fou _near_bound ne se déclenche qu'à 18).
+- Bilan réel : un seul ajustement en plus d'un mois, pour cette divergence.
+
+Le forçage manuel depuis le dashboard (force_params) reste actif : c'est une action
+humaine explicite et tracée, pas une boucle autonome.
+
+Fonctionnement restant :
+- Chaque trade fermé appelle on_trade_closed() : comptage + sortie de BOOTSTRAP_MODE
+- L'état est persisté en DB (table live_agent)
 """
 
 from __future__ import annotations
@@ -24,6 +39,12 @@ import threading
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# Boucle d'ajustement autonome. False = l'agent n'écrit plus jamais dans le module
+# strategy de lui-même : les valeurs déclarées dans strategy.py font foi et sont
+# auditables. Ne repasser à True qu'avec une validation walk-forward de la boucle
+# elle-même, pas seulement des paramètres qu'elle produit.
+AUTO_ADJUST_ENABLED = False
 
 BATCH_SIZE   = 10    # ajustement tous les N trades
 WINDOW       = 20    # fenêtre glissante de trades pour évaluer le WR
@@ -142,7 +163,15 @@ class LiveAdaptiveAgent:
             data = db.live_agent_load(self.symbol)
             if data:
                 saved = data.get("params", {})
-                for k in self._params:
+                # Boucle autonome désactivée : on NE restaure PAS les paramètres
+                # sauvegardés. Ils sont l'héritage de l'ancienne boucle, et la règle
+                # min()/max() ci-dessous retenait toujours la valeur la plus permissive
+                # — un desserrage ne pouvait donc jamais être annulé par un redémarrage.
+                # Les valeurs déclarées dans strategy.py font foi. Conséquence assumée :
+                # un forçage manuel ne survit plus à un redéploiement ; pour le rendre
+                # permanent, la valeur doit être écrite dans strategy.py, qui est de
+                # toute façon sa place.
+                for k in (self._params if AUTO_ADJUST_ENABLED else {}):
                     if k in saved:
                         saved_val = float(saved[k])
                         default_val = self._params[k]
@@ -177,6 +206,15 @@ class LiveAdaptiveAgent:
             logger.warning("[LiveAgent:%s] erreur sauvegarde: %s", self.symbol, e)
 
     def _apply_to_strategy(self) -> None:
+        # Boucle autonome désactivée : seul un forçage manuel explicite peut encore
+        # écrire dans le module strategy (force_params passe par _force_to_strategy).
+        # Sans ce garde-fou, _load() réappliquerait au démarrage les valeurs héritées
+        # de l'ancienne boucle et ferait diverger le live de ce que déclare strategy.py.
+        if not AUTO_ADJUST_ENABLED:
+            return
+        self._force_to_strategy()
+
+    def _force_to_strategy(self) -> None:
         import strategy as st
         for k, v in self._params.items():
             if hasattr(st, k):
@@ -194,7 +232,9 @@ class LiveAdaptiveAgent:
                     if new != old:
                         self._params[k] = new
                         applied[k] = {"from": round(old, 3), "to": round(new, 3)}
-            self._apply_to_strategy()
+            # Forçage manuel : action humaine explicite et tracée, elle écrit dans le
+            # module même quand la boucle autonome est désactivée.
+            self._force_to_strategy()
             self._save()
             if applied:
                 window = self._trade_log[-WINDOW:]
@@ -242,6 +282,8 @@ class LiveAdaptiveAgent:
             return False
 
     def _evaluate_and_adjust(self) -> None:
+        if not AUTO_ADJUST_ENABLED:
+            return
         window = self._trade_log[-WINDOW:]
         if len(window) < BATCH_SIZE:
             return
@@ -325,6 +367,9 @@ class LiveAdaptiveAgent:
                 "last_adj":         self._adjustments[-1] if self._adjustments else None,
                 "n_adjustments":    len(self._adjustments),
                 "adjustment_history": list(reversed(self._adjustments[-20:])),  # plus récent d'abord
+                # False = plus aucun ajustement automatique ; les valeurs affichées
+                # sont celles déclarées dans strategy.py, pas un état appris.
+                "auto_adjust_enabled": AUTO_ADJUST_ENABLED,
                 "bootstrap_mode":   st.BOOTSTRAP_MODE,
                 "trades_to_exit":   max(0, BOOTSTRAP_EXIT_TRADES - self._total_trades),
             }

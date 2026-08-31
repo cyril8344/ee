@@ -3100,7 +3100,19 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                 <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, marginTop: 10 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: COLORS.sub }}>
                     Agent adaptatif live
+                    {liveAgentStatus.auto_adjust_enabled === false && (
+                      <span style={{ marginLeft: 6, color: COLORS.amber, fontWeight: 400, fontSize: 11 }}>
+                        — ajustement auto désactivé
+                      </span>
+                    )}
                   </div>
+                  {liveAgentStatus.auto_adjust_enabled === false && (
+                    <div style={{ fontSize: 10, color: COLORS.sub, marginBottom: 6, lineHeight: 1.4 }}>
+                      Les valeurs ci-dessous sont celles déclarées dans <code>strategy.py</code>, pas un
+                      état appris. L'agent ne fait que compter les trades. Le forçage manuel reste actif,
+                      mais ne survit pas à un redéploiement.
+                    </div>
+                  )}
                   <Row k="Trades" v={`${liveAgentStatus.total_trades} (${liveAgentStatus.trades_to_exit} avant filtres)`} />
                   {liveAgentStatus.rolling_wr != null && (
                     <Row k="WR glissant" v={`${(liveAgentStatus.rolling_wr * 100).toFixed(0)}%`}
