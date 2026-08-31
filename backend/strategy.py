@@ -55,7 +55,16 @@ EURUSD_ATR_MIN = 0.00015  # plancher volatilité M5 EUR/USD — l'ancien 0.00030
                           # (MARKET_CONFIG) ET pretrain.py pour éviter que live et walk-forward
                           # divergent, comme ça a été le cas pour ATR_MIN (XAU) avant correction.
 ATR_HIGH = 4.5   # seuil vol. élevée : SL passe à SL_ATR_MULT_HIGH au lieu de bloquer
-ADX_MIN = 28.0   # force tendance minimale H1 (LiveAdaptiveAgent peut ajuster)
+ADX_MIN = 20.0   # force tendance minimale H1.
+# 20 et non 28 : c'est la valeur que le live appliquait RÉELLEMENT jusqu'ici. L'agent
+# adaptatif écrivait 20 dans ce module au démarrage (héritée d'un desserrage que son
+# _load() rendait irréversible), pendant que le code déclarait 28 — sans alerte, le
+# garde-fou _near_bound ne se déclenchant qu'à 18. Maintenant que l'agent n'écrit plus
+# ici (live_agent.AUTO_ADJUST_ENABLED = False), déclarer 28 aurait silencieusement
+# resserré le filtre en production. On fige donc le comportement observé.
+# _PRETRAIN_OVERRIDES utilise également 20, donc c'est aussi la valeur sous laquelle
+# la baseline walk-forward (PF 0.91) a été mesurée.
+# 20 vs 28 devient une question ouverte, à trancher en walk-forward — pas un effet de bord.
 SR_PROXIMITY_ATR = 0.7
 SR_ZONE_ATR      = 1.5   # zone S/R pour flip de biais (× ATR M5)
 SR_TP_MIN_R      = 1.0   # distance minimale S/R cible pour remplacer TP2 fixe
