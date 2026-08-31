@@ -1570,6 +1570,17 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                       <span style={{ marginLeft: 6, color: COLORS.green, fontWeight: 400 }}>✓ prêt</span>
                     )}
                   </div>
+                  {mkt.context_bars?.h1 != null && (
+                    /* Longueur du contexte H1 : l'EMA200 H1 (donc le biais) n'est fiable
+                       qu'au-delà de ~250 bougies. Affiché pour que la dégradation d'un
+                       fournisseur soit visible au lieu de fausser le biais en silence. */
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                      <span style={{ color: COLORS.sub }}>Contexte H1</span>
+                      <span style={{ color: mkt.h1_context_ok ? COLORS.green : COLORS.amber, fontWeight: 500 }}>
+                        {mkt.h1_context_ok ? "✓" : "⚠"} {mkt.context_bars.h1} bougies
+                      </span>
+                    </div>
+                  )}
                   {[
                     { label: "Biais H1 EMA50", ok: mkt.conditions.h1_bias !== "NEUTRE", val: mkt.conditions.h1_bias },
                     { label: mkt.conditions.h1_bias === "SHORT" ? "M15 EMA9<EMA21" : "M15 EMA9>EMA21", ok: mkt.conditions.m15_ema_aligned,

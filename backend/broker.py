@@ -36,6 +36,15 @@ import strategy
 # --------------------------------------------------------------------------- #
 # Data helper shared by paper broker
 # --------------------------------------------------------------------------- #
+# Bougies M5 récupérées par fetch et gardées en cache. 5000 = plafond `outputsize`
+# de Twelve Data : la facturation se fait à la requête, pas à la bougie, donc élargir
+# la fenêtre ne coûte aucun appel supplémentaire. Il en faut autant parce que les
+# frames H1/H4 sont resamplées depuis cette série : à 2000 bougies M5 on n'obtenait
+# que ~166 bougies H1, insuffisant pour une EMA200 H1 convergée (voir CONTEXT_BARS_M5
+# dans main.py).
+LIVE_FETCH_BARS = 5000
+
+
 class MarketData:
     """Cached 5-minute market data feed (data_provider + synthetic fallback)."""
 
@@ -69,7 +78,7 @@ class MarketData:
     def _fetch(self) -> pd.DataFrame:
         try:
             import data_provider
-            df, provider = data_provider.get_m5(bars=2000, symbol=self.data_symbol)
+            df, provider = data_provider.get_m5(bars=LIVE_FETCH_BARS, symbol=self.data_symbol)
             if df is not None and len(df) > 0:
                 self.provider = provider
                 return self._scale(df)

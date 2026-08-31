@@ -423,9 +423,41 @@ ws_manager = WSManager()
 # --------------------------------------------------------------------------- #
 # Market context builder
 # --------------------------------------------------------------------------- #
+# Bougies M5 sur lesquelles le contexte live est construit. Les frames M15/H1/H4 en
+# sont resamplées, donc cette valeur détermine la longueur des séries supérieures :
+#
+#   500 M5  ->   43 bougies H1  ->  65 % de l'"EMA200 H1" n'est que la valeur d'amorce
+#  5000 M5  ->  421 bougies H1  ->   1.5 %
+#
+# ema() est un ewm(span=200) sans min_periods : il renvoie toujours un nombre, même
+# avec 43 bougies — l'EMA200/EMA50 H1 était donc dominée par le prix d'il y a deux
+# jours, alors que le biais H1 (EMA50 vs EMA200) et TREND_BIAS_DISTANCE en dépendent
+# directement. Le pretrain/walk-forward, lui, resample toute la période et obtient
+# des milliers de bougies H1 : live et backtest ne calculaient pas le même biais.
+#
+# Coût mesuré : +4.6 ms par tick (boucle à 5 s) et aucun appel API supplémentaire —
+# MarketData._fetch() récupérait déjà une série longue en une requête, dont
+# build_context ne gardait que les 500 dernières bougies.
+#
+# Limite connue : H4 reste à ~109 bougies (33 % d'amorce). H4_TREND_FILTER_ENABLED
+# vaut False par défaut, donc H4 n'est pas sur le chemin de décision live ; le rendre
+# fiable demanderait ~20 000 bougies M5, au-delà du plafond `outputsize` d'un fetch.
+CONTEXT_BARS_M5 = 5000
+
+# En dessous de ce nombre de bougies H1, l'EMA200 H1 garde trop de poids sur sa valeur
+# d'amorce pour que le biais soit fiable. Sert uniquement d'alerte/diagnostic — aucune
+# décision de trading n'est bloquée dessus (une coupure du fournisseur ne doit pas
+# arrêter le bot silencieusement).
+H1_BARS_MIN_RELIABLE = 250
+
+# Alerte "contexte H1 court" : une fois par transition et par symbole, pas à chaque
+# tick de 5 s (même précaution que l'alerte données synthétiques).
+_h1_short_warned: Dict[str, bool] = {}
+
+
 def build_context(broker):
     """Return (m5, m15, h1, h4) indicator-ready frames from the given broker feed."""
-    m5_raw = broker.get_rates_m5(500)
+    m5_raw = broker.get_rates_m5(CONTEXT_BARS_M5)
     m5 = add_indicators(m5_raw)
     agg = {"open": "first", "high": "max", "low": "min",
            "close": "last", "volume": "sum"}
@@ -443,7 +475,7 @@ def build_context_es(broker):
     strategy_es.add_indicators() — le VWAP y reset à minuit ET (pas UTC), voir
     le commentaire dans strategy_es.py. Réutiliser add_indicators() de la Strat
     A donnerait un VWAP faux qui bloquerait silencieusement les LONG ES."""
-    m5_raw = broker.get_rates_m5(500)
+    m5_raw = broker.get_rates_m5(CONTEXT_BARS_M5)
     m5 = strategy_es.add_indicators(m5_raw)
     agg = {"open": "first", "high": "max", "low": "min",
            "close": "last", "volume": "sum"}
@@ -568,7 +600,21 @@ def _trading_tick_locked() -> Dict[str, Any]:
                 snap = snapshot(m5, m15, h1, atr_min_override=ms.config["atr_min"],
                                pattern_weights=state.pattern_weights,
                                adaptive_thresholds=ms.adaptive)
+                # Longueur réelle du contexte : c'est elle qui conditionne la fiabilité
+                # de l'EMA200/EMA50 H1, donc du biais. Exposée pour que la dégradation
+                # soit visible au lieu d'être silencieuse (le bot n'est jamais bloqué
+                # dessus — cf. H1_BARS_MIN_RELIABLE).
+                snap["context_bars"] = {"m5": len(m5), "m15": len(m15),
+                                        "h1": len(h1), "h4": len(h4)}
+                snap["h1_context_ok"] = len(h1) >= H1_BARS_MIN_RELIABLE
                 ms.last_snapshot = snap
+                if len(h1) < H1_BARS_MIN_RELIABLE and not _h1_short_warned.get(ms.symbol):
+                    _h1_short_warned[ms.symbol] = True
+                    state.push_alert("warn", f"[{ms.symbol}] Contexte H1 court "
+                                             f"({len(h1)} bougies < {H1_BARS_MIN_RELIABLE}) — "
+                                             f"biais EMA200 H1 peu fiable")
+                elif len(h1) >= H1_BARS_MIN_RELIABLE:
+                    _h1_short_warned[ms.symbol] = False
 
                 # Pour les marchés Strategy B, calculer les conditions ICT en temps réel
                 if ms.config.get("default_strategy", "A") == "B":
