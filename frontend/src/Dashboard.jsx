@@ -461,6 +461,8 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
   const [realTradesVolatilityLoading, setRealTradesVolatilityLoading] = useState(false);
   const [earlyExitByHour, setEarlyExitByHour] = useState(null);
   const [earlyExitByHourLoading, setEarlyExitByHourLoading] = useState(false);
+  const [tradeDuration, setTradeDuration] = useState(null);
+  const [tradeDurationLoading, setTradeDurationLoading] = useState(false);
   const [pretrainTrades, setPretrainTrades]   = useState(null);
   const [pretrainFilter, setPretrainFilter]   = useState("losses");
   const [pretrainPage, setPretrainPage]       = useState(0);
@@ -4530,6 +4532,77 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                       ))}
                     </tbody>
                   </table>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ===== Diagnostic durée de vie des trades (historique réel) ===== */}
+          <div className="dashboard-panel section-gap" style={{ ...panel(), marginTop: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <h3 style={{ margin: 0, fontSize: 13 }}>Durée des trades (historique réel)</h3>
+              <button
+                onClick={() => {
+                  setTradeDurationLoading(true);
+                  fetch(`${API}/api/diagnostics/real-trades-duration?symbol=${reportSymbol !== "ALL" ? reportSymbol : activeMarket}`, { headers: authHeaders() })
+                    .then(r => r.json())
+                    .then(d => { setTradeDuration(d); setTradeDurationLoading(false); })
+                    .catch(() => setTradeDurationLoading(false));
+                }}
+                disabled={tradeDurationLoading}
+                style={{ fontSize: 10, background: "transparent", border: `1px solid ${COLORS.border}`,
+                  borderRadius: 4, color: COLORS.sub, padding: "2px 8px", cursor: "pointer" }}
+              >
+                {tradeDurationLoading ? "⏳..." : "Vérifier"}
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 4 }}>
+              Combien de temps un trade reste réellement ouvert, par motif de sortie. Le plafond
+              MAX_TRADE_MINUTES est de 75 min, mais la gestion de position est suspendue tant que les
+              données sont synthétiques — un trade peut donc dépasser le plafond de la durée de la coupure.
+            </div>
+            {tradeDuration && (
+              <div style={{ fontSize: 12 }}>
+                {tradeDuration.note && <div style={{ color: COLORS.sub }}>{tradeDuration.note}</div>}
+                {tradeDuration.error && <div style={{ color: COLORS.red }}>{tradeDuration.error}</div>}
+                {tradeDuration.n > 0 && (
+                  <>
+                    <div style={{ color: COLORS.sub, marginBottom: 6 }}>
+                      {tradeDuration.n} trades — médiane <b style={{ color: COLORS.text }}>{tradeDuration.median_min} min</b>,
+                      moyenne {tradeDuration.avg_min} min, p90 {tradeDuration.p90_min} min,
+                      max <b style={{ color: COLORS.text }}>{tradeDuration.max_min} min</b> (plafond {tradeDuration.max_trade_minutes} min)
+                    </div>
+                    <div style={{ marginBottom: 6, color: tradeDuration.over_cap_n > 0 ? COLORS.amber : COLORS.sub }}>
+                      Au-delà du plafond : {tradeDuration.over_cap_n} trade(s) ({tradeDuration.over_cap_pct}%)
+                      {tradeDuration.over_cap_max_min != null && <> — le plus long : {tradeDuration.over_cap_max_min} min</>}
+                    </div>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+                      <thead>
+                        <tr>
+                          <th style={{ textAlign: "left", color: COLORS.sub, fontWeight: "normal" }}>Sortie</th>
+                          <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>Trades</th>
+                          <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>%</th>
+                          <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>Médiane</th>
+                          <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>Moy.</th>
+                          <th style={{ textAlign: "right", color: COLORS.sub, fontWeight: "normal" }}>Max</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {tradeDuration.by_exit_reason.map((r) => (
+                          <tr key={r.exit_reason}>
+                            <td style={{ color: COLORS.sub, paddingTop: 2 }}>{r.exit_reason}</td>
+                            <td style={{ textAlign: "right", color: COLORS.sub, paddingTop: 2 }}>{r.n}</td>
+                            <td style={{ textAlign: "right", color: COLORS.sub, paddingTop: 2 }}>{r.pct}%</td>
+                            <td style={{ textAlign: "right", color: COLORS.sub, paddingTop: 2 }}>{r.median_min}</td>
+                            <td style={{ textAlign: "right", color: COLORS.sub, paddingTop: 2 }}>{r.avg_min}</td>
+                            <td style={{ textAlign: "right", paddingTop: 2, color: r.max_min > tradeDuration.max_trade_minutes + 1 ? COLORS.amber : COLORS.sub }}>
+                              {r.max_min}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
                 )}
               </div>
             )}

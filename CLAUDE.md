@@ -134,7 +134,7 @@ After merging to `main`:
 - **BAD_HOURS_CET = {8, 10}** : 8h London open (manipulation pre-session) + 10h CET (WR 38% / 37 trades)
 - **ADX_MIN = 28** (was 22 → agent adaptatif validé 28 en live; Optuna avait proposé 25)
 - **Mode momentum fort supprimé** : ADX H1 > 35/40 → 1 pattern testé → PF 1.34 vs 1.42, rejeté. Toujours 2 patterns requis.
-- **MAX_TRADE_MINUTES = 45** (was 30) — more time for TP targets to be reached
+- **MAX_TRADE_MINUTES = 75** (30 → 45 → 75) — more time for TP targets to be reached. Attention : la boucle de trading **suspend toute la gestion de position** tant que le fournisseur de données est en repli synthétique (`main.py`, `continue` avant « Manage open position », pour ne jamais fermer sur un prix simulé). Le timeout n'est pas raté mais différé — la durée réelle d'un trade peut donc dépasser 75 min de la durée de la coupure. Mesurable via `GET /api/diagnostics/real-trades-duration`.
 - **TP1 = 0.7R**, **TP2 = 1.8R** — gap TP1→TP2 = 1.1R; TP2=1.4R testé mais moins bon, 1.8R optimal confirmé
 - **SL → entrée (BE 0R) après TP1** — déplacé à l'entrée sur les bougies suivantes (pas de vérification intrabar). Pire cas : +0.7R×50% + 0×50% = +0.35R net. À comparer via pretrain avec "pas de déplacement" (−0.35R pire cas mais plus de trades TP2).
 - **Strategy B (EUR/USD) Order Block only** (June 2026) : biais H1 (EMA50 vs EMA200) + ADX H1 ≥ 20 + OB M5 non mitiguée + retest → TP1=0.7R, **TP2=1.0R** (était 1.8R, quasi jamais atteint sur les rebonds OB EUR/USD — abaissé le 13/07, PR #243). Supprimé : AMD, FVG, Asian range, sweep, accumulation.

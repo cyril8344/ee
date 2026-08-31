@@ -1296,6 +1296,78 @@ def diag_real_trades_early_exit_by_hour(symbol: str = "XAUUSD",
     return {"hours": hours}
 
 
+def diag_real_trades_duration(symbol: str = "XAUUSD",
+                              _trades: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """Diagnostic sur les VRAIS trades déjà exécutés : durée de vie observée,
+    globale et par motif de sortie. Répond à « combien de temps un trade reste-t-il
+    ouvert en live ? » avec l'historique plutôt qu'avec la valeur théorique du
+    plafond.
+
+    Deux raisons de mesurer au lieu de déduire :
+      * MAX_TRADE_MINUTES vaut 75, pas 45 comme documenté longtemps — le plafond
+        réel est donc 1h15 ;
+      * la boucle de trading suspend TOUTE la gestion de position tant que le
+        fournisseur de données est en repli synthétique (main.py — `continue`
+        avant le bloc « Manage open position », pour ne jamais fermer sur un prix
+        simulé). Le timeout n'est pas raté, il est différé : la position se ferme
+        au retour des données réelles, mais sa durée totale dépasse alors le
+        plafond de la durée de la coupure. `over_cap` compte exactement ces cas.
+
+    duration_min est écrit sur chaque trade à la clôture (main.py::_finalize_trade),
+    donc aucun refetch réseau n'est nécessaire ici.
+
+    _trades : injection pour les tests (évite un vrai accès DB).
+    """
+    trades = _trades if _trades is not None else db.get_closed_trades(symbol=symbol)
+    durations = [float(t["duration_min"]) for t in (trades or [])
+                 if t.get("duration_min") is not None]
+    if not durations:
+        return {"n": 0, "by_exit_reason": [], "note": "Aucun trade fermé avec durée enregistrée."}
+
+    cap = float(getattr(strategy, "MAX_TRADE_MINUTES", 75))
+
+    def _pct(xs: List[float], q: float) -> float:
+        s = sorted(xs)
+        # Interpolation linéaire — évite qu'un petit échantillon renvoie
+        # systématiquement la valeur max sur un percentile haut.
+        pos = (len(s) - 1) * q
+        lo, hi = int(pos), min(int(pos) + 1, len(s) - 1)
+        return round(s[lo] + (s[hi] - s[lo]) * (pos - lo), 1)
+
+    from collections import defaultdict as _dd
+    by_reason: dict = _dd(list)
+    for t in trades or []:
+        if t.get("duration_min") is not None:
+            by_reason[t.get("exit_reason") or "inconnu"].append(float(t["duration_min"]))
+
+    rows = []
+    for reason, ds in sorted(by_reason.items(), key=lambda kv: -len(kv[1])):
+        rows.append({
+            "exit_reason": reason,
+            "n": len(ds),
+            "pct": round(len(ds) / len(durations) * 100, 1),
+            "avg_min": round(sum(ds) / len(ds), 1),
+            "median_min": _pct(ds, 0.5),
+            "max_min": round(max(ds), 1),
+        })
+
+    # Marge de tolérance : la boucle tourne toutes les ~5 s, donc un dépassement
+    # d'une poignée de secondes est normal et ne signale aucune anomalie.
+    over = [d for d in durations if d > cap + 1.0]
+    return {
+        "n": len(durations),
+        "max_trade_minutes": cap,
+        "avg_min": round(sum(durations) / len(durations), 1),
+        "median_min": _pct(durations, 0.5),
+        "p90_min": _pct(durations, 0.9),
+        "max_min": round(max(durations), 1),
+        "over_cap_n": len(over),
+        "over_cap_pct": round(len(over) / len(durations) * 100, 1),
+        "over_cap_max_min": round(max(over), 1) if over else None,
+        "by_exit_reason": rows,
+    }
+
+
 # --------------------------------------------------------------------------- #
 # Walk-forward : robustesse sur N fenêtres indépendantes
 # --------------------------------------------------------------------------- #
