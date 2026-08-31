@@ -1155,7 +1155,11 @@ def _position_payload(ms: MarketState) -> Optional[Dict[str, Any]]:
         price = pos.entry
     upnl = pos.unrealised_pnl(price, ms.broker.contract_size)
     age = (datetime.now(timezone.utc) - pos.open_time).total_seconds()
-    remaining_sec = max(0, strategy.MAX_TRADE_MINUTES * 60 - int(age))
+    # Même source que le timeout réel appliqué dans la boucle de trading : ES stocke
+    # son propre max_duration_min (45) dans pos.meta, alors que strategy.MAX_TRADE_MINUTES
+    # vaut 75 — lire le global ici affichait 30 minutes de trop sur les positions ES.
+    _cap_min = pos.meta.get("max_duration_min", strategy.MAX_TRADE_MINUTES)
+    remaining_sec = max(0, int(_cap_min) * 60 - int(age))
 
     if pos.direction == "long":
         denom1 = (pos.take_profit1 - pos.entry) or 1e-9
@@ -1730,6 +1734,17 @@ def real_trades_early_exit_by_hour_diagnostic(symbol: str = "XAUUSD", _user: dic
         return _pretrain_module.diag_real_trades_early_exit_by_hour(symbol=symbol)
     except Exception as exc:
         return {"hours": [], "error": str(exc)}
+
+
+@app.get("/api/diagnostics/real-trades-duration")
+def real_trades_duration_diagnostic(symbol: str = "XAUUSD", _user: dict = Depends(get_current_user)):
+    """Durée de vie observée des trades RÉELS déjà exécutés, globale et par motif de
+    sortie, avec le nombre de trades ayant dépassé MAX_TRADE_MINUTES (gestion de
+    position suspendue pendant un repli sur données synthétiques)."""
+    try:
+        return _pretrain_module.diag_real_trades_duration(symbol=symbol)
+    except Exception as exc:
+        return {"n": 0, "by_exit_reason": [], "error": str(exc)}
 
 
 @app.delete("/api/trades/{trade_id}")
