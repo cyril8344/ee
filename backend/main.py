@@ -1283,6 +1283,12 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
             "ict_conditions": snap.get("ict_conditions"),
             "es_conditions": snap.get("es_conditions"),
             "reject_log": snap.get("reject_log"),
+            # Longueur du contexte multi-TF : c'est elle qui conditionne la fiabilité
+            # de l'EMA200/EMA50 H1, donc du biais. Ce payload est une liste blanche —
+            # une clé ajoutée au snapshot et pas recopiée ici n'atteint jamais le
+            # dashboard (le panneau restait vide sans la moindre erreur).
+            "context_bars": snap.get("context_bars"),
+            "h1_context_ok": snap.get("h1_context_ok"),
             # Risque isolé par marché (ES a sa propre enveloppe — voir _risk_for()).
             # Pour XAU/EUR c'est le même objet que le "risk" global ci-dessous.
             "risk": _risk_for(ms).status(),
