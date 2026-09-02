@@ -327,7 +327,7 @@ def run_backtest(cfg: BacktestConfig, preloaded_data: "pd.DataFrame | None" = No
                         "tp2": sig.take_profit2,
                         "volume": vol,
                         "tp1_done": False,
-                        "be_after_tp1": True,
+                        "be_after_tp1": strategy.BE_AFTER_TP1,
                         "remaining": vol,
                         "realised": 0.0,
                         "max_exit_time": ts.to_pydatetime() + timedelta(minutes=sig.max_duration_min),
@@ -372,7 +372,7 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
     if not t["tp1_done"]:
         hit_tp1 = (high >= t["tp1"]) if direction == "long" else (low <= t["tp1"])
         if hit_tp1:
-            close_ratio = 1.0 if t.get("tp1_close_all") else 0.5
+            close_ratio = 1.0 if t.get("tp1_close_all") else strategy.TP1_CLOSE_RATIO
             lots50 = _round_lot(t["volume"] * close_ratio)
             lots50 = min(lots50, t["remaining"])
             if lots50 < MIN_LOT:

@@ -2328,6 +2328,13 @@ class WalkForwardRequest(BaseModel):
     sr_entry_filter_r_override: Optional[float] = None  # objectif visé, en multiples de R (0.7=TP1, 1.8=TP2)
     sr_h1_min_touches_override: Optional[int] = None   # touches minimales pour valider un niveau H1
     sr_h1_tol_atr_override: Optional[float] = None     # largeur de zone H1 (× ATR H1)
+    # Géométrie des sorties — jamais testable jusqu'ici (littéraux codés en dur).
+    # C'est la seule partie de la stratégie qu'aucune des 8 hypothèses rejetées
+    # n'a touchée, alors que le walk-forward montre WR > 50 % avec PF < 1.
+    tp1_r_override: Optional[float] = None             # premier objectif, en R (0.7 par défaut)
+    tp2_r_override: Optional[float] = None             # second objectif, en R (1.8 par défaut)
+    tp1_close_ratio_override: Optional[float] = None   # fraction soldée à TP1 (0.5 par défaut)
+    be_after_tp1_override: Optional[bool] = None       # SL ramené à l'entrée après TP1
 
 
 @app.post("/api/pretrain/walkforward")
@@ -2395,6 +2402,14 @@ def start_walkforward(req: WalkForwardRequest, _user: dict = Depends(get_current
                 _overrides["SR_ENTRY_FILTER_R"] = req.sr_entry_filter_r_override
             if req.sr_h1_min_touches_override is not None:
                 _overrides["SR_H1_MIN_TOUCHES"] = req.sr_h1_min_touches_override
+            if req.tp1_r_override is not None:
+                _overrides["TP1_R"] = req.tp1_r_override
+            if req.tp2_r_override is not None:
+                _overrides["TP2_R"] = req.tp2_r_override
+            if req.tp1_close_ratio_override is not None:
+                _overrides["TP1_CLOSE_RATIO"] = req.tp1_close_ratio_override
+            if req.be_after_tp1_override is not None:
+                _overrides["BE_AFTER_TP1"] = req.be_after_tp1_override
             if req.sr_h1_tol_atr_override is not None:
                 _overrides["SR_H1_TOL_ATR"] = req.sr_h1_tol_atr_override
             _overrides = _overrides or None

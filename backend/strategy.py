@@ -89,6 +89,23 @@ SL_LONG_EXTRA_ATR = 0.0     # ATR additionnel sur le SL (plafond ET plancher), L
                              # SHORT à distance de SL quasi identique (1.6 vs 1.66×ATR) —
                              # hypothèse à tester : le LONG a besoin d'un peu plus de marge.
 BE_BUFFER_R      = 0.0      # marge (en R) sous/sur l'entrée pour le SL breakeven après TP1
+
+# --- Géométrie des sorties -------------------------------------------------
+# Ces quatre valeurs étaient des littéraux codés en dur dans evaluate() et dans les
+# moteurs de backtest : la structure de sortie était donc la seule partie de la
+# stratégie qu'aucun walk-forward ne pouvait tester. Les huit hypothèses testées
+# jusqu'ici portaient toutes sur l'ENTRÉE, alors que le walk-forward montre un
+# WR > 50 % avec un PF < 1 — c'est-à-dire des entrées qui sélectionnent correctement
+# et des sorties dont la géométrie perd (un gagnant type rapporte TP1_R × ratio,
+# un perdant coûte 1R).
+# Valeurs identiques au comportement précédent : ce passage en constantes ne change
+# rien, il rend seulement la chose atteignable depuis les overrides walk-forward.
+TP1_R            = 0.7      # premier objectif, en multiples de R
+TP2_R            = 1.8      # second objectif, en multiples de R
+TP1_CLOSE_RATIO  = 0.5      # fraction de la position soldée à TP1
+BE_AFTER_TP1     = True     # SL ramené à l'entrée après TP1. Le retirer n'est gagnant
+                            # que si p(TP2 | TP1) > 1/(TP2_R+1) ≈ 35.7 % — voir
+                            # pretrain._diag_tp1_to_tp2(), qui mesure ce taux.
                              # — 0.0 = comportement actuel (SL exactement à l'entrée).
                              # Diagnostic pretrain : 47.3% des sorties "SL après TP1" auraient
                              # atteint TP2 dans les 20 bougies suivantes (false_be) — un peu
@@ -1109,11 +1126,11 @@ def evaluate(
         return None
 
     if direction == "long":
-        tp1 = entry + 0.7 * risk
-        tp2 = entry + 1.8 * risk
+        tp1 = entry + TP1_R * risk
+        tp2 = entry + TP2_R * risk
     else:
-        tp1 = entry - 0.7 * risk
-        tp2 = entry - 1.8 * risk
+        tp1 = entry - TP1_R * risk
+        tp2 = entry - TP2_R * risk
 
     # 7b) Obstacle S/R H1 entre l'entrée et l'objectif (voir SR_ENTRY_FILTER_ENABLED).
     # Placé ici et pas plus haut dans le pipeline : il faut `risk` (donc le SL) pour
