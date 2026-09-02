@@ -435,6 +435,10 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
   const [wfTrendBiasOverride, setWfTrendBiasOverride] = useState("");
   const [wfAdxRegimeOverride, setWfAdxRegimeOverride] = useState("");
   const [wfAtrRegimeMaxOverride, setWfAtrRegimeMaxOverride] = useState("");
+  const [wfTp1R, setWfTp1R] = useState("");
+  const [wfTp2R, setWfTp2R] = useState("");
+  const [wfTp1CloseRatio, setWfTp1CloseRatio] = useState("");
+  const [wfNoBeAfterTp1, setWfNoBeAfterTp1] = useState(false);
   const [wfDdSizingThreshold, setWfDdSizingThreshold] = useState("");
   const [wfDdSizingFactor, setWfDdSizingFactor] = useState("");
   const [wfBadHoursOverride, setWfBadHoursOverride] = useState("");
@@ -877,6 +881,12 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
         trend_bias_distance_override: wfTrendBiasOverride !== "" ? parseFloat(wfTrendBiasOverride) : null,
         adx_regime_ratio_override: wfAdxRegimeOverride !== "" ? parseFloat(wfAdxRegimeOverride) : null,
         atr_regime_max_ratio_override: wfAtrRegimeMaxOverride !== "" ? parseFloat(wfAtrRegimeMaxOverride) : null,
+        tp1_r_override: wfTp1R !== "" ? parseFloat(wfTp1R) : null,
+        tp2_r_override: wfTp2R !== "" ? parseFloat(wfTp2R) : null,
+        tp1_close_ratio_override: wfTp1CloseRatio !== "" ? parseFloat(wfTp1CloseRatio) : null,
+        // Case cochée = tester SANS le passage à breakeven. Décochée = ne rien forcer,
+        // pour ne pas réaffirmer le défaut à chaque run.
+        be_after_tp1_override: wfNoBeAfterTp1 ? false : null,
         drawdown_sizing_threshold_override: wfDdSizingThreshold !== "" ? parseFloat(wfDdSizingThreshold) : null,
         drawdown_sizing_factor_override: wfDdSizingFactor !== "" ? parseFloat(wfDdSizingFactor) : null,
         // Cases à cocher : ne renvoyer true QUE si explicitement cochées, jamais false —
@@ -2626,6 +2636,41 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                           style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
                       </div>
+                      {/* Géométrie des sorties — jamais testable jusqu'ici (valeurs codées
+                          en dur). Les 8 hypothèses rejetées portaient toutes sur l'entrée. */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          TP1 en R — premier objectif (vide = 0.7)
+                        </span>
+                        <input type="number" step="0.1" placeholder="0.7" value={wfTp1R}
+                          onChange={e => setWfTp1R(e.target.value)}
+                          style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          TP2 en R — second objectif (vide = 1.8)
+                        </span>
+                        <input type="number" step="0.1" placeholder="1.8" value={wfTp2R}
+                          onChange={e => setWfTp2R(e.target.value)}
+                          style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          Fraction soldée à TP1 (vide = 0.5)
+                        </span>
+                        <input type="number" step="0.1" placeholder="0.5" value={wfTp1CloseRatio}
+                          onChange={e => setWfTp1CloseRatio(e.target.value)}
+                          style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4,
+                        fontSize: 9, color: COLORS.sub, cursor: "pointer" }}>
+                        <input type="checkbox" checked={wfNoBeAfterTp1}
+                          onChange={e => setWfNoBeAfterTp1(e.target.checked)} />
+                        Retirer le SL à l'entrée après TP1 (laisser courir la 2e moitié)
+                      </label>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                         <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
                           ADX régime ratio test (ADX vs sa moyenne 20p H1 — vide = désactivé)
@@ -3677,6 +3722,27 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                                 </div>
                               );
                             })()}
+                            {w.diag_tp1_to_tp2 && (
+                              /* Retirer le SL à l'entrée après TP1 n'est gagnant que si
+                                 p(TP2 | TP1) dépasse 1/(TP2_R+1). Affiché avant de tester,
+                                 pour ne pas lancer un run dont on sait déjà l'issue. */
+                              <div style={{ marginTop: 6, paddingTop: 4, borderTop: `1px solid ${COLORS.border}` }}>
+                                <div style={{ fontSize: 9, color: COLORS.sub, marginBottom: 2 }}>
+                                  Après TP1 ({w.diag_tp1_to_tp2.n_tp1_reached} trades)
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9 }}>
+                                  <span style={{ color: COLORS.sub }}>vont à TP2</span>
+                                  <span style={{ color: w.diag_tp1_to_tp2.retirer_be_favorable ? COLORS.green : COLORS.red }}>
+                                    {w.diag_tp1_to_tp2.p_tp2_given_tp1}% / seuil {w.diag_tp1_to_tp2.seuil_pct}%
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: 9, color: COLORS.sub, marginTop: 2 }}>
+                                  {w.diag_tp1_to_tp2.retirer_be_favorable
+                                    ? `retirer le BE : +${w.diag_tp1_to_tp2.gain_r_sans_be}R/trade`
+                                    : `garder le BE (${w.diag_tp1_to_tp2.gain_r_sans_be}R si retiré)`}
+                                </div>
+                              </div>
+                            )}
                             {w.regime_signature && (
                               <div style={{ marginTop: 6, paddingTop: 4, borderTop: `1px solid ${COLORS.border}` }}>
                                 <div style={{ fontSize: 9, color: COLORS.sub, marginBottom: 2 }}>Régime</div>

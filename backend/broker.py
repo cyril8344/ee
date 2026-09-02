@@ -291,7 +291,7 @@ class PaperBroker(BaseBroker):
         if not pos.tp1_done:
             hit = bar_high >= pos.take_profit1 if direction == "long" else bar_low <= pos.take_profit1
             if hit:
-                close_ratio = 1.0 if pos.meta.get("tp1_close_all") else 0.5
+                close_ratio = 1.0 if pos.meta.get("tp1_close_all") else strategy.TP1_CLOSE_RATIO
                 lots50 = round(min(pos.volume * close_ratio, pos.remaining), 2)
                 if lots50 < 0.01:
                     lots50 = pos.remaining  # trop petit pour spliter → close total
@@ -528,7 +528,7 @@ class MT5Broker(BaseBroker):
         if not pos.tp1_done:
             hit = price >= pos.take_profit1 if pos.direction == "long" else price <= pos.take_profit1
             if hit:
-                close_ratio = 1.0 if pos.meta.get("tp1_close_all") else 0.5
+                close_ratio = 1.0 if pos.meta.get("tp1_close_all") else strategy.TP1_CLOSE_RATIO
                 lots50 = round(min(pos.volume * close_ratio, pos.remaining), 2)
                 tick = self._mt5.symbol_info_tick(self.symbol)
                 fill_price = tick.bid if pos.direction == "long" else tick.ask

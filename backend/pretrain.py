@@ -416,6 +416,10 @@ def run_pretrain(
                         "candles_to_exit": max(1, round(
                             (ts - open_trade["entry_time"]).total_seconds() / 300
                         )),
+                        # TP1 atteint ou non — l'exit_reason ne suffit pas à le déduire
+                        # pour un "timeout", qui survient aussi bien avant qu'après TP1.
+                        # Nécessaire pour p(TP2 | TP1), cf. _diag_tp1_to_tp2().
+                        "tp1_reached":   bool(open_trade.get("tp1_done")),
                     })
 
                     open_trade = None
@@ -497,7 +501,7 @@ def run_pretrain(
                 "tp2":          sig.take_profit2,
                 "volume":       volume,
                 "tp1_done":      False,
-                "be_after_tp1":  True,
+                "be_after_tp1":  strategy.BE_AFTER_TP1,
                 "tp1_close_all": bool(sig.meta.get("tp1_close_all", False)),
                 "remaining":    volume,
                 "realised":     0.0,
@@ -915,6 +919,7 @@ def run_pretrain(
             "diag_by_direction":      diag_by_direction,
             "diag_by_direction_regime": diag_by_direction_regime,
             "diag_by_direction_exit_reason": diag_by_direction_exit_reason,
+            "diag_tp1_to_tp2":        _diag_tp1_to_tp2(trades_log),
             "regime_signature":       regime_signature,
             "efficiency_ratio_h1":    efficiency_ratio_h1,
             "rejection_counts":       dict(sorted(rejection_counts.items(), key=lambda x: -x[1])),
@@ -1296,6 +1301,59 @@ def diag_real_trades_early_exit_by_hour(symbol: str = "XAUUSD",
     return {"hours": hours}
 
 
+def _diag_tp1_to_tp2(trades: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """p(TP2 | TP1 atteint) et le seuil au-delà duquel supprimer le passage à
+    breakeven après TP1 devient gagnant.
+
+    Pourquoi ce chiffre. Le walk-forward montre un WR > 50 % avec un PF < 1 : les
+    entrées sélectionnent correctement, c'est la géométrie des sorties qui perd. Après
+    TP1, la moitié de la position est encaissée à TP1_R et le SL passe à l'entrée :
+    le trade rapporte alors TP1_R × ratio, quoi qu'il arrive ensuite. Sans ce
+    déplacement, la moitié restante va soit à TP2, soit au SL plein.
+
+    Espérance sans BE, en R, avec r1=TP1_R, r2=TP2_R, c=fraction soldée à TP1 :
+        gain_tp1 = r1 × c        (déjà acquis dans les deux cas)
+        sans BE  = gain_tp1 + (1-c) × [ p × r2 − (1-p) × 1 ]
+        avec BE  = gain_tp1
+    Le second terme est positif ssi p > 1 / (r2 + 1).
+
+    Avec les valeurs par défaut (r2 = 1.8) le seuil vaut 1/2.8 ≈ 35.7 %, et il ne
+    dépend ni de TP1_R ni de la fraction soldée — seulement de TP2_R. Retirer le BE
+    n'a donc de sens que si la proportion observée dépasse ce seuil ; en dessous, le
+    BE protège un gain réel et le problème est ailleurs (niveau de TP1, fraction
+    soldée, distance du SL).
+
+    Retourne None si aucun trade n'atteint TP1 (rien à conditionner).
+    """
+    reached_tp1 = [t for t in trades if t.get("tp1_reached")]
+    if not reached_tp1:
+        return None
+
+    n_tp1 = len(reached_tp1)
+    n_tp2 = sum(1 for t in reached_tp1 if t.get("exit_reason") == "tp2")
+    p = n_tp2 / n_tp1
+
+    tp2_r = float(getattr(strategy, "TP2_R", 1.8))
+    seuil = 1.0 / (tp2_r + 1.0)
+
+    return {
+        "n_trades":        len(trades),
+        "n_tp1_reached":   n_tp1,
+        "n_tp2_reached":   n_tp2,
+        "p_tp2_given_tp1": round(p * 100, 1),
+        "seuil_pct":       round(seuil * 100, 1),
+        "tp2_r":           tp2_r,
+        # Gain (en R par trade ayant atteint TP1) attendu en retirant le BE. Négatif =
+        # le BE actuel est le bon choix.
+        "gain_r_sans_be":  round((1 - _tp1_close_ratio()) * (p * tp2_r - (1 - p)), 3),
+        "retirer_be_favorable": bool(p > seuil),
+    }
+
+
+def _tp1_close_ratio() -> float:
+    return float(getattr(strategy, "TP1_CLOSE_RATIO", 0.5))
+
+
 def diag_real_trades_duration(symbol: str = "XAUUSD",
                               _trades: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Diagnostic sur les VRAIS trades déjà exécutés : durée de vie observée,
@@ -1446,6 +1504,9 @@ def run_walk_forward(
                 # SL_direct vs TP2 — quelles conditions séparent les trades perdants des
                 # gagnants sur CETTE fenêtre (pas de moyenne globale multi-fenêtres).
                 "indicator_diagnostic": r.get("indicator_diagnostic"),
+                # p(TP2 | TP1) vs son seuil de rentabilité — dit si retirer le
+                # passage à breakeven après TP1 peut aider, avant de le tester.
+                "diag_tp1_to_tp2":     r.get("diag_tp1_to_tp2"),
             })
         except Exception as exc:
             windows.append({
