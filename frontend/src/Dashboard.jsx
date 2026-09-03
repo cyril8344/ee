@@ -3743,6 +3743,34 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                                 </div>
                               </div>
                             )}
+                            {w.diag_mfe_distribution && (
+                              /* Taux de touche d'un TP2 candidat, lu directement dans la
+                                 distribution du MFE : pas besoin de relancer un run par
+                                 niveau. Les niveaux au-dessus du TP2 utilisé sont censurés
+                                 (le trade y était déjà clôturé) — affichés en grisé. */
+                              <div style={{ marginTop: 6, paddingTop: 4, borderTop: `1px solid ${COLORS.border}` }}>
+                                <div style={{ fontSize: 9, color: COLORS.sub, marginBottom: 2 }}>
+                                  TP2 candidat · MFE médian {w.diag_mfe_distribution.mfe_median_r}R
+                                </div>
+                                {w.diag_mfe_distribution.niveaux.map((lv) => (
+                                  <div key={lv.tp2_r} style={{ display: "flex", justifyContent: "space-between", fontSize: 9,
+                                    opacity: lv.fiable ? 1 : 0.4 }}>
+                                    <span style={{ color: COLORS.sub }}>
+                                      {lv.tp2_r}R{lv.tp2_r === w.diag_mfe_distribution.meilleur_tp2_r ? " ◄" : ""}
+                                    </span>
+                                    <span style={{ color: lv.esperance_r > 0 ? COLORS.green : COLORS.red }}>
+                                      {lv.p_atteint}% · {lv.esperance_r > 0 ? "+" : ""}{lv.esperance_r}R
+                                    </span>
+                                  </div>
+                                ))}
+                                {w.diag_mfe_distribution.optimum_possiblement_au_dela && (
+                                  <div style={{ fontSize: 9, color: COLORS.amber, marginTop: 2 }}>
+                                    optimum peut-être au-delà de {w.diag_mfe_distribution.censure_r}R —
+                                    relancer avec TP2_R élevé
+                                  </div>
+                                )}
+                              </div>
+                            )}
                             {w.regime_signature && (
                               <div style={{ marginTop: 6, paddingTop: 4, borderTop: `1px solid ${COLORS.border}` }}>
                                 <div style={{ fontSize: 9, color: COLORS.sub, marginBottom: 2 }}>Régime</div>
