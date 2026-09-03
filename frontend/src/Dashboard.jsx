@@ -435,6 +435,7 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
   const [wfTrendBiasOverride, setWfTrendBiasOverride] = useState("");
   const [wfAdxRegimeOverride, setWfAdxRegimeOverride] = useState("");
   const [wfAtrRegimeMaxOverride, setWfAtrRegimeMaxOverride] = useState("");
+  const [wfTimeframeSet, setWfTimeframeSet] = useState("M5");
   const [wfTp1R, setWfTp1R] = useState("");
   const [wfTp2R, setWfTp2R] = useState("");
   const [wfTp1CloseRatio, setWfTp1CloseRatio] = useState("");
@@ -881,6 +882,7 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
         trend_bias_distance_override: wfTrendBiasOverride !== "" ? parseFloat(wfTrendBiasOverride) : null,
         adx_regime_ratio_override: wfAdxRegimeOverride !== "" ? parseFloat(wfAdxRegimeOverride) : null,
         atr_regime_max_ratio_override: wfAtrRegimeMaxOverride !== "" ? parseFloat(wfAtrRegimeMaxOverride) : null,
+        timeframe_set: wfTimeframeSet,
         tp1_r_override: wfTp1R !== "" ? parseFloat(wfTp1R) : null,
         tp2_r_override: wfTp2R !== "" ? parseFloat(wfTp2R) : null,
         tp1_close_ratio_override: wfTp1CloseRatio !== "" ? parseFloat(wfTp1CloseRatio) : null,
@@ -2635,6 +2637,21 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                           onChange={e => setWfTrendBiasOverride(e.target.value)}
                           style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
                             borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
+                      {/* Jeu de timeframes. H1 décale toute la stratégie d'un cran et
+                          charge des bougies horaires natives — l'historique M5 du
+                          fournisseur s'arrêtant vers 2022, c'est le seul moyen de
+                          tester sur une décennie. */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          Timeframe — M5 = actuel · H1 = sonde (entrée H1, biais Daily)
+                        </span>
+                        <select value={wfTimeframeSet} onChange={e => setWfTimeframeSet(e.target.value)}
+                          style={{ fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }}>
+                          <option value="M5">M5</option>
+                          <option value="H1">H1</option>
+                        </select>
                       </div>
                       {/* Géométrie des sorties — jamais testable jusqu'ici (valeurs codées
                           en dur). Les 8 hypothèses rejetées portaient toutes sur l'entrée. */}

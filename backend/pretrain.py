@@ -97,6 +97,25 @@ def _size_lots(capital: float, risk_pct: float, sl_distance: float,
     return max(MIN_LOT, round(steps * LOT_STEP, 2))
 
 
+# Jeux de timeframes. "M5" reproduit exactement le comportement historique ; "H1"
+# décale toute la stratégie d'un cran, sans en changer la logique.
+#
+# Motivation : le coût d'un trade est fixe (~0.30 $ aller-retour sur l'or) alors que
+# la cible croît en racine du temps. Sur M5 la friction représente ~4 % du R, sur H1
+# ~1 %. Mais il y a 12 fois moins de trades — le passage n'est donc gagnant que si le
+# signal est intrinsèquement meilleur, ce que seul ce test peut dire.
+#
+# `base` est demandé NATIVEMENT au fournisseur (voir load_m5_data(interval=...)) :
+# l'historique M5 de Twelve Data s'arrête vers 2022, alors qu'en horaire on remonte
+# bien plus loin — ce qui conditionne la possibilité même d'un walk-forward H1.
+# `scale` multiplie les constantes exprimées en minutes (timeout, early exit) et,
+# en racine, celles exprimées en prix (ATR), l'amplitude croissant en √T.
+TIMEFRAME_SETS = {
+    "M5": {"base": "5min", "mid": "15min", "high": "60min", "top": "240min", "scale": 1},
+    "H1": {"base": "1h",   "mid": "240min", "high": "1440min", "top": "10080min", "scale": 12},
+}
+
+
 def run_pretrain(
     start: str,
     end: str,
@@ -108,6 +127,7 @@ def run_pretrain(
     strategy_mode: str = "A",
     extra_overrides: Optional[Dict[str, Any]] = None,
     write_to_db: bool = True,
+    timeframe_set: str = "M5",              # "M5" (défaut, inchangé) | "H1" (sonde)
     _raw_data: Optional[tuple] = None,      # (df, source) déjà chargé — évite un refetch (voir walk-forward)
 ) -> Dict[str, Any]:
     """
@@ -193,10 +213,30 @@ def run_pretrain(
             if k in _saved_ict:
                 setattr(strategy_ict, k, v)
 
+        _tf = TIMEFRAME_SETS.get(timeframe_set, TIMEFRAME_SETS["M5"])
+        _scale = _tf["scale"]
+        _bar_minutes = 5 * _scale
+        if _scale != 1:
+            # Les constantes exprimées en MINUTES suivent l'horloge linéairement : un
+            # timeout de 75 min sur M5 vaut 15 bougies ; il en faut autant en H1.
+            # Celles exprimées en PRIX (ATR) suivent la racine — l'amplitude d'une
+            # bougie croît en √T sur une marche aléatoire. Sans ça, un plancher d'ATR
+            # calibré pour du M5 laisserait tout passer en H1, et le timeout couperait
+            # chaque trade au bout d'une bougie et demie.
+            for _k in ("MAX_TRADE_MINUTES", "EARLY_EXIT_MINUTES"):
+                # Enregistrées dans _saved_strategy pour que le `finally` commun les
+                # restaure : sans ça, un run H1 laisserait un timeout de 900 min au
+                # module strategy, et le live suivant en hériterait.
+                _saved_strategy.setdefault(_k, getattr(strategy, _k))
+            strategy.MAX_TRADE_MINUTES  = int(strategy.MAX_TRADE_MINUTES * _scale)
+            strategy.EARLY_EXIT_MINUTES = strategy.EARLY_EXIT_MINUTES * _scale
+
         # Résolu ici pour que les overrides (walk-forward, Optuna) soient pris en compte :
         # strategy.ATR_MIN vient d'être écrasé si l'appelant l'a demandé.
         default_atr   = strategy.ATR_MIN if symbol == "XAUUSD" else strategy.EURUSD_ATR_MIN
         effective_atr = atr_min if atr_min is not None else default_atr
+        if _scale != 1 and atr_min is None:
+            effective_atr = round(effective_atr * (_scale ** 0.5), 3)
 
         # ---- Charger et préparer les données ----
         if write_to_db:
@@ -204,7 +244,7 @@ def run_pretrain(
         if _raw_data is not None:
             m5_raw, _preloaded_source = _raw_data
         else:
-            m5_raw = load_m5_data(start, end, symbol=symbol)
+            m5_raw = load_m5_data(start, end, symbol=symbol, interval=_tf["base"])
             _preloaded_source = None
         if len(m5_raw) < 300:
             raise ValueError("Pas assez de données pour la période sélectionnée.")
@@ -220,9 +260,9 @@ def run_pretrain(
         data_provider_errors = _dp.get_last_errors()
 
         m5       = add_indicators(m5_raw)
-        m15_full = add_indicators(resample(m5_raw, "15min"))
-        h1_full  = add_indicators(resample(m5_raw, "60min"))
-        h4_full  = add_indicators(resample(m5_raw, "240min"))
+        m15_full = add_indicators(resample(m5_raw, _tf["mid"]))
+        h1_full  = add_indicators(resample(m5_raw, _tf["high"]))
+        h4_full  = add_indicators(resample(m5_raw, _tf["top"]))
         # ---- Initialiser les systèmes d'apprentissage ----
         # Les instances pretrain ne sauvegardent JAMAIS en DB (isolation totale)
         # pour éviter que l'entraînement sur données historiques écrase ce que
@@ -503,6 +543,7 @@ def run_pretrain(
                 "tp1_done":      False,
                 "be_after_tp1":  strategy.BE_AFTER_TP1,
                 "tp1_close_all": bool(sig.meta.get("tp1_close_all", False)),
+                "bar_minutes":  _bar_minutes,
                 "remaining":    volume,
                 "realised":     0.0,
                 "max_exit_time": ts.to_pydatetime() + timedelta(minutes=sig.max_duration_min),
@@ -1516,6 +1557,7 @@ def run_walk_forward(
     risk_pct: float = 5.0,
     strategy_mode: str = "A",
     extra_overrides: Optional[Dict[str, Any]] = None,
+    timeframe_set: str = "M5",
 ) -> Dict[str, Any]:
     """
     Divise start→end en n_splits fenêtres indépendantes de même durée.
@@ -1543,7 +1585,8 @@ def run_walk_forward(
     # en synthétique invalide déjà la robustesse ; ce fetch unique élimine le risque
     # qu'une fenêtre tombe en synthétique simplement parce qu'elle arrive en fin de
     # séquence, après que les fenêtres précédentes ont épuisé le quota.
-    full_raw = load_m5_data(start, end, symbol=symbol)
+    _tf_set = TIMEFRAME_SETS.get(timeframe_set, TIMEFRAME_SETS["M5"])
+    full_raw = load_m5_data(start, end, symbol=symbol, interval=_tf_set["base"])
     full_source = full_raw.attrs.get("provider", "unknown")
 
     windows = []
@@ -1558,6 +1601,7 @@ def run_walk_forward(
                 strategy_mode=strategy_mode, reset=True,
                 extra_overrides=extra_overrides,
                 write_to_db=False,
+                timeframe_set=timeframe_set,
                 _raw_data=(window_raw, full_source),
             )
             n_sl = r.get("false_stops", {}).get("n_sl_direct", 0)
@@ -1607,6 +1651,7 @@ def run_walk_forward(
     return {
         "windows":         windows,
         "n_splits":        n_splits,
+        "timeframe_set":   timeframe_set,
         "is_robust":       bool(valid_pfs) and pct_ok >= 75 and std_pf < 0.30,
         "avg_pf":          avg_pf,
         "min_pf":          round(min(valid_pfs), 3) if valid_pfs else 0.0,

@@ -2335,6 +2335,10 @@ class WalkForwardRequest(BaseModel):
     tp2_r_override: Optional[float] = None             # second objectif, en R (1.8 par défaut)
     tp1_close_ratio_override: Optional[float] = None   # fraction soldée à TP1 (0.5 par défaut)
     be_after_tp1_override: Optional[bool] = None       # SL ramené à l'entrée après TP1
+    # Jeu de timeframes : "M5" (défaut, inchangé) ou "H1" — décale toute la stratégie
+    # d'un cran et charge des bougies horaires NATIVES, seul moyen de remonter au-delà
+    # de l'historique M5 du fournisseur (~2022).
+    timeframe_set: str = "M5"
 
 
 @app.post("/api/pretrain/walkforward")
@@ -2414,6 +2418,7 @@ def start_walkforward(req: WalkForwardRequest, _user: dict = Depends(get_current
                 _overrides["SR_H1_TOL_ATR"] = req.sr_h1_tol_atr_override
             _overrides = _overrides or None
             r = _pretrain_module.run_walk_forward(
+                timeframe_set=req.timeframe_set,
                 start=req.start, end=req.end,
                 n_splits=req.n_splits, symbol=req.symbol,
                 capital=req.capital, risk_pct=req.risk_pct,
