@@ -86,6 +86,28 @@ def _td_throttle(backtest: bool = False) -> None:
 # Global error tracker — dernière erreur par (symbol, provider) pour diagnostic
 _last_errors: dict = {}
 
+# Marge de bord tolérée sur la couverture d'une plage. Le marché est fermé le
+# week-end : une plage demandée du lundi au dimanche ne peut pas être couverte
+# intégralement, la dernière bougie tombant le vendredi. Sur 6 mois cela donne 179j
+# obtenus pour 181j demandés, soit 98.9 % — juste sous le seuil de 99 %, ce qui
+# faisait rejeter un fetch pourtant complet et basculer en silence sur le repli
+# synthétique.
+# La tolérance est doublement bornée, pour ne pas rouvrir la porte aux troncatures
+# partielles que ce seuil sert à attraper : au plus UN week-end manquant (2 jours),
+# ET seulement si la couverture reste ≥ 98 %. Un déficit de 2 jours sur 51 (96 %)
+# reste donc rejeté, alors qu'il passerait avec une tolérance purement absolue.
+_COVERAGE_EDGE_TOLERANCE_DAYS = 2
+_COVERAGE_EDGE_MIN_RATIO = 0.98
+
+
+def _coverage_ok(got_days: int, req_days: int, min_coverage: float) -> bool:
+    if req_days <= 0:
+        return True
+    if got_days >= req_days * min_coverage:
+        return True
+    return ((req_days - got_days) <= _COVERAGE_EDGE_TOLERANCE_DAYS
+            and got_days >= req_days * _COVERAGE_EDGE_MIN_RATIO)
+
 
 def get_last_errors() -> dict:
     """Return the last fetch error per (symbol, provider) for diagnostics."""
@@ -99,17 +121,23 @@ def has_backtest_key() -> bool:
     return bool(_get_twelvedata_keys(backtest=True))
 
 
-def _cache_key(symbol: str, start: str, end: str) -> str:
-    raw = f"{symbol}_{start}_{end}"
+def _cache_key(symbol: str, start: str, end: str, interval: str = "5min") -> str:
+    # L'intervalle fait partie de la clé : sans lui, une plage demandée en 1h
+    # écraserait la même plage en 5min (mêmes symbole/dates), et un walk-forward
+    # M5 relirait ensuite des bougies horaires sans s'en apercevoir.
+    # La forme historique est conservée pour "5min" afin de ne pas invalider le
+    # cache déjà constitué.
+    raw = f"{symbol}_{start}_{end}" if interval == "5min" else f"{symbol}_{start}_{end}_{interval}"
     return hashlib.md5(raw.encode()).hexdigest()
 
 
-def _cache_load(symbol: str, start: str, end: str) -> Optional[tuple[pd.DataFrame, str]]:
+def _cache_load(symbol: str, start: str, end: str,
+                interval: str = "5min") -> Optional[tuple[pd.DataFrame, str]]:
     """Retourne (df, provider_original) ou None. provider_original vaut
     "cache" si l'entrée a été mise en cache avant l'ajout de cette colonne."""
     try:
         from database import ohlcv_cache_load
-        row = ohlcv_cache_load(_cache_key(symbol, start, end))
+        row = ohlcv_cache_load(_cache_key(symbol, start, end, interval))
         if row is None:
             return None
         raw, provider = row
@@ -121,12 +149,14 @@ def _cache_load(symbol: str, start: str, end: str) -> Optional[tuple[pd.DataFram
         return None
 
 
-def _cache_save(symbol: str, start: str, end: str, df: pd.DataFrame, provider: str) -> None:
+def _cache_save(symbol: str, start: str, end: str, df: pd.DataFrame, provider: str,
+                interval: str = "5min") -> None:
     try:
         from database import ohlcv_cache_save
         buf = io.BytesIO()
         df.to_parquet(buf)
-        ohlcv_cache_save(_cache_key(symbol, start, end), symbol, start, end, buf.getvalue(), provider)
+        ohlcv_cache_save(_cache_key(symbol, start, end, interval), symbol, start, end,
+                         buf.getvalue(), provider)
     except Exception:
         pass
 
@@ -255,7 +285,8 @@ def _next_td_key_on_429(backtest: bool = False) -> Optional[str]:
 
 
 def _fetch_twelvedata(start: Optional[str], end: Optional[str], bars: int,
-                      symbol: str = "XAUUSD", backtest: bool = False) -> pd.DataFrame:
+                      symbol: str = "XAUUSD", backtest: bool = False,
+                      interval: str = "5min") -> pd.DataFrame:
     pool = "backtest" if backtest else "live"
     keys = _get_twelvedata_keys(backtest=backtest)
     if not keys:
@@ -263,7 +294,7 @@ def _fetch_twelvedata(start: Optional[str], end: Optional[str], bars: int,
 
     td_symbol = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"])["twelvedata"]
     params = {
-        "symbol": td_symbol, "interval": "5min",
+        "symbol": td_symbol, "interval": interval,
         "format": "JSON", "timezone": "UTC",
         "outputsize": min(max(bars, 1), 5000),
     }
@@ -310,6 +341,17 @@ _TD_INTERVAL_STEP = {
     "5min": pd.Timedelta(minutes=5),
     "15min": pd.Timedelta(minutes=15),
     "1h": pd.Timedelta(hours=1),
+    "4h": pd.Timedelta(hours=4),
+}
+
+# Équivalents yfinance et plafonds d'historique intraday imposés par Yahoo.
+# Une bougie horaire remonte à ~2 ans là où la 5 minutes plafonne à 60 jours :
+# c'est précisément ce qui rend un backtest H1 sur plusieurs années possible.
+_YF_INTERVAL = {
+    "5min": ("5m", 60),
+    "15min": ("15m", 60),
+    "1h": ("1h", 730),
+    "4h": ("1h", 730),   # pas de 4h natif chez Yahoo — l'appelant resample
 }
 
 
@@ -402,7 +444,11 @@ def _fetch_twelvedata_range(start: str, end: str, symbol: str = "XAUUSD",
 
 
 def _fetch_polygon(start: Optional[str], end: Optional[str], bars: int,
-                   symbol: str = "XAUUSD") -> pd.DataFrame:
+                   symbol: str = "XAUUSD", interval: str = "5min") -> pd.DataFrame:
+    if interval != "5min":
+        # Ces deux fournisseurs ne sont câblés qu'en 5 minutes ici. Lever plutôt que
+        # renvoyer silencieusement des bougies M5 pour une demande horaire.
+        raise RuntimeError(f"polygon: intervalle {interval} non supporté")
     key = os.environ.get("POLYGON_API_KEY")
     if not key:
         raise RuntimeError("POLYGON_API_KEY not set")
@@ -429,7 +475,11 @@ def _fetch_polygon(start: Optional[str], end: Optional[str], bars: int,
 
 
 def _fetch_alphavantage(start: Optional[str], end: Optional[str], bars: int,
-                        symbol: str = "XAUUSD") -> pd.DataFrame:
+                        symbol: str = "XAUUSD", interval: str = "5min") -> pd.DataFrame:
+    if interval != "5min":
+        # Ces deux fournisseurs ne sont câblés qu'en 5 minutes ici. Lever plutôt que
+        # renvoyer silencieusement des bougies M5 pour une demande horaire.
+        raise RuntimeError(f"alphavantage: intervalle {interval} non supporté")
     key = os.environ.get("ALPHAVANTAGE_API_KEY")
     if not key:
         raise RuntimeError("ALPHAVANTAGE_API_KEY not set")
@@ -460,11 +510,14 @@ def _fetch_alphavantage(start: Optional[str], end: Optional[str], bars: int,
 
 
 def _fetch_yfinance(start: Optional[str], end: Optional[str], bars: int,
-                    symbol: str = "XAUUSD") -> pd.DataFrame:
+                    symbol: str = "XAUUSD", interval: str = "5min") -> pd.DataFrame:
     import yfinance as yf
     sym = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"])["yfinance"]
+    yf_interval, yf_max_days = _YF_INTERVAL.get(interval, ("5m", 60))
+    bars_per_day = 276 if interval == "5min" else 276 / (_TD_INTERVAL_STEP[interval]
+                                                         / pd.Timedelta(minutes=5))
     if start and end:
-        data = yf.download(sym, start=start, end=end, interval="5m",
+        data = yf.download(sym, start=start, end=end, interval=yf_interval,
                            progress=False, auto_adjust=False)
     else:
         # period était figé à "5d" et ignorait `bars` : quand yfinance prenait le
@@ -473,9 +526,9 @@ def _fetch_yfinance(start: Optional[str], end: Optional[str], bars: int,
         # silencieusement le bug de fenêtre courte. On dérive donc la période du nombre
         # de bougies demandé : ~276 bougies M5 par jour de cotation (23h × 12) et 5 jours
         # de cotation par semaine, plafonné à 60 jours (limite yfinance en intraday 5m).
-        _cal_days = max(5, math.ceil(bars / 276 * 7 / 5) + 2)
-        data = yf.download(sym, period=f"{min(_cal_days, 60)}d", interval="5m",
-                           progress=False, auto_adjust=False)
+        _cal_days = max(5, math.ceil(bars / bars_per_day * 7 / 5) + 2)
+        data = yf.download(sym, period=f"{min(_cal_days, yf_max_days)}d",
+                           interval=yf_interval, progress=False, auto_adjust=False)
     if data is None or len(data) == 0:
         raise RuntimeError("yfinance returned no data")
     if isinstance(data.columns, pd.MultiIndex):
@@ -484,30 +537,37 @@ def _fetch_yfinance(start: Optional[str], end: Optional[str], bars: int,
 
 
 def _fetch_synthetic(start: Optional[str], end: Optional[str], bars: int,
-                     symbol: str = "XAUUSD") -> pd.DataFrame:
+                     symbol: str = "XAUUSD", interval: str = "5min") -> pd.DataFrame:
+    # Le repli synthétique doit produire des bougies à l'intervalle demandé : sinon
+    # une demande H1 recevrait des bougies M5 étiquetées H1, et tout le contexte
+    # multi-timeframe qui en est resamplé serait faux sans le moindre signe.
+    _step = _TD_INTERVAL_STEP.get(interval, pd.Timedelta(minutes=5))
+    _freq = f"{int(_step.total_seconds() // 60)}min"
+    # La volatilité par bougie croît en racine du temps (marche aléatoire).
+    _vol_scale = (_step / pd.Timedelta(minutes=5)) ** 0.5
     cfg = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"])
     base_price = cfg["synthetic_price"]
-    vol = cfg["synthetic_vol"]
+    vol = cfg["synthetic_vol"] * _vol_scale
     spread_scale = cfg["synthetic_spread"]
 
     if start:
         start_dt = pd.Timestamp(start, tz="UTC")
     else:
-        start_dt = pd.Timestamp.now(tz="UTC").floor("5min") - pd.Timedelta(days=7)
+        start_dt = pd.Timestamp.now(tz="UTC").floor(_freq) - pd.Timedelta(days=7)
     if end:
         end_dt = pd.Timestamp(end, tz="UTC")
     else:
-        end_dt = pd.Timestamp.now(tz="UTC").floor("5min")
+        end_dt = pd.Timestamp.now(tz="UTC").floor(_freq)
     if end_dt <= start_dt:
         end_dt = start_dt + pd.Timedelta(days=30)
-    idx = pd.date_range(start_dt, end_dt, freq="5min", tz="UTC")
+    idx = pd.date_range(start_dt, end_dt, freq=_freq, tz="UTC")
     idx = idx[idx.weekday < 5]
     n = len(idx)
     if n == 0:
-        idx = pd.date_range(start_dt, start_dt + pd.Timedelta(days=5), freq="5min", tz="UTC")
+        idx = pd.date_range(start_dt, start_dt + pd.Timedelta(days=5), freq=_freq, tz="UTC")
         n = len(idx)
     # deterministic seed from start so backtests are reproducible
-    seed = int(start_dt.timestamp()) // 300
+    seed = (int(start_dt.timestamp()) // 300) ^ hash(interval) % 10_000
     rng = np.random.default_rng(seed if seed else 42)
     rets = rng.normal(0, vol, n)
     hours = idx.hour.values
@@ -556,7 +616,8 @@ def available_providers() -> List[str]:
 
 def get_m5(start: Optional[str] = None, end: Optional[str] = None,
            bars: int = 500, symbol: str = "XAUUSD",
-           min_coverage: float = 0.99) -> tuple[pd.DataFrame, str]:
+           min_coverage: float = 0.99,
+           interval: str = "5min") -> tuple[pd.DataFrame, str]:
     """
     Return (dataframe, provider_name_used).
 
@@ -589,7 +650,7 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
     # Disk cache for long-range requests (backtest / optimizer)
     _is_range = bool(start and end)
     if _is_range:
-        cached = _cache_load(symbol, start, end)
+        cached = _cache_load(symbol, start, end, interval)
         if cached is not None:
             cached_df, cached_provider = cached
             if len(cached_df) > 0:
@@ -606,7 +667,7 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
     )
     if _use_td_range and "twelvedata" in order:
         try:
-            df = _fetch_twelvedata_range(start, end, symbol)
+            df = _fetch_twelvedata_range(start, end, symbol, interval)
             if df is not None and len(df) > 0:
                 # Ne pas cacher si la couverture est insuffisante (rate limit partiel)
                 req_days = (pd.Timestamp(end, tz="UTC") - pd.Timestamp(start, tz="UTC")).days
@@ -614,17 +675,17 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
                 # 99% — 95% laissait encore jusqu'à ~9 jours manquants sur une fenêtre
                 # de 6 mois sans déclencher l'alerte, assez pour faire bouger un résultat
                 # de walk-forward d'un run à l'autre sur les mêmes dates demandées.
-                strict_ok = got_days >= req_days * 0.99
-                coverage_ok = got_days >= req_days * min_coverage
+                strict_ok = _coverage_ok(got_days, req_days, 0.99)
+                coverage_ok = _coverage_ok(got_days, req_days, min_coverage)
                 # Cache toujours au seuil strict : une entrée partielle serait
                 # relue telle quelle par un walk-forward, qui exige 99%.
                 if _is_range and strict_ok:
-                    _cache_save(symbol, start, end, df, "twelvedata")
+                    _cache_save(symbol, start, end, df, "twelvedata", interval)
                 if coverage_ok:
-                    _last_errors.pop(f"{symbol}:twelvedata_range", None)
+                    _last_errors.pop(f"{symbol}:twelvedata_range:{interval}", None)
                     return df, "twelvedata"
                 # Couverture insuffisante → on tombe dans les autres providers
-                _last_errors[f"{symbol}:twelvedata_range"] = (
+                _last_errors[f"{symbol}:twelvedata_range:{interval}"] = (
                     f"couverture insuffisante ({got_days}j obtenus / {req_days}j demandés)"
                 )
         except Exception as e:  # noqa: BLE001 - fall through to normal providers
@@ -632,7 +693,7 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
             # la vraie cause (clé backtest absente, 429 épuisé, erreur API...) pour
             # un fetch paginé qui échoue avant même d'atteindre la boucle providers
             # ci-dessous — impossible à diagnostiquer depuis l'extérieur.
-            _last_errors[f"{symbol}:twelvedata_range"] = str(e)
+            _last_errors[f"{symbol}:twelvedata_range:{interval}"] = str(e)
 
     last_err = None
     for name in order:
@@ -640,9 +701,10 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
             if name == "twelvedata":
                 # Route vers le pool de clés backtest pour les requêtes par plage
                 # (walk-forward/Optuna/pretrain), pool live sinon — voir _get_twelvedata_keys.
-                df = _fetch_twelvedata(start, end, bars, symbol, backtest=_is_range)
+                df = _fetch_twelvedata(start, end, bars, symbol, backtest=_is_range,
+                                       interval=interval)
             else:
-                df = _PROVIDERS[name](start, end, bars, symbol)
+                df = _PROVIDERS[name](start, end, bars, symbol, interval=interval)
             if df is not None and len(df) > 0:
                 if _is_range:
                     # Un provider en page unique (ex: TwelveData plafonné à 5000
@@ -653,7 +715,7 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
                     # si c'était la bonne, ce qui fausse le walk-forward.
                     req_days = (pd.Timestamp(end, tz="UTC") - pd.Timestamp(start, tz="UTC")).days
                     got_days = (df.index.max() - df.index.min()).days if len(df) > 1 else 0
-                    if req_days > 0 and got_days < req_days * min_coverage:
+                    if not _coverage_ok(got_days, req_days, min_coverage):
                         last_err = RuntimeError(
                             f"{name}: couverture insuffisante ({got_days}j obtenus / {req_days}j demandés)"
                         )
@@ -666,8 +728,8 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
                     # invalide, rate limit) restait invisible jusqu'à expiration du cache
                     # ou vidage manuel, même après correction de la cause réelle.
                     # Cache toujours au seuil strict, jamais au min_coverage assoupli.
-                    if name != "synthetic" and got_days >= req_days * 0.99:
-                        _cache_save(symbol, start, end, df, name)
+                    if name != "synthetic" and _coverage_ok(got_days, req_days, 0.99):
+                        _cache_save(symbol, start, end, df, name, interval)
                 # Clear error on success
                 _last_errors.pop(f"{symbol}:{name}", None)
                 return df, name
@@ -676,7 +738,10 @@ def get_m5(start: Optional[str] = None, end: Optional[str] = None,
             last_err = e
             continue
     # absolute last resort
-    return _fetch_synthetic(start, end, bars, symbol), "synthetic"
+    # Sans l'intervalle, ce repli renvoyait du 5 minutes pour une demande horaire —
+    # et comme il ne vérifie aucune couverture, il masquait au passage le rejet qui
+    # l'avait déclenché : l'appelant recevait des bougies M5 étiquetées H1.
+    return _fetch_synthetic(start, end, bars, symbol, interval), "synthetic"
 
 
 def get_realtime_price(symbol: str = "XAUUSD") -> Optional[float]:

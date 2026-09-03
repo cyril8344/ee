@@ -95,8 +95,11 @@ def test_get_m5_records_error_when_paginated_range_fetch_raises(monkeypatch):
     assert len(df) > 0
 
     errs = data_provider.get_last_errors()
-    assert f"{symbol}:twelvedata_range" in errs
-    assert "429" in errs[f"{symbol}:twelvedata_range"]
+    # La clé porte l'intervalle depuis l'ajout du chargement H1 natif : un échec en
+    # horaire ne doit pas écraser l'erreur du fetch 5 minutes, et inversement.
+    _range_keys = [k for k in errs if k.startswith(f"{symbol}:twelvedata_range")]
+    assert _range_keys == [f"{symbol}:twelvedata_range:5min"]
+    assert "429" in errs[_range_keys[0]]
 
 
 def test_get_m5_records_insufficient_coverage_reason(monkeypatch):
@@ -125,8 +128,9 @@ def test_get_m5_records_insufficient_coverage_reason(monkeypatch):
     assert provider == "synthetic"
 
     errs = data_provider.get_last_errors()
-    assert f"{symbol}:twelvedata_range" in errs
-    assert "couverture insuffisante" in errs[f"{symbol}:twelvedata_range"]
+    _range_keys = [k for k in errs if k.startswith(f"{symbol}:twelvedata_range")]
+    assert _range_keys == [f"{symbol}:twelvedata_range:5min"]
+    assert "couverture insuffisante" in errs[_range_keys[0]]
 
 
 def test_synthetic_fallback_is_never_cached(monkeypatch):

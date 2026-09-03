@@ -62,8 +62,14 @@ def _normalise_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_m5_data(start: str, end: str, symbol: str = "XAUUSD",
-                 min_coverage: float = 0.99) -> pd.DataFrame:
-    """Load 5-minute gold data via the unified data provider.
+                 min_coverage: float = 0.99, interval: str = "5min") -> pd.DataFrame:
+    """Load base-timeframe data via the unified data provider.
+
+    interval : "5min" par défaut (comportement historique). "1h" demande des bougies
+    horaires NATIVES au fournisseur au lieu de les resampler depuis du M5 — seul moyen
+    d'obtenir plusieurs années d'historique, l'historique M5 de Twelve Data s'arrêtant
+    vers 2022 et une décennie de M5 représentant un million de bougies que le
+    fournisseur n'a pas.
 
     Uses the configured/real provider (Twelve Data, Polygon, Alpha Vantage,
     yfinance) when a key is available, otherwise falls back to a deterministic
@@ -75,7 +81,7 @@ def load_m5_data(start: str, end: str, symbol: str = "XAUUSD",
     """
     try:
         df, _provider = data_provider.get_m5(start=start, end=end, bars=5000, symbol=symbol,
-                                              min_coverage=min_coverage)
+                                              min_coverage=min_coverage, interval=interval)
         if df is not None and len(df) > 0:
             df.attrs["provider"] = _provider
             return df
@@ -360,10 +366,14 @@ def _try_exit(t: Dict[str, Any], bar, ts, slippage, contract_size: float) -> Opt
         t["mfe"] = max(t.get("mfe", 0.0), t["entry"] - low)
         t["mae"] = max(t.get("mae", 0.0), high - t["entry"])
 
-    # Early exit: sans conviction après EARLY_EXIT_MINUTES (bougies M5) — MFE < EARLY_EXIT_MFE_R × R
+    # Early exit: sans conviction après EARLY_EXIT_MINUTES — MFE < EARLY_EXIT_MFE_R × R
+    # La durée d'une bougie était figée à 5 minutes (300 s) : sur un jeu de timeframes
+    # H1 le compteur aurait tourné 12 fois trop vite et coupé chaque trade au bout
+    # d'une bougie. Elle est portée par le trade, valeur par défaut M5.
     if not t["tp1_done"] and t.get("risk", 0) > 0:
-        bars_elapsed = int((ts.to_pydatetime() - t["entry_time"]).total_seconds() / 300)
-        early_exit_bars = max(1, round(strategy.EARLY_EXIT_MINUTES / 5))
+        _bar_min = t.get("bar_minutes", 5)
+        bars_elapsed = int((ts.to_pydatetime() - t["entry_time"]).total_seconds() / (_bar_min * 60))
+        early_exit_bars = max(1, round(strategy.EARLY_EXIT_MINUTES / _bar_min))
         if bars_elapsed >= early_exit_bars and t["mfe"] / t["risk"] < strategy.EARLY_EXIT_MFE_R:
             t["realised"] += pnl_for(close, t["remaining"])
             return t["realised"], close, "early_exit"
