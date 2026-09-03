@@ -920,6 +920,7 @@ def run_pretrain(
             "diag_by_direction_regime": diag_by_direction_regime,
             "diag_by_direction_exit_reason": diag_by_direction_exit_reason,
             "diag_tp1_to_tp2":        _diag_tp1_to_tp2(trades_log),
+            "diag_mfe_distribution":  _diag_mfe_distribution(trades_log),
             "regime_signature":       regime_signature,
             "efficiency_ratio_h1":    efficiency_ratio_h1,
             "rejection_counts":       dict(sorted(rejection_counts.items(), key=lambda x: -x[1])),
@@ -1354,6 +1355,83 @@ def _tp1_close_ratio() -> float:
     return float(getattr(strategy, "TP1_CLOSE_RATIO", 0.5))
 
 
+# Niveaux de TP2 candidats, en multiples de R.
+_MFE_GRID = (1.0, 1.25, 1.5, 1.8, 2.0, 2.5, 3.0, 4.0)
+
+
+def _diag_mfe_distribution(trades: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Distribution du MFE (plus haute excursion favorable, en R) et espérance de la
+    seconde moitié de position pour chaque niveau de TP2 candidat.
+
+    Principe. `mfe_r` est le maximum atteint en faveur du trade avant sa sortie. Donc
+    `MFE >= x` équivaut exactement à « le prix a touché x avant de sortir » : la
+    proportion de trades vérifiant ça EST le taux de touche d'un TP placé à x, à SL
+    identique. On peut donc évaluer un TP2 sans relancer de simulation.
+
+    Espérance de la seconde moitié (celle qui court après TP1), sans passage à
+    breakeven, pour un TP2 candidat x :
+        E(x) = p(x) × x − (1 − p(x))        avec p(x) = P(MFE >= x | TP1 atteint)
+    Le maximum de E sur la grille indique où placer TP2. E(1.8) redonne par
+    construction le calcul de _diag_tp1_to_tp2().
+
+    CENSURE — limite importante. Un trade qui atteint TP2 est clôturé là : son MFE
+    n'est jamais enregistré au-delà. Les points de grille situés au-dessus du TP2
+    réellement utilisé pendant le run sont donc sous-estimés, et marqués
+    `fiable: False`. Pour explorer des TP2 plus lointains, relancer un walk-forward
+    avec TP2_R très haut (ex. 10) et BE_AFTER_TP1=false : les trades courent alors
+    jusqu'au SL ou au timeout et le MFE est observé librement.
+
+    Retourne None si aucun trade n'a de MFE exploitable.
+    """
+    tp1_mfe = [float(t["mfe_r"]) for t in trades
+               if t.get("tp1_reached") and t.get("mfe_r") is not None]
+    if not tp1_mfe:
+        return None
+
+    censure = float(getattr(strategy, "TP2_R", 1.8))
+    tp1_r = float(getattr(strategy, "TP1_R", 0.7))
+    n = len(tp1_mfe)
+
+    niveaux = []
+    for x in _MFE_GRID:
+        if x <= tp1_r:
+            continue  # en deçà de TP1 : déjà encaissé, la question ne se pose pas
+        p = sum(1 for m in tp1_mfe if m >= x) / n
+        niveaux.append({
+            "tp2_r":       x,
+            "p_atteint":   round(p * 100, 1),
+            "esperance_r": round(p * x - (1 - p), 3),
+            # Au-delà du TP2 du run, les trades ont été clôturés avant de pouvoir
+            # aller plus loin : le taux est un plancher, pas une mesure.
+            "fiable":      bool(x <= censure),
+        })
+
+    fiables = [lv for lv in niveaux if lv["fiable"]]
+    meilleur = max(fiables, key=lambda lv: lv["esperance_r"]) if fiables else None
+
+    ordered = sorted(tp1_mfe)
+    def _q(q: float) -> float:
+        pos = (len(ordered) - 1) * q
+        lo, hi = int(pos), min(int(pos) + 1, len(ordered) - 1)
+        return round(ordered[lo] + (ordered[hi] - ordered[lo]) * (pos - lo), 2)
+
+    return {
+        "n_tp1_reached":   n,
+        "mfe_median_r":    _q(0.5),
+        "mfe_p75_r":       _q(0.75),
+        "mfe_p90_r":       _q(0.90),
+        "censure_r":       censure,
+        "niveaux":         niveaux,
+        "meilleur_tp2_r":  meilleur["tp2_r"] if meilleur else None,
+        "meilleur_esperance_r": meilleur["esperance_r"] if meilleur else None,
+        # True = le meilleur TP2 fiable est le plus haut testable, donc l'optimum est
+        # peut-être au-delà de la censure : un run à TP2_R élevé est nécessaire.
+        "optimum_possiblement_au_dela": bool(
+            meilleur is not None and meilleur["tp2_r"] == max(lv["tp2_r"] for lv in fiables)
+        ),
+    }
+
+
 def diag_real_trades_duration(symbol: str = "XAUUSD",
                               _trades: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Diagnostic sur les VRAIS trades déjà exécutés : durée de vie observée,
@@ -1507,6 +1585,8 @@ def run_walk_forward(
                 # p(TP2 | TP1) vs son seuil de rentabilité — dit si retirer le
                 # passage à breakeven après TP1 peut aider, avant de le tester.
                 "diag_tp1_to_tp2":     r.get("diag_tp1_to_tp2"),
+                # Distribution du MFE -> TP2 optimal, calculé sans relancer de run.
+                "diag_mfe_distribution": r.get("diag_mfe_distribution"),
             })
         except Exception as exc:
             windows.append({
