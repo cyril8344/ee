@@ -143,6 +143,7 @@ def _find_order_blocks(
     df: pd.DataFrame,
     direction: str,
     atr_val: float,
+    require_bos: Optional[bool] = None,
 ) -> List[Dict[str, Any]]:
     """
     Retourne les OBs valides dans les OB_MAX_BARS dernières bougies M5.
@@ -152,7 +153,14 @@ def _find_order_blocks(
     2. Impulse ≥ OB_IMPULSE_ATR×ATR dans les 3 bougies suivantes
     3. Corps ≥ OB_MIN_BODY_ATR×ATR | hauteur ≤ OB_MAX_HEIGHT_ATR×ATR
     4. Non mitiguée : le prix n'a pas traversé l'OB depuis sa formation
+
+    `require_bos` surcharge OB_REQUIRE_BOS pour un appelant précis. None = suivre
+    la constante de module, donc le chemin de trading est inchangé. Sert au panneau
+    « Niveaux », purement visuel : là, le coût d'un filtre trop strict est
+    « moins de niveaux à tracer », pas du capital mal engagé — l'inverse du
+    compromis qui a fait mettre OB_REQUIRE_BOS à False pour la stratégie B.
     """
+    _bos = OB_REQUIRE_BOS if require_bos is None else require_bos
     recent = df.tail(OB_MAX_BARS + 5)
     n = len(recent)
     if n < 5:
@@ -194,7 +202,7 @@ def _find_order_blocks(
 
         # BOS (Break of Structure) — l'impulsion doit casser un swing préalable,
         # pas juste bouger de min_impulse dans un range déjà établi.
-        if OB_REQUIRE_BOS:
+        if _bos:
             pre = recent.iloc[max(0, i - BOS_LOOKBACK): i]
             if len(pre) == 0:
                 continue

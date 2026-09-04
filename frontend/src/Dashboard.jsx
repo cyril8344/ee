@@ -436,6 +436,8 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
   const [wfAdxRegimeOverride, setWfAdxRegimeOverride] = useState("");
   const [wfAtrRegimeMaxOverride, setWfAtrRegimeMaxOverride] = useState("");
   const [wfTimeframeSet, setWfTimeframeSet] = useState("M5");
+  const [wfSlAtrMult, setWfSlAtrMult] = useState("");
+  const [wfSlMinAtrMult, setWfSlMinAtrMult] = useState("");
   const [wfTp1R, setWfTp1R] = useState("");
   const [wfTp2R, setWfTp2R] = useState("");
   const [wfTp1CloseRatio, setWfTp1CloseRatio] = useState("");
@@ -468,6 +470,11 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
   const [earlyExitByHourLoading, setEarlyExitByHourLoading] = useState(false);
   const [tradeDuration, setTradeDuration] = useState(null);
   const [tradeDurationLoading, setTradeDurationLoading] = useState(false);
+  // Niveaux à recopier dans MT5 — déclenchement manuel uniquement, jamais
+  // rafraîchi tout seul : c'est une préparation, pas un flux à surveiller.
+  const [mt5Levels, setMt5Levels] = useState(null);
+  const [mt5LevelsLoading, setMt5LevelsLoading] = useState(false);
+  const [mt5Copied, setMt5Copied] = useState(false);
   const [pretrainTrades, setPretrainTrades]   = useState(null);
   const [pretrainFilter, setPretrainFilter]   = useState("losses");
   const [pretrainPage, setPretrainPage]       = useState(0);
@@ -883,6 +890,8 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
         adx_regime_ratio_override: wfAdxRegimeOverride !== "" ? parseFloat(wfAdxRegimeOverride) : null,
         atr_regime_max_ratio_override: wfAtrRegimeMaxOverride !== "" ? parseFloat(wfAtrRegimeMaxOverride) : null,
         timeframe_set: wfTimeframeSet,
+        sl_atr_mult_override: wfSlAtrMult !== "" ? parseFloat(wfSlAtrMult) : null,
+        sl_min_atr_mult_override: wfSlMinAtrMult !== "" ? parseFloat(wfSlMinAtrMult) : null,
         tp1_r_override: wfTp1R !== "" ? parseFloat(wfTp1R) : null,
         tp2_r_override: wfTp2R !== "" ? parseFloat(wfTp2R) : null,
         tp1_close_ratio_override: wfTp1CloseRatio !== "" ? parseFloat(wfTp1CloseRatio) : null,
@@ -2653,6 +2662,25 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                           <option value="H1">H1</option>
                         </select>
                       </div>
+                      {/* Dimensionnement du SL — jamais testable jusqu'ici. */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          SL × ATR — distance du stop (vide = 1.8)
+                        </span>
+                        <input type="number" step="0.1" placeholder="1.8" value={wfSlAtrMult}
+                          onChange={e => setWfSlAtrMult(e.target.value)}
+                          style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          SL × ATR plancher — distance minimale (vide = 1.2)
+                        </span>
+                        <input type="number" step="0.1" placeholder="1.2" value={wfSlMinAtrMult}
+                          onChange={e => setWfSlMinAtrMult(e.target.value)}
+                          style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
                       {/* Géométrie des sorties — jamais testable jusqu'ici (valeurs codées
                           en dur). Les 8 hypothèses rejetées portaient toutes sur l'entrée. */}
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
@@ -3448,6 +3476,150 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
             </div>
           </div>
 
+          {/* ===== Niveaux à tracer sur MT5 (préparation manuelle) ===== */}
+          <div className="dashboard-panel section-gap" style={{ ...panel(), marginTop: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <h3 style={{ margin: 0, fontSize: 14 }}>
+                Niveaux à tracer — MT5 <span style={{ color: COLORS.sub, fontWeight: 400, fontSize: 12 }}>({activeMarket} {tf})</span>
+              </h3>
+              <div style={{ display: "flex", gap: 6 }}>
+                {mt5Levels?.text && (
+                  <button
+                    onClick={() => {
+                      navigator.clipboard?.writeText(mt5Levels.text);
+                      setMt5Copied(true);
+                      setTimeout(() => setMt5Copied(false), 1500);
+                    }}
+                    style={{ fontSize: 10, background: "transparent", border: `1px solid ${COLORS.border}`,
+                      borderRadius: 4, color: COLORS.sub, padding: "2px 8px", cursor: "pointer" }}
+                  >
+                    {mt5Copied ? "✓ copié" : "Copier"}
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setMt5LevelsLoading(true);
+                    fetch(`${API}/api/levels?symbol=${activeMarket}&tf=${tf}`, { headers: authHeaders() })
+                      .then(r => r.json())
+                      .then(d => { setMt5Levels(d); setMt5LevelsLoading(false); })
+                      .catch(() => setMt5LevelsLoading(false));
+                  }}
+                  disabled={mt5LevelsLoading}
+                  style={{ fontSize: 10, background: "transparent", border: `1px solid ${COLORS.border}`,
+                    borderRadius: 4, color: COLORS.sub, padding: "2px 8px", cursor: "pointer" }}
+                >
+                  {mt5LevelsLoading ? "⏳..." : "Préparer"}
+                </button>
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 8 }}>
+              Rien ici n'entre dans une décision du bot. Détecteur d'Order Block strict
+              (corps, hauteur, impulsion, cassure de structure, <b>zone non mitiguée</b>) et
+              plafond de 2 zones par côté — pas les 5-7 du graphique, dont la plupart ont
+              déjà été traversées par le prix.
+            </div>
+
+            {!mt5Levels && !mt5LevelsLoading && (
+              <div style={{ fontSize: 12, color: COLORS.sub }}>
+                « Préparer » calcule les niveaux du symbole et du timeframe affichés.
+              </div>
+            )}
+            {mt5Levels?.error && <div style={{ fontSize: 12, color: COLORS.red }}>Erreur : {mt5Levels.error}</div>}
+            {mt5Levels?.note && <div style={{ fontSize: 12, color: COLORS.sub }}>{mt5Levels.note}</div>}
+
+            {mt5Levels?.price != null && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12 }}>
+                {/* ---- Order Blocks ---- */}
+                <div>
+                  <div style={{ color: COLORS.sub, fontSize: 11, fontWeight: 600, marginBottom: 4 }}>
+                    Order Blocks non mitigués
+                  </div>
+                  {mt5Levels.order_blocks.length === 0 && (
+                    <div style={{ fontSize: 12, color: COLORS.sub }}>Aucun à portée du prix.</div>
+                  )}
+                  {mt5Levels.order_blocks.map((ob, i) => (
+                    <div key={i} style={{ fontSize: 12, marginBottom: 3 }}>
+                      <span style={{ color: ob.type === "haussier" ? COLORS.green : COLORS.red }}>
+                        {ob.type === "haussier" ? "▲" : "▼"}
+                      </span>{" "}
+                      <b style={{ color: COLORS.text }}>
+                        {fmt(ob.low, mt5Levels.digits)} → {fmt(ob.high, mt5Levels.digits)}
+                      </b>{" "}
+                      <span style={{ color: ob.price_inside ? COLORS.amber : COLORS.sub, fontSize: 11 }}>
+                        {ob.price_inside ? "prix dedans" : `${fmt(ob.distance, mt5Levels.digits)} (${ob.distance_atr} ATR)`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* ---- Supports / résistances ---- */}
+                <div>
+                  <div style={{ color: COLORS.sub, fontSize: 11, fontWeight: 600, marginBottom: 4 }}>
+                    Support / résistance les plus proches
+                  </div>
+                  {mt5Levels.sr.length === 0 && (
+                    <div style={{ fontSize: 12, color: COLORS.sub }}>Aucun niveau validé.</div>
+                  )}
+                  {mt5Levels.sr.map((lv) => (
+                    <div key={lv.kind} style={{ fontSize: 12, marginBottom: 3 }}>
+                      <span style={{ color: lv.kind === "support" ? COLORS.green : COLORS.red }}>
+                        {lv.kind === "support" ? "─" : "─"}
+                      </span>{" "}
+                      <b style={{ color: COLORS.text }}>{fmt(lv.price, mt5Levels.digits)}</b>{" "}
+                      <span style={{ color: COLORS.sub, fontSize: 11 }}>
+                        {lv.touches} contact{lv.touches > 1 ? "s" : ""} · {fmt(lv.distance, mt5Levels.digits)} du prix
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* ---- Canal ---- */}
+                <div>
+                  <div style={{ color: COLORS.sub, fontSize: 11, fontWeight: 600, marginBottom: 4 }}>
+                    Canal parallèle
+                  </div>
+                  {!mt5Levels.channel && (
+                    <div style={{ fontSize: 12, color: COLORS.sub }}>Pas assez de bougies.</div>
+                  )}
+                  {mt5Levels.channel && (
+                    <div style={{ fontSize: 12 }}>
+                      <div>
+                        <b style={{ color: COLORS.text }}>{mt5Levels.channel.direction}</b>{" "}
+                        <span style={{ color: COLORS.sub, fontSize: 11 }}>
+                          sur {mt5Levels.channel.bars} bougies
+                        </span>
+                      </div>
+                      <div style={{ color: COLORS.sub }}>
+                        bas <b style={{ color: COLORS.text }}>{fmt(mt5Levels.channel.bottom_now, mt5Levels.digits)}</b>{" "}
+                        · haut <b style={{ color: COLORS.text }}>{fmt(mt5Levels.channel.top_now, mt5Levels.digits)}</b>
+                      </div>
+                      <div style={{ color: COLORS.sub, fontSize: 11 }}>
+                        {mt5Levels.channel.touches_low} contact(s) bas / {mt5Levels.channel.touches_high} haut ·
+                        prix à {mt5Levels.channel.position_pct}% de la hauteur
+                      </div>
+                      {!mt5Levels.channel.fiable && (
+                        <div style={{ color: COLORS.amber, fontSize: 11, marginTop: 3 }}>
+                          Peu fiable — deux parallèles calées sur les extrêmes encadrent le prix
+                          par construction. Sans contacts répétés sur les deux bords, ce n'est
+                          pas un canal, juste une enveloppe.
+                        </div>
+                      )}
+                      <div style={{ color: COLORS.sub, fontSize: 10, marginTop: 4 }}>
+                        MT5 · OBJ_CHANNEL, 3 ancres :
+                        {["point1", "point2", "point3"].map((p) => (
+                          <div key={p} style={{ fontFamily: "monospace" }}>
+                            {p} {mt5Levels.channel.mt5[p].time.slice(0, 16).replace("T", " ")}{" "}
+                            {fmt(mt5Levels.channel.mt5[p].price, mt5Levels.digits)}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* ===== Robustesse multi-périodes ===== */}
           {(multiStatus?.running || multiStatus?.results?.length > 0) && (
             <div className="section-gap" style={{ marginTop: 14 }}>
@@ -3786,6 +3958,28 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                                     relancer avec TP2_R élevé
                                   </div>
                                 )}
+                              </div>
+                            )}
+                            {w.diag_mae_distribution && (
+                              /* Ce qu'un SL plus serré aurait touché. Aucune espérance
+                                 affichée : MAE et MFE ne sont pas ordonnés, donc on ne
+                                 sait pas si un trade tué avait déjà encaissé TP1. */
+                              <div style={{ marginTop: 6, paddingTop: 4, borderTop: `1px solid ${COLORS.border}` }}>
+                                <div style={{ fontSize: 9, color: COLORS.sub, marginBottom: 2 }}>
+                                  SL candidat · MAE gagnants méd. {w.diag_mae_distribution.mae_gagnants_median_r ?? "—"}R
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 8, color: COLORS.sub }}>
+                                  <span>×ATR</span><span>touché / dont gagnants</span>
+                                </div>
+                                {w.diag_mae_distribution.niveaux.map((lv) => (
+                                  <div key={lv.sl_mult} style={{ display: "flex", justifyContent: "space-between", fontSize: 9 }}>
+                                    <span style={{ color: COLORS.sub }}>{lv.sl_mult}</span>
+                                    <span style={{ color: COLORS.sub }}>
+                                      {lv.p_touche}% / <span style={{ color: lv.p_touche_gagnants > 20 ? COLORS.red : COLORS.green }}>
+                                        {lv.p_touche_gagnants ?? "—"}%</span>
+                                    </span>
+                                  </div>
+                                ))}
                               </div>
                             )}
                             {w.regime_signature && (
