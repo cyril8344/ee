@@ -74,6 +74,7 @@ import strategy
 from strategy import (add_indicators, evaluate, snapshot,
                        swing_levels, active_session, find_order_blocks)
 import strategy_es
+import levels as levels_mod
 import feature_logger as _feat_log
 from backtest import BacktestConfig, run_backtest
 from optimizer import OptimizeConfig, run_optimize
@@ -1488,25 +1489,35 @@ def get_state(_user: dict = Depends(get_current_user)):
         return {**_public_state(), "error": str(e)}
 
 
+# Fetch more raw M5 bars so EMA200 has enough warmup before the displayed window.
+# M5: 2500 bars → EMA200 needs 200, leaves 2300 warmup before the last 180 shown.
+# M15: 3600 M5 bars → ~1200 M15 bars → ~1020 warmup bars before the last 180 shown.
+# H1: 5000 M5 bars → ~416 H1 bars → ~236 warmup bars before the last 180 shown.
+_RAW_BARS = {"M5": 2500, "M15": 3600, "H1": 5000}
+
+
+def _timeframe_frame(ms, tf: str) -> pd.DataFrame:
+    """Bougies OHLCV du timeframe demandé, resamplées depuis le M5 du broker.
+
+    Partagé par /api/chart et /api/levels : les niveaux listés en chiffres doivent
+    venir exactement des bougies affichées, sinon les deux dérivent en silence.
+    """
+    m5_raw = ms.broker.get_rates_m5(_RAW_BARS.get(tf.upper(), 2500))
+    rule = {"M5": None, "M15": "15min", "H1": "60min"}.get(tf.upper())
+    if not rule:
+        return m5_raw
+    agg = {"open": "first", "high": "max", "low": "min",
+           "close": "last", "volume": "sum"}
+    return m5_raw.resample(rule, label="right", closed="right").agg(agg).dropna()
+
+
 @app.get("/api/chart")
 def get_chart(tf: str = "M5", symbol: str = "XAUUSD", _user: dict = Depends(get_current_user)):
     """Candles + EMAs + swing S/R for the dashboard chart."""
     ms = state.market_states.get(symbol)
     if ms is None:
         raise HTTPException(status_code=404, detail=f"Unknown market: {symbol}")
-    # Fetch more raw M5 bars so EMA200 has enough warmup before the displayed window.
-    # M5: 2500 bars → EMA200 needs 200, leaves 2300 warmup before the last 180 shown.
-    # M15: 3600 M5 bars → ~1200 M15 bars → ~1020 warmup bars before the last 180 shown.
-    # H1: 5000 M5 bars → ~416 H1 bars → ~236 warmup bars before the last 180 shown.
-    _RAW_BARS = {"M5": 2500, "M15": 3600, "H1": 5000}
-    m5_raw = ms.broker.get_rates_m5(_RAW_BARS.get(tf.upper(), 2500))
-    rule = {"M5": None, "M15": "15min", "H1": "60min"}.get(tf.upper())
-    if rule:
-        agg = {"open": "first", "high": "max", "low": "min",
-               "close": "last", "volume": "sum"}
-        base = m5_raw.resample(rule, label="right", closed="right").agg(agg).dropna()
-    else:
-        base = m5_raw
+    base = _timeframe_frame(ms, tf)
     df = add_indicators(base).tail(180)
     levels = swing_levels(add_indicators(base), lookback=50)
 
@@ -1586,6 +1597,29 @@ def get_chart(tf: str = "M5", symbol: str = "XAUUSD", _user: dict = Depends(get_
 
     return {"timeframe": tf.upper(), "symbol": symbol, "candles": candles,
             "levels": levels, "markers": markers, "order_blocks": order_blocks}
+
+
+@app.get("/api/levels")
+def get_levels(tf: str = "M5", symbol: str = "XAUUSD", _user: dict = Depends(get_current_user)):
+    """Niveaux en chiffres, à recopier dans MetaTrader 5 — déclenchement manuel.
+
+    Volontairement hors de la boucle de trading : rien ici n'entre dans une
+    décision du bot. C'est une aide au tracé, calculée seulement quand on la
+    demande, avec un détecteur d'OB plus strict que celui du graphique et un
+    plafond dur sur le nombre de zones (cf. levels.py).
+    """
+    ms = state.market_states.get(symbol)
+    if ms is None:
+        raise HTTPException(status_code=404, detail=f"Unknown market: {symbol}")
+    try:
+        df = add_indicators(_timeframe_frame(ms, tf))
+        data = levels_mod.build_levels(df, symbol=symbol, timeframe=tf.upper())
+        data["text"] = levels_mod.as_text(data)
+        return data
+    except Exception as exc:
+        return {"symbol": symbol, "timeframe": tf.upper(), "price": None,
+                "digits": levels_mod.digits_for(symbol), "order_blocks": [],
+                "sr": [], "channel": None, "error": str(exc)}
 
 
 @app.get("/api/trades/report")
