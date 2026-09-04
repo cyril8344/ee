@@ -65,6 +65,7 @@ def test_get_m5_records_error_when_paginated_range_fetch_raises(monkeypatch):
     symbol = "XAUUSD_TESTRANGEERR"
     db.init_db()
     db.ohlcv_cache_clear(symbol)
+    _register_fake_symbol(monkeypatch, symbol)
     monkeypatch.setenv("XAU_DATA_PROVIDER", "auto")
     # order = [...] n'inclut "twelvedata" que si la clé LIVE (pas juste backtest)
     # est présente (voir get_m5 : _KEY_ENV["twelvedata"] = TWELVEDATA_API_KEY) —
@@ -106,6 +107,7 @@ def test_get_m5_records_insufficient_coverage_reason(monkeypatch):
     symbol = "XAUUSD_TESTCOVERAGE"
     db.init_db()
     db.ohlcv_cache_clear(symbol)
+    _register_fake_symbol(monkeypatch, symbol)
     monkeypatch.setenv("XAU_DATA_PROVIDER", "auto")
     monkeypatch.setenv("TWELVEDATA_API_KEY", "live_key")
     monkeypatch.setenv("TWELVEDATA_API_KEY_BACKTEST", "key_a")
@@ -144,6 +146,7 @@ def test_synthetic_fallback_is_never_cached(monkeypatch):
     symbol = "XAUUSD_TESTNOCACHE"
     db.init_db()
     db.ohlcv_cache_clear(symbol)
+    _register_fake_symbol(monkeypatch, symbol)
     monkeypatch.setenv("XAU_DATA_PROVIDER", "auto")
     monkeypatch.setenv("TWELVEDATA_API_KEY", "live_key")
     monkeypatch.setenv("TWELVEDATA_API_KEY_BACKTEST", "key_a")
@@ -172,9 +175,24 @@ def _partial_range_df(days: int):
     }, index=idx)
 
 
+def _register_fake_symbol(monkeypatch, symbol):
+    """Déclare un symbole de test dans MARKET_SYMBOLS, avec la config de l'or.
+
+    Ces tests utilisent des symboles fictifs uniques pour isoler le cache disque. Ils
+    reposaient jusqu'ici sur le repli muet `MARKET_SYMBOLS.get(symbol, <XAUUSD>)`, qui
+    faisait passer n'importe quel symbole inconnu pour de l'or — le défaut même que
+    market_symbol() supprime (un walk-forward "ES" chargeait des données XAU/USD sans
+    la moindre alerte). L'hypothèse « ce symbole se comporte comme l'or » est donc
+    désormais explicite ici plutôt qu'implicite dans le code de production.
+    """
+    monkeypatch.setitem(data_provider.MARKET_SYMBOLS, symbol,
+                        data_provider.MARKET_SYMBOLS["XAUUSD"])
+
+
 def _setup_partial_fetch(monkeypatch, symbol, days):
     db.init_db()
     db.ohlcv_cache_clear(symbol)
+    _register_fake_symbol(monkeypatch, symbol)
     monkeypatch.setenv("XAU_DATA_PROVIDER", "auto")
     monkeypatch.setenv("TWELVEDATA_API_KEY", "live_key")
     monkeypatch.setenv("TWELVEDATA_API_KEY_BACKTEST", "key_a")

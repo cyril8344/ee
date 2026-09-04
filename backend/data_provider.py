@@ -121,6 +121,26 @@ def has_backtest_key() -> bool:
     return bool(_get_twelvedata_keys(backtest=True))
 
 
+def market_symbol(symbol: str) -> dict:
+    """Config fournisseur d'un symbole, ou KeyError explicite.
+
+    Remplace le repli `MARKET_SYMBOLS.get(symbol, <XAUUSD>)`, qui faisait
+    silencieusement passer tout symbole inconnu pour de l'or. Concrètement, un
+    walk-forward lancé sur "ES" (absent de MARKET_SYMBOLS, l'ES passant par le proxy
+    SPY de pretrain_es) chargeait des données XAU/USD et les présentait comme de l'ES :
+    aucune erreur, aucun avertissement, résultat entièrement faux.
+    """
+    cfg = MARKET_SYMBOLS.get(symbol)
+    if cfg is None:
+        raise KeyError(
+            f"Symbole inconnu du data_provider : {symbol!r}. "
+            f"Connus : {sorted(MARKET_SYMBOLS)}. "
+            f"Ajouter une entrée dans MARKET_SYMBOLS plutôt que de laisser le repli "
+            f"silencieux sur XAU/USD renvoyer les données d'un autre marché."
+        )
+    return cfg
+
+
 def _cache_key(symbol: str, start: str, end: str, interval: str = "5min") -> str:
     # L'intervalle fait partie de la clé : sans lui, une plage demandée en 1h
     # écraserait la même plage en 5min (mêmes symbole/dates), et un walk-forward
@@ -292,7 +312,7 @@ def _fetch_twelvedata(start: Optional[str], end: Optional[str], bars: int,
     if not keys:
         raise RuntimeError("TWELVEDATA_API_KEY not set")
 
-    td_symbol = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"])["twelvedata"]
+    td_symbol = market_symbol(symbol)["twelvedata"]
     params = {
         "symbol": td_symbol, "interval": interval,
         "format": "JSON", "timezone": "UTC",
@@ -370,7 +390,7 @@ def _fetch_twelvedata_range(start: str, end: str, symbol: str = "XAUUSD",
         raise RuntimeError("TWELVEDATA_API_KEY not set")
     key = keys[_td_key_index["backtest"][0] % len(keys)]
 
-    td_symbol = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"])["twelvedata"]
+    td_symbol = market_symbol(symbol)["twelvedata"]
     step = _TD_INTERVAL_STEP.get(interval, pd.Timedelta(minutes=5))
 
     start_dt = pd.Timestamp(start, tz="UTC")
@@ -456,7 +476,7 @@ def _fetch_polygon(start: Optional[str], end: Optional[str], bars: int,
         end = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     if not start:
         start = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
-    sym = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"])["polygon"]
+    sym = market_symbol(symbol)["polygon"]
     url = (f"https://api.polygon.io/v2/aggs/ticker/{sym}/range/5/minute/"
            f"{start}/{end}")
     r = requests.get(url, params={"adjusted": "true", "sort": "asc",
@@ -483,7 +503,7 @@ def _fetch_alphavantage(start: Optional[str], end: Optional[str], bars: int,
     key = os.environ.get("ALPHAVANTAGE_API_KEY")
     if not key:
         raise RuntimeError("ALPHAVANTAGE_API_KEY not set")
-    from_sym, to_sym = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"])["alphavantage"]
+    from_sym, to_sym = market_symbol(symbol)["alphavantage"]
     r = requests.get("https://www.alphavantage.co/query", params={
         "function": "FX_INTRADAY", "from_symbol": from_sym,
         "to_symbol": to_sym, "interval": "5min", "outputsize": "full",
@@ -512,7 +532,7 @@ def _fetch_alphavantage(start: Optional[str], end: Optional[str], bars: int,
 def _fetch_yfinance(start: Optional[str], end: Optional[str], bars: int,
                     symbol: str = "XAUUSD", interval: str = "5min") -> pd.DataFrame:
     import yfinance as yf
-    sym = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"])["yfinance"]
+    sym = market_symbol(symbol)["yfinance"]
     yf_interval, yf_max_days = _YF_INTERVAL.get(interval, ("5m", 60))
     bars_per_day = 276 if interval == "5min" else 276 / (_TD_INTERVAL_STEP[interval]
                                                          / pd.Timedelta(minutes=5))
@@ -545,7 +565,7 @@ def _fetch_synthetic(start: Optional[str], end: Optional[str], bars: int,
     _freq = f"{int(_step.total_seconds() // 60)}min"
     # La volatilité par bougie croît en racine du temps (marche aléatoire).
     _vol_scale = (_step / pd.Timedelta(minutes=5)) ** 0.5
-    cfg = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"])
+    cfg = market_symbol(symbol)
     base_price = cfg["synthetic_price"]
     vol = cfg["synthetic_vol"] * _vol_scale
     spread_scale = cfg["synthetic_spread"]
@@ -750,7 +770,7 @@ def get_realtime_price(symbol: str = "XAUUSD") -> Optional[float]:
     keys = _get_twelvedata_keys()
     if not keys:
         return None
-    td_sym = MARKET_SYMBOLS.get(symbol, MARKET_SYMBOLS["XAUUSD"]).get("twelvedata", "XAU/USD")
+    td_sym = market_symbol(symbol).get("twelvedata", "XAU/USD")
     try:
         r = requests.get(
             "https://api.twelvedata.com/price",

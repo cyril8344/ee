@@ -962,6 +962,7 @@ def run_pretrain(
             "diag_by_direction_exit_reason": diag_by_direction_exit_reason,
             "diag_tp1_to_tp2":        _diag_tp1_to_tp2(trades_log),
             "diag_mfe_distribution":  _diag_mfe_distribution(trades_log),
+            "diag_mae_distribution":  _diag_mae_distribution(trades_log),
             "regime_signature":       regime_signature,
             "efficiency_ratio_h1":    efficiency_ratio_h1,
             "rejection_counts":       dict(sorted(rejection_counts.items(), key=lambda x: -x[1])),
@@ -1473,6 +1474,88 @@ def _diag_mfe_distribution(trades: List[Dict[str, Any]]) -> Optional[Dict[str, A
     }
 
 
+# Multiplicateurs de SL candidats, en fraction de la distance actuelle.
+_MAE_GRID = (0.5, 0.6, 0.7, 0.8, 0.9, 1.0)
+
+
+def _diag_mae_distribution(trades: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Distribution du MAE (pire excursion défavorable, en R) — ce qu'un SL plus serré
+    aurait touché.
+
+    Motivation. Le run H1 a montré un MFE médian qui s'écrase (1.4-1.7R en M5 contre
+    0.75-0.92R en H1) : le SL s'élargit avec l'ATR, mais le mouvement qui suit ne suit
+    pas proportionnellement. La règle `SL = 1.8 × ATR` n'a jamais été testée.
+
+    Ce que ce diagnostic calcule EXACTEMENT. `mae_r` étant la pire excursion contre le
+    trade avant sa sortie, `MAE >= f` équivaut à « le prix a atteint f×R contre nous à
+    un moment ». Donc pour un SL placé à f fois la distance actuelle :
+      * `p_touche`          = part des trades que ce SL aurait touchée
+      * `p_touche_gagnants` = part des GAGNANTS actuels qu'il aurait tués
+      * `p_tp1_atteint`     = part des trades atteignant le TP1 rapproché (les TP étant
+                              des multiples de R, resserrer le SL les rapproche aussi)
+
+    Ce qu'il NE calcule PAS, volontairement : aucune espérance, aucun PF attendu.
+    Contrairement au cas du TP2, MAE et MFE ne sont pas ordonnés — on sait qu'un trade
+    a touché −0.6R et +1.3R, pas lequel est arrivé en premier. Un trade tué par un SL
+    resserré peut avoir déjà encaissé TP1 avant, ou non ; rien dans les logs ne permet
+    de trancher. Toute formule d'espérance bâtie là-dessus serait fausse — c'est
+    exactement l'erreur commise sur _diag_mfe_distribution, dont le `−1R` pour tout
+    trade n'atteignant pas TP2 ignorait les sorties intermédiaires et inversait la
+    conclusion. Seul un walk-forward mesure l'effet réel ; ce tableau sert à choisir
+    les valeurs à tester, pas à prédire leur résultat.
+
+    Retourne None si aucun trade n'a de MAE exploitable.
+    """
+    vals = [(float(t["mae_r"]), bool(t.get("won")))
+            for t in trades if t.get("mae_r") is not None]
+    if not vals:
+        return None
+
+    mfe = [float(t["mfe_r"]) for t in trades if t.get("mfe_r") is not None]
+    n = len(vals)
+    wins = [m for m, won in vals if won]
+    tp1_r = float(getattr(strategy, "TP1_R", 0.7))
+
+    niveaux = []
+    for f in _MAE_GRID:
+        touche = sum(1 for m, _ in vals if m >= f) / n
+        touche_win = (sum(1 for m in wins if m >= f) / len(wins)) if wins else None
+        tp1_new = (sum(1 for x in mfe if x >= tp1_r * f) / len(mfe)) if mfe else None
+        niveaux.append({
+            "sl_mult":            f,
+            "p_touche":           round(touche * 100, 1),
+            "p_touche_gagnants":  round(touche_win * 100, 1) if touche_win is not None else None,
+            "p_tp1_atteint":      round(tp1_new * 100, 1) if tp1_new is not None else None,
+        })
+
+    ordered = sorted(m for m, _ in vals)
+    def _q(q: float) -> float:
+        pos = (len(ordered) - 1) * q
+        lo, hi = int(pos), min(int(pos) + 1, len(ordered) - 1)
+        return round(ordered[lo] + (ordered[hi] - ordered[lo]) * (pos - lo), 2)
+
+    ordered_wins = sorted(wins)
+    def _qw(q: float) -> Optional[float]:
+        if not ordered_wins:
+            return None
+        pos = (len(ordered_wins) - 1) * q
+        lo, hi = int(pos), min(int(pos) + 1, len(ordered_wins) - 1)
+        return round(ordered_wins[lo] + (ordered_wins[hi] - ordered_wins[lo]) * (pos - lo), 2)
+
+    return {
+        "n_trades":          n,
+        "n_gagnants":        len(wins),
+        "mae_median_r":      _q(0.5),
+        "mae_p90_r":         _q(0.90),
+        # Le chiffre qui porte l'hypothèse : si les gagnants ne descendent presque
+        # jamais bas, la distance de SL actuelle achète une protection inutile — et
+        # gonfle le R, ce qui écrase mécaniquement tous les multiples de R.
+        "mae_gagnants_median_r": _qw(0.5),
+        "mae_gagnants_p90_r":    _qw(0.90),
+        "niveaux":           niveaux,
+    }
+
+
 def diag_real_trades_duration(symbol: str = "XAUUSD",
                               _trades: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Diagnostic sur les VRAIS trades déjà exécutés : durée de vie observée,
@@ -1631,6 +1714,9 @@ def run_walk_forward(
                 "diag_tp1_to_tp2":     r.get("diag_tp1_to_tp2"),
                 # Distribution du MFE -> TP2 optimal, calculé sans relancer de run.
                 "diag_mfe_distribution": r.get("diag_mfe_distribution"),
+                # Ce qu'un SL plus serré aurait touché. Aucune espérance : MAE et
+                # MFE ne sont pas ordonnés (voir _diag_mae_distribution).
+                "diag_mae_distribution": r.get("diag_mae_distribution"),
             })
         except Exception as exc:
             windows.append({

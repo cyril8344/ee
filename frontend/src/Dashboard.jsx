@@ -436,6 +436,8 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
   const [wfAdxRegimeOverride, setWfAdxRegimeOverride] = useState("");
   const [wfAtrRegimeMaxOverride, setWfAtrRegimeMaxOverride] = useState("");
   const [wfTimeframeSet, setWfTimeframeSet] = useState("M5");
+  const [wfSlAtrMult, setWfSlAtrMult] = useState("");
+  const [wfSlMinAtrMult, setWfSlMinAtrMult] = useState("");
   const [wfTp1R, setWfTp1R] = useState("");
   const [wfTp2R, setWfTp2R] = useState("");
   const [wfTp1CloseRatio, setWfTp1CloseRatio] = useState("");
@@ -883,6 +885,8 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
         adx_regime_ratio_override: wfAdxRegimeOverride !== "" ? parseFloat(wfAdxRegimeOverride) : null,
         atr_regime_max_ratio_override: wfAtrRegimeMaxOverride !== "" ? parseFloat(wfAtrRegimeMaxOverride) : null,
         timeframe_set: wfTimeframeSet,
+        sl_atr_mult_override: wfSlAtrMult !== "" ? parseFloat(wfSlAtrMult) : null,
+        sl_min_atr_mult_override: wfSlMinAtrMult !== "" ? parseFloat(wfSlMinAtrMult) : null,
         tp1_r_override: wfTp1R !== "" ? parseFloat(wfTp1R) : null,
         tp2_r_override: wfTp2R !== "" ? parseFloat(wfTp2R) : null,
         tp1_close_ratio_override: wfTp1CloseRatio !== "" ? parseFloat(wfTp1CloseRatio) : null,
@@ -2653,6 +2657,25 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                           <option value="H1">H1</option>
                         </select>
                       </div>
+                      {/* Dimensionnement du SL — jamais testable jusqu'ici. */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          SL × ATR — distance du stop (vide = 1.8)
+                        </span>
+                        <input type="number" step="0.1" placeholder="1.8" value={wfSlAtrMult}
+                          onChange={e => setWfSlAtrMult(e.target.value)}
+                          style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: COLORS.sub, flex: 1 }}>
+                          SL × ATR plancher — distance minimale (vide = 1.2)
+                        </span>
+                        <input type="number" step="0.1" placeholder="1.2" value={wfSlMinAtrMult}
+                          onChange={e => setWfSlMinAtrMult(e.target.value)}
+                          style={{ width: 50, fontSize: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                            borderRadius: 3, color: COLORS.text, padding: "2px 4px" }} />
+                      </div>
                       {/* Géométrie des sorties — jamais testable jusqu'ici (valeurs codées
                           en dur). Les 8 hypothèses rejetées portaient toutes sur l'entrée. */}
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
@@ -3786,6 +3809,28 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                                     relancer avec TP2_R élevé
                                   </div>
                                 )}
+                              </div>
+                            )}
+                            {w.diag_mae_distribution && (
+                              /* Ce qu'un SL plus serré aurait touché. Aucune espérance
+                                 affichée : MAE et MFE ne sont pas ordonnés, donc on ne
+                                 sait pas si un trade tué avait déjà encaissé TP1. */
+                              <div style={{ marginTop: 6, paddingTop: 4, borderTop: `1px solid ${COLORS.border}` }}>
+                                <div style={{ fontSize: 9, color: COLORS.sub, marginBottom: 2 }}>
+                                  SL candidat · MAE gagnants méd. {w.diag_mae_distribution.mae_gagnants_median_r ?? "—"}R
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 8, color: COLORS.sub }}>
+                                  <span>×ATR</span><span>touché / dont gagnants</span>
+                                </div>
+                                {w.diag_mae_distribution.niveaux.map((lv) => (
+                                  <div key={lv.sl_mult} style={{ display: "flex", justifyContent: "space-between", fontSize: 9 }}>
+                                    <span style={{ color: COLORS.sub }}>{lv.sl_mult}</span>
+                                    <span style={{ color: COLORS.sub }}>
+                                      {lv.p_touche}% / <span style={{ color: lv.p_touche_gagnants > 20 ? COLORS.red : COLORS.green }}>
+                                        {lv.p_touche_gagnants ?? "—"}%</span>
+                                    </span>
+                                  </div>
+                                ))}
                               </div>
                             )}
                             {w.regime_signature && (

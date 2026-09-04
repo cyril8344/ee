@@ -2339,6 +2339,12 @@ class WalkForwardRequest(BaseModel):
     # d'un cran et charge des bougies horaires NATIVES, seul moyen de remonter au-delà
     # de l'historique M5 du fournisseur (~2022).
     timeframe_set: str = "M5"
+    # Dimensionnement du SL — jamais testable jusqu'ici. Le MFE médian qui s'écrase
+    # quand l'horloge ralentit (1.4-1.7R en M5, 0.75-0.92R en H1) suggère que la règle
+    # `SL = 1.8 × ATR` est mal calibrée par rapport au mouvement réellement disponible.
+    sl_atr_mult_override: Optional[float] = None       # multiplicateur SL normal (1.8)
+    sl_atr_mult_high_override: Optional[float] = None  # multiplicateur en vol. haute (2.0)
+    sl_min_atr_mult_override: Optional[float] = None   # plancher SL minimal (1.2)
 
 
 @app.post("/api/pretrain/walkforward")
@@ -2406,6 +2412,12 @@ def start_walkforward(req: WalkForwardRequest, _user: dict = Depends(get_current
                 _overrides["SR_ENTRY_FILTER_R"] = req.sr_entry_filter_r_override
             if req.sr_h1_min_touches_override is not None:
                 _overrides["SR_H1_MIN_TOUCHES"] = req.sr_h1_min_touches_override
+            if req.sl_atr_mult_override is not None:
+                _overrides["SL_ATR_MULT"] = req.sl_atr_mult_override
+            if req.sl_atr_mult_high_override is not None:
+                _overrides["SL_ATR_MULT_HIGH"] = req.sl_atr_mult_high_override
+            if req.sl_min_atr_mult_override is not None:
+                _overrides["SL_MIN_ATR_MULT"] = req.sl_min_atr_mult_override
             if req.tp1_r_override is not None:
                 _overrides["TP1_R"] = req.tp1_r_override
             if req.tp2_r_override is not None:
