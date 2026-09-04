@@ -3534,9 +3534,9 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                   <div style={{ color: COLORS.sub, fontSize: 11, fontWeight: 600, marginBottom: 4 }}>
                     Order Blocks non mitigués
                   </div>
-                  {mt5Levels.order_blocks.length === 0 && (
-                    <div style={{ fontSize: 12, color: COLORS.sub }}>Aucun à portée du prix.</div>
-                  )}
+                  {(mt5Levels.ob_notes || []).map((n, i) => (
+                    <div key={`obn${i}`} style={{ fontSize: 11, color: COLORS.sub, marginBottom: 3 }}>{n}</div>
+                  ))}
                   {mt5Levels.order_blocks.map((ob, i) => (
                     <div key={i} style={{ fontSize: 12, marginBottom: 3 }}>
                       <span style={{ color: ob.type === "haussier" ? COLORS.green : COLORS.red }}>
@@ -3557,9 +3557,9 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                   <div style={{ color: COLORS.sub, fontSize: 11, fontWeight: 600, marginBottom: 4 }}>
                     Support / résistance les plus proches
                   </div>
-                  {mt5Levels.sr.length === 0 && (
-                    <div style={{ fontSize: 12, color: COLORS.sub }}>Aucun niveau validé.</div>
-                  )}
+                  {(mt5Levels.sr_notes || []).map((n, i) => (
+                    <div key={`srn${i}`} style={{ fontSize: 11, color: COLORS.sub, marginBottom: 3 }}>{n}</div>
+                  ))}
                   {mt5Levels.sr.map((lv) => (
                     <div key={lv.kind} style={{ fontSize: 12, marginBottom: 3 }}>
                       <span style={{ color: lv.kind === "support" ? COLORS.green : COLORS.red }}>
@@ -3571,6 +3571,67 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                       </span>
                     </div>
                   ))}
+                </div>
+
+                {/* ---- Fibonacci ---- */}
+                <div>
+                  <div style={{ color: COLORS.sub, fontSize: 11, fontWeight: 600, marginBottom: 4 }}>
+                    Fibonacci
+                  </div>
+                  {!mt5Levels.fib && (
+                    <div style={{ fontSize: 12, color: COLORS.sub }}>
+                      Pas de jambe assez marquée (moins de 1.5×ATR) — en range, les niveaux
+                      seraient séparés par moins d'une mèche.
+                    </div>
+                  )}
+                  {mt5Levels.fib && (
+                    <div style={{ fontSize: 12 }}>
+                      <div>
+                        <b style={{ color: COLORS.text }}>jambe {mt5Levels.fib.direction}</b>{" "}
+                        <span style={{ color: COLORS.sub, fontSize: 11 }}>
+                          {fmt(mt5Levels.fib.leg, mt5Levels.digits)} ({mt5Levels.fib.leg_atr}×ATR)
+                          · retracé à {mt5Levels.fib.retracement_pct}%
+                        </span>
+                      </div>
+                      <div style={{ color: COLORS.sub, fontSize: 11, marginBottom: 3 }}>
+                        {mt5Levels.fib.depart.kind} {fmt(mt5Levels.fib.depart.price, mt5Levels.digits)}
+                        {" → "}
+                        {mt5Levels.fib.arrivee.kind} {fmt(mt5Levels.fib.arrivee.price, mt5Levels.digits)}
+                      </div>
+                      <table style={{ borderCollapse: "collapse", fontSize: 11 }}>
+                        <tbody>
+                          {mt5Levels.fib.niveaux.map((lv) => (
+                            <tr key={lv.ratio}>
+                              <td style={{ color: COLORS.sub, paddingRight: 8, textAlign: "right" }}>
+                                {(lv.ratio * 100).toFixed(1)}%
+                              </td>
+                              <td style={{ color: COLORS.text, paddingRight: 8 }}>
+                                {fmt(lv.price, mt5Levels.digits)}
+                              </td>
+                              <td style={{ color: lv.touches > 0 ? COLORS.text : COLORS.sub }}>
+                                {lv.touches} contact{lv.touches > 1 ? "s" : ""}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <div style={{ color: COLORS.sub, fontSize: 10, marginTop: 4 }}>
+                        Contacts comptés depuis la fin de la jambe ({mt5Levels.fib.bars_since} bougies).
+                        Rien ici n'affirme que les niveaux de Fibonacci tiennent sur l'or — c'est une
+                        convention de tracé. Le nombre de contacts est le seul chiffre mesuré : il dit
+                        si ce marché-ci s'y arrête en ce moment.
+                      </div>
+                      <div style={{ color: COLORS.sub, fontSize: 10, marginTop: 4 }}>
+                        MT5 · OBJ_FIBO, 2 ancres :
+                        {["point1", "point2"].map((p) => (
+                          <div key={p} style={{ fontFamily: "monospace" }}>
+                            {p} {mt5Levels.fib.mt5[p].time.slice(0, 16).replace("T", " ")}{" "}
+                            {fmt(mt5Levels.fib.mt5[p].price, mt5Levels.digits)}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* ---- Canal ---- */}

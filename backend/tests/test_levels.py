@@ -50,7 +50,7 @@ def test_order_blocks_are_capped_per_side(monkeypatch):
                         lambda df, direction, atr, require_bos=None:
                         fake if direction == "LONG" else [])
     df = strategy.add_indicators(_trend(60))
-    obs = levels.order_blocks(df, price=2000.0, max_per_side=2)
+    obs, _ = levels.order_blocks(df, price=2000.0, max_per_side=2)
     assert len(obs) == 2
     # Et ce sont les plus proches du prix, pas les deux premières trouvées.
     assert obs[0]["high"] == pytest.approx(1992.0)
@@ -64,7 +64,7 @@ def test_order_block_already_passed_by_price_is_dropped(monkeypatch):
                         [{"low": 2050.0, "high": 2052.0, "ts": None}]
                         if direction == "LONG" else [])
     df = strategy.add_indicators(_trend(60))
-    assert levels.order_blocks(df, price=2000.0) == []
+    assert levels.order_blocks(df, price=2000.0)[0] == []
 
 
 def test_panel_asks_for_bos_while_the_live_path_keeps_its_default(monkeypatch):
@@ -94,7 +94,7 @@ def test_require_bos_override_does_not_change_the_default_call():
 def test_sr_keeps_only_the_nearest_level_on_each_side():
     df = strategy.add_indicators(_trend(160))
     price = float(df["close"].iloc[-1])
-    out = levels.sr_levels(df, price)
+    out, _ = levels.sr_levels(df, price)
     kinds = [lv["kind"] for lv in out]
     assert len(kinds) == len(set(kinds))          # au plus un de chaque
     for lv in out:
@@ -130,7 +130,7 @@ def test_a_level_the_price_is_standing_on_is_not_offered():
     df = strategy.add_indicators(_trend(160))
     price = float(df["close"].iloc[-1])
     tol = levels.SR_TOL_ATR * levels._tol_unit(df)
-    for lv in levels.sr_levels(df, price):
+    for lv in levels.sr_levels(df, price)[0]:
         assert lv["distance"] >= tol
 
 
@@ -230,3 +230,142 @@ def test_text_warns_when_the_channel_is_not_reliable():
     txt = levels.as_text(levels.build_levels(strategy.add_indicators(_frame(rows)),
                                              symbol="XAUUSD", timeframe="M5"))
     assert "peu fiable" in txt
+
+
+# --------------------------------------------------------------------------- #
+# Fenêtres découplées et motifs d'absence
+# --------------------------------------------------------------------------- #
+def test_sr_window_is_longer_than_the_channel_window():
+    """Le canal décrit le mouvement en cours, un support reste un support à 300
+    bougies. Les deux partageaient 120 bougies : quand le prix atteignait
+    l'extrême de la fenêtre, il n'y avait plus rien d'un côté par construction —
+    et le panneau se taisait exactement quand on en avait besoin."""
+    assert levels.SR_LOOKBACK > levels.CHANNEL_LOOKBACK
+
+
+def test_a_level_outside_the_channel_window_is_still_found():
+    """Le prix casse sous tout son range récent : le support est loin derrière,
+    hors des 120 bougies du canal. Il doit quand même sortir."""
+    rows = [(2000.0, 2001.0, 1999.0, 2000.0) for _ in range(6)]   # socle testé 2×
+    rows += [(2000.0, 2001.0, 1999.0, 2000.0) for _ in range(6)]
+    rows += [(2020.0 + 0.05 * i, 2021.0 + 0.05 * i, 2019.0 + 0.05 * i,
+              2020.0 + 0.05 * i) for i in range(180)]             # loin au-dessus
+    rows += [(2005.0 - 0.5 * i, 2006.0 - 0.5 * i, 2004.0 - 0.5 * i,
+              2005.0 - 0.5 * i) for i in range(8)]                # chute vers 2001
+    df = strategy.add_indicators(_frame(rows))
+    price = float(df["close"].iloc[-1])
+    long_, _ = levels.sr_levels(df, price, lookback=400)
+    court, notes = levels.sr_levels(df, price, lookback=120)
+    # Sur la fenêtre courte le socle est hors champ : aucun support, et le motif
+    # est justement celui que le panneau doit maintenant expliquer.
+    assert not any(lv["kind"] == "support" for lv in court)
+    assert any("plus bas" in n for n in notes)
+    assert any(lv["kind"] == "support" for lv in long_)
+
+
+def test_an_empty_side_says_why():
+    """Un blanc se lit comme une panne. « Le prix est au plus bas des N bougies »
+    est une information — c'est même celle qui compte."""
+    rows = [(2000.0 - i, 2001.0 - i, 1999.0 - i, 2000.0 - i) for i in range(60)]
+    df = strategy.add_indicators(_frame(rows))
+    out, notes = levels.sr_levels(df, float(df["close"].iloc[-1]))
+    assert not any(lv["kind"] == "support" for lv in out)
+    assert any("plus bas" in n for n in notes)
+
+
+def test_order_blocks_explain_an_empty_result(monkeypatch):
+    """« Aucune zone détectée » et « toutes déjà dépassées par le prix » sont deux
+    situations opposées ; les afficher pareil rend le panneau illisible."""
+    monkeypatch.setattr(strategy_ict, "_find_order_blocks",
+                        lambda df, direction, atr, require_bos=None: [])
+    _, notes = levels.order_blocks(strategy.add_indicators(_trend(60)), price=2000.0)
+    assert any("Aucune zone non mitiguée" in n for n in notes)
+
+    monkeypatch.setattr(strategy_ict, "_find_order_blocks",
+                        lambda df, direction, atr, require_bos=None:
+                        [{"low": 2050.0, "high": 2052.0, "ts": None}]
+                        if direction == "LONG" else [])
+    _, notes = levels.order_blocks(strategy.add_indicators(_trend(60)), price=2000.0)
+    assert any("déjà dépassées" in n for n in notes)
+
+
+# --------------------------------------------------------------------------- #
+# Fibonacci
+# --------------------------------------------------------------------------- #
+def _leg(up=True, n=60):
+    """Une jambe nette de 2000 à 2100 (ou l'inverse), puis un retracement."""
+    rows = []
+    for i in range(n):
+        p = 2000.0 + (100.0 * i / (n - 1) if up else -100.0 * i / (n - 1))
+        rows.append((p, p + 0.5, p - 0.5, p))
+    for i in range(1, 21):                       # retour de 30 % vers l'origine
+        p = (2100.0 - 1.5 * i) if up else (1900.0 + 1.5 * i)
+        rows.append((p, p + 0.5, p - 0.5, p))
+    return _frame(rows)
+
+
+def test_fib_anchors_on_the_extremes_in_chronological_order():
+    fib = levels.fibonacci(strategy.add_indicators(_leg(up=True)))
+    assert fib["direction"] == "haussier"
+    assert fib["depart"]["price"] == pytest.approx(1999.5)   # mèche du plus bas
+    assert fib["arrivee"]["price"] == pytest.approx(2100.5)  # mèche du plus haut
+    assert fib["depart"]["time"] < fib["arrivee"]["time"]
+
+    down = levels.fibonacci(strategy.add_indicators(_leg(up=False)))
+    assert down["direction"] == "baissier"
+    assert down["depart"]["price"] > down["arrivee"]["price"]
+
+
+def test_fib_uses_one_formula_matching_the_mt5_tool():
+    """prix(r) = fin − r × (fin − départ). r=1 retombe sur le départ, r>1 le
+    dépasse — exactement les niveaux > 100 % de l'outil Fibonacci de MT5."""
+    fib = levels.fibonacci(strategy.add_indicators(_leg(up=True)))
+    start = fib["depart"]["price"]
+    end = fib["arrivee"]["price"]
+    lv = {n["ratio"]: n["price"] for n in fib["niveaux"]}
+    assert lv[0.5] == pytest.approx((start + end) / 2, abs=0.01)
+    assert lv[0.618] == pytest.approx(end - 0.618 * (end - start), abs=0.01)
+    # 127.2 % dépasse l'origine de la jambe, donc passe SOUS le départ.
+    assert lv[1.272] < start
+
+
+def test_fib_refuses_a_leg_that_is_only_range_noise():
+    """Sous 1.5×ATR, les sept niveaux seraient séparés par moins d'une mèche."""
+    rows = [(2000.0 + 0.01 * (i % 3), 2000.2, 1999.8, 2000.0) for i in range(60)]
+    assert levels.fibonacci(strategy.add_indicators(_frame(rows))) is None
+
+
+def test_fib_reports_where_the_retracement_currently_stands():
+    """0 % = le prix est encore sur l'extrémité, 100 % = revenu à l'origine."""
+    fib = levels.fibonacci(strategy.add_indicators(_leg(up=True)))
+    assert 20 < fib["retracement_pct"] < 45     # on a reculé de ~30 points sur 100
+    assert fib["bars_since"] == 20
+
+
+def test_fib_touches_are_measured_only_after_the_leg_ended():
+    """Le seul chiffre mesuré du bloc. Compter les contacts pendant la jambe
+    ferait passer chaque niveau traversé une fois en montant pour un niveau
+    respecté — l'inverse de ce qu'on cherche à savoir."""
+    fib = levels.fibonacci(strategy.add_indicators(_leg(up=True)))
+    par_ratio = {n["ratio"]: n["touches"] for n in fib["niveaux"]}
+    # Le retracement s'arrête vers 2070 : il a touché 23.6 %, jamais 78.6 %.
+    assert par_ratio[0.236] >= 1
+    assert par_ratio[0.786] == 0
+
+
+def test_fib_claims_no_predictive_value():
+    """Garde-fou : rien dans ce dépôt n'a validé Fibonacci sur l'or. Aucune clé
+    d'espérance ou de probabilité ne doit apparaître — une valeur affichée serait
+    prise pour une prédiction (l'erreur commise sur la distribution du MFE)."""
+    fib = levels.fibonacci(strategy.add_indicators(_leg(up=True)))
+    interdits = ("esperance", "expectancy", "proba", "score", "gain", "edge")
+    assert not any(k in interdits for k in fib)
+    for niveau in fib["niveaux"]:
+        assert not any(k in interdits for k in niveau)
+
+
+def test_fib_is_included_in_the_text_block():
+    txt = levels.as_text(levels.build_levels(
+        strategy.add_indicators(_leg(up=True)), symbol="XAUUSD", timeframe="M5"))
+    assert "Fibonacci" in txt and "OBJ_FIBO" in txt
+    assert "61.8%" in txt
