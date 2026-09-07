@@ -66,6 +66,8 @@ class Zone:
     displacement_atr: float = 0.0
     state: ZoneState = "active"
     mitigated_index: Optional[int] = None
+    mitigated_time: Optional[Any] = None
+    age_days: Optional[float] = None
     filled_ratio: float = 0.0
     discount_pct: Optional[float] = None    # position dans le range H1, 0=bas 100=haut
 
@@ -221,7 +223,9 @@ def update_states(df: pd.DataFrame, zones: List[Zone],
     for z in zones:
         z.state = "active"
         z.mitigated_index = None
+        z.mitigated_time = None
         z.filled_ratio = 0.0
+        z.age_days = (pd.Timestamp(now_ts) - pd.Timestamp(z.time)).total_seconds() / 86400
 
         if z.created_index > limit:
             # Pas encore connue à cette bougie : on ne la présente pas comme active.
@@ -235,6 +239,7 @@ def update_states(df: pd.DataFrame, zones: List[Zone],
             if z.kind == "OB":
                 z.state = "mitigated"
                 z.mitigated_index = j
+                z.mitigated_time = idx[j]
                 break
             # FVG : profondeur de pénétration depuis le bord d'entrée.
             if z.side == "bullish":
@@ -245,12 +250,11 @@ def update_states(df: pd.DataFrame, zones: List[Zone],
             if z.filled_ratio >= fill_ratio:
                 z.state = "mitigated"
                 z.mitigated_index = j
+                z.mitigated_time = idx[j]
                 break
 
-        if z.state == "active":
-            age = pd.Timestamp(now_ts) - pd.Timestamp(z.time)
-            if age > timedelta(days=max_age_days):
-                z.state = "expired"
+        if z.state == "active" and z.age_days is not None and z.age_days > max_age_days:
+            z.state = "expired"
 
     return zones
 
@@ -288,9 +292,23 @@ def in_valid_half(side: ZoneSide, price: float, rng: Dict[str, float]) -> bool:
 
 def active_zones(df: pd.DataFrame, timeframe: str,
                  h1: Optional[pd.DataFrame] = None,
-                 upto: Optional[int] = None) -> List[Zone]:
-    """Les zones exploitables à la bougie `upto` : OB + FVG, fraîches, non
-    mitigées, et du bon côté du range H1 quand ce range existe.
+                 upto: Optional[int] = None,
+                 retest_since: Optional[Any] = None,
+                 max_age_days: int = config.ZONE_MAX_AGE_DAYS) -> List[Zone]:
+    """Les zones exploitables à la bougie `upto` : OB + FVG, fraîches et du bon
+    côté du range H1 quand ce range existe.
+
+    `retest_since` réconcilie deux exigences de la spec qui, prises au pied de la
+    lettre, s'excluent : le §4 veut une zone **jamais retestée**, le §6 veut que
+    **le prix y entre**. Or une zone devient `mitigated` à l'instant précis où le
+    prix la touche — les deux ne peuvent jamais être vraies ensemble. Le replay
+    §11.3 l'a montré en produisant 0 signal, avec 12 candidats sur 12 tués par
+    cette seule condition.
+
+    La lecture qui les réconcilie, et qui est celle de la méthode : c'est le
+    **tout premier retest** qu'on trade. Avec `retest_since`, une zone est
+    retenue si elle est encore vierge, ou si sa toute première mitigation a eu
+    lieu depuis cet instant. Une zone déjà retestée avant reste écartée.
 
     Le filtre premium/discount est appliqué au **milieu de la zone**, pas au prix
     courant : c'est la zone qui doit être en discount pour un achat, et elle ne
@@ -300,9 +318,18 @@ def active_zones(df: pd.DataFrame, timeframe: str,
     sub = df if upto is None else df.iloc[:upto + 1]
     events = find_events(sub, n)
     zones = find_order_blocks(sub, timeframe, events=events) + find_fvgs(sub, timeframe)
-    update_states(sub, zones, upto=None)
+    update_states(sub, zones, upto=None, max_age_days=max_age_days)
 
-    out = [z for z in zones if z.state == "active"]
+    def _eligible(z: Zone) -> bool:
+        if z.age_days is not None and z.age_days > max_age_days:
+            return False          # la fraîcheur s'applique aussi aux retests
+        if z.state == "active":
+            return True
+        if retest_since is None or z.mitigated_time is None:
+            return False
+        return pd.Timestamp(z.mitigated_time) >= pd.Timestamp(retest_since)
+
+    out = [z for z in zones if _eligible(z)]
     rng = h1_range(h1 if h1 is not None else sub)
     if rng is None:
         return out
