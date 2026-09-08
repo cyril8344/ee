@@ -37,3 +37,6 @@ gymnasium>=0.29
 
 # Walk-forward & Bayesian optimisation
 optuna>=3.6
+
+# Lecture des captures d'écran de graphiques (scanner SMC image → order blocks)
+Pillow>=10.0
