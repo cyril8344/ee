@@ -98,12 +98,17 @@ def _slice_upto(df: pd.DataFrame, ts: pd.Timestamp) -> pd.DataFrame:
 
 def run_replay(m15: pd.DataFrame, h1: pd.DataFrame, h4: pd.DataFrame,
                d1: Optional[pd.DataFrame] = None, symbol: str = "XAUUSD",
-               warmup: int = 200, progress_every: int = 0) -> ReplayResult:
+               warmup: int = 200, progress_every: int = 0,
+               on_progress: Optional[Any] = None) -> ReplayResult:
     """Rejoue la série M15 et collecte les signaux.
 
     `warmup` laisse de quoi calculer l'ATR(14) et les premiers pivots ; sans lui
     les premières centaines de bougies produiraient des non-signaux qui
     fausseraient le compte hebdomadaire vers le bas.
+
+    `on_progress(done, total, n_signaux)` est appelé périodiquement. Un replay de
+    6 mois prend plusieurs minutes : sans ce rappel, l'interface resterait muette
+    assez longtemps pour qu'on la croie plantée.
     """
     res = ReplayResult()
     if len(m15) <= warmup:
@@ -129,9 +134,12 @@ def run_replay(m15: pd.DataFrame, h1: pd.DataFrame, h4: pd.DataFrame,
             signalled.add(sig.zone_key)
             res.signals.append(sig)
 
-        if progress_every and (i - warmup) % progress_every == 0:
-            print(f"  … {i - warmup}/{len(m15) - warmup} bougies, "
-                  f"{len(res.signals)} signaux", flush=True)
+        done, total = i - warmup, len(m15) - warmup
+        if progress_every and done % progress_every == 0:
+            print(f"  … {done}/{total} bougies, {len(res.signals)} signaux",
+                  flush=True)
+        if on_progress is not None and done % 25 == 0:
+            on_progress(done, total, len(res.signals))
 
     res.bars = len(m15) - warmup
     span = m15.index[-1] - m15.index[warmup]
