@@ -124,8 +124,18 @@ def _max_drawdown(returns: np.ndarray) -> float:
 # Main trainer class
 # ─────────────────────────────────────────────────────────────────────────────
 class RLTrainer:
-    def __init__(self, symbol: str = "XAUUSD"):
+    def __init__(self, symbol: str = "XAUUSD",
+                 data_symbol: Optional[str] = None, price_scale: float = 1.0):
         self.symbol = symbol
+        # Même convention que broker.MarketData : `data_symbol` est le ticker
+        # réellement demandé au fournisseur quand il diffère du symbole interne
+        # ("SPY" pour un marché "ES" — proxy gratuit, cf. pretrain_es.py), et
+        # `price_scale` ramène les prix à l'échelle du symbole interne (SPY ×10).
+        # Sans ça, "ES" était demandé tel quel au data_provider : avant que
+        # market_symbol() lève sur un symbole inconnu, il renvoyait SILENCIEUSEMENT
+        # des données XAU/USD et l'agent ES s'entraînait sur de l'or.
+        self.data_symbol = data_symbol or symbol
+        self.price_scale = price_scale
         spec = CONTRACT_SPECS.get(symbol, CONTRACT_SPECS["XAUUSD"])
         self.contract_size   = spec["contract_size"]
         self.initial_capital = spec["initial_capital"]
@@ -404,9 +414,15 @@ class RLTrainer:
         start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
         try:
             df, provider = data_provider.get_m5(
-                start=start, end=end, bars=99_999, symbol=self.symbol
+                start=start, end=end, bars=99_999, symbol=self.data_symbol
             )
-            logger.info("RLTrainer: loaded %d bars from %s", len(df), provider)
+            logger.info("RLTrainer: loaded %d bars from %s (%s)",
+                        len(df), provider, self.data_symbol)
+            if self.price_scale != 1.0:
+                df = df.copy()
+                for col in ("open", "high", "low", "close"):
+                    if col in df.columns:
+                        df[col] = df[col] * self.price_scale
             return df if len(df) > 500 else None
         except Exception as e:
             logger.error("RLTrainer: data load failed: %s", e)

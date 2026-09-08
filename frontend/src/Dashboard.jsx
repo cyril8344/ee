@@ -474,6 +474,9 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
   // rafraîchi tout seul : c'est une préparation, pas un flux à surveiller.
   const [mt5Levels, setMt5Levels] = useState(null);
   const [mt5LevelsLoading, setMt5LevelsLoading] = useState(false);
+  // Replay du scanner SMC (§11.3) : tâche de fond de plusieurs minutes, on
+  // interroge l'état tant qu'elle tourne.
+  const [smcReplay, setSmcReplay] = useState(null);
   const [mt5Copied, setMt5Copied] = useState(false);
   const [pretrainTrades, setPretrainTrades]   = useState(null);
   const [pretrainFilter, setPretrainFilter]   = useState("losses");
@@ -595,6 +598,19 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
   }, [state, beep]);
 
   const mkt = state?.markets?.[activeMarket] || {};
+
+  /* Replay SMC : on n'interroge que tant qu'il tourne. Un replay terminé ne
+     change plus, donc continuer à le sonder serait du bruit réseau pur. */
+  useEffect(() => {
+    if (!smcReplay?.running) return;
+    const id = setInterval(() => {
+      fetch(`${API}/api/smc/replay`, { headers: authHeaders() })
+        .then((r) => r.json())
+        .then(setSmcReplay)
+        .catch(() => {});
+    }, 3000);
+    return () => clearInterval(id);
+  }, [smcReplay?.running]);
 
   /* Chart polling */
   useEffect(() => {
@@ -3474,6 +3490,103 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                 )}
               </div>
             </div>
+          </div>
+
+          {/* ===== Replay du scanner SMC (§11.3 de la spec) ===== */}
+          <div className="dashboard-panel section-gap" style={{ ...panel(), marginTop: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <h3 style={{ margin: 0, fontSize: 14 }}>Scanner SMC — replay (§11.3)</h3>
+              <button
+                onClick={() => {
+                  setSmcReplay({ running: true, done: 0, total: 0, signals: 0 });
+                  fetch(`${API}/api/smc/replay`, {
+                    method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" },
+                    body: JSON.stringify({ symbol: activeMarket, m15_bars: 6000 }),
+                  })
+                    .then((r) => r.json())
+                    .then((d) => {
+                      if (!d.ok) { setSmcReplay({ running: false, error: d.message }); return; }
+                      fetch(`${API}/api/smc/replay`, { headers: authHeaders() })
+                        .then((r) => r.json()).then(setSmcReplay).catch(() => {});
+                    })
+                    .catch(() => setSmcReplay({ running: false, error: "requête échouée" }));
+                }}
+                disabled={smcReplay?.running}
+                style={{ fontSize: 10, background: "transparent", border: `1px solid ${COLORS.border}`,
+                  borderRadius: 4, color: COLORS.sub, padding: "2px 8px",
+                  cursor: smcReplay?.running ? "wait" : "pointer" }}
+              >
+                {smcReplay?.running ? "⏳ en cours…" : "Lancer le replay"}
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: COLORS.sub, marginBottom: 8 }}>
+              Rejoue ~6 mois de M15 et compte les signaux. La spec fixe elle-même le critère :
+              <b> 2–6 signaux/semaine attendus, plus de 15 = filtres trop laxistes à corriger
+              avant d'écrire l'alerting</b>. Plusieurs minutes. Rien n'est tradé, rien n'est envoyé.
+            </div>
+
+            {smcReplay?.error && (
+              <div style={{ fontSize: 12, color: COLORS.red }}>Erreur : {smcReplay.error}</div>
+            )}
+
+            {smcReplay?.running && (
+              <div style={{ fontSize: 12, color: COLORS.sub }}>
+                {smcReplay.done ?? 0} / {smcReplay.total || "?"} bougies ·{" "}
+                {smcReplay.signals ?? 0} signaux détectés
+                {smcReplay.total > 0 && (
+                  <div style={{ height: 4, background: COLORS.border, borderRadius: 2, marginTop: 6 }}>
+                    <div style={{ height: 4, borderRadius: 2, background: COLORS.blue,
+                      width: `${Math.min(100, (smcReplay.done / smcReplay.total) * 100)}%` }} />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {smcReplay?.synthetic && (
+              <div style={{ fontSize: 11, color: COLORS.red, marginBottom: 6 }}>
+                ⚠️ Données <b>synthétiques</b> — une marche aléatoire n'a pas de structure de
+                marché, donc ce comptage ne dit rien du marché réel. Il montre seulement que
+                la mécanique tourne.
+              </div>
+            )}
+
+            {smcReplay?.result && !smcReplay.running && (
+              <div style={{ fontSize: 12 }}>
+                <div style={{ color: COLORS.sub, marginBottom: 6 }}>
+                  {smcReplay.result.bars} bougies M15 · {smcReplay.result.days} jours
+                  {" "}({smcReplay.result.weeks} semaines) · source {smcReplay.provider}
+                </div>
+                <div style={{ marginBottom: 6 }}>
+                  <b style={{ color: COLORS.text, fontSize: 15 }}>
+                    {smcReplay.result.per_week} signaux / semaine
+                  </b>
+                  <span style={{ color: COLORS.sub }}> ({smcReplay.result.n} au total)</span>
+                </div>
+                <div style={{
+                  padding: "6px 10px", borderRadius: 4, marginBottom: 8,
+                  background: (smcReplay.result.verdict || "").includes("LAXISTES")
+                    ? COLORS.red + "22"
+                    : (smcReplay.result.verdict || "").includes("conforme")
+                      ? COLORS.green + "22" : COLORS.amber + "22",
+                  color: (smcReplay.result.verdict || "").includes("LAXISTES")
+                    ? COLORS.red
+                    : (smcReplay.result.verdict || "").includes("conforme")
+                      ? COLORS.green : COLORS.amber,
+                }}>
+                  {smcReplay.result.verdict}
+                </div>
+                <div style={{ color: COLORS.sub, fontSize: 11 }}>
+                  Par sens : {JSON.stringify(smcReplay.result.by_direction)} ·
+                  {" "}par type de zone : {JSON.stringify(smcReplay.result.by_zone_kind)}
+                </div>
+                <div style={{ color: COLORS.sub, fontSize: 11, marginTop: 3 }}>
+                  Taggés sweep : {smcReplay.result.sweep_rate_pct == null
+                    ? "—" : `${smcReplay.result.sweep_rate_pct} %`}
+                  {" "}— le sweep n'est jamais exigé, seulement mesuré, pour pouvoir
+                  trancher plus tard s'il vaut d'être imposé.
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ===== Niveaux à tracer sur MT5 (préparation manuelle) ===== */}

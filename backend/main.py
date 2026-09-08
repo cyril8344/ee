@@ -2487,6 +2487,77 @@ def get_walkforward(_user: dict = Depends(get_current_user)):
         return dict(_wf_state)
 
 
+# ── Replay du scanner SMC (§11.3 de la spec) ──────────────────────────────────
+# Le seul test d'acceptation que la spec pose elle-même : 2–6 signaux/semaine
+# attendus, >15 = filtres trop laxistes à corriger AVANT d'écrire l'alerting.
+# Il doit tourner ici et pas en local : c'est le seul endroit où les clés de
+# données réelles existent. Sur des bougies synthétiques le comptage ne dit rien
+# — une marche aléatoire n'a pas de structure, donc pas de confluence.
+_smc_replay_lock = threading.Lock()
+_smc_replay_state: Dict[str, Any] = {
+    "running": False, "done": 0, "total": 0, "signals": 0,
+    "result": None, "error": None, "provider": None, "synthetic": None,
+    "symbol": None, "started_at": None, "finished_at": None,
+}
+
+
+class SmcReplayRequest(BaseModel):
+    symbol: str = "XAUUSD"
+    m15_bars: int = 6000          # ~6 mois de M15 en heures de marché
+
+
+@app.post("/api/smc/replay")
+def start_smc_replay(req: SmcReplayRequest, _user: dict = Depends(get_current_user)):
+    """Lance le replay en tâche de fond (plusieurs minutes)."""
+    with _smc_replay_lock:
+        if _smc_replay_state["running"]:
+            return {"ok": False, "message": "Un replay est déjà en cours"}
+        _smc_replay_state.update(
+            running=True, done=0, total=0, signals=0, result=None, error=None,
+            provider=None, synthetic=None, symbol=req.symbol,
+            started_at=datetime.now(timezone.utc).isoformat(), finished_at=None,
+        )
+
+    def _run():
+        try:
+            from smc import data_feed as _sdf
+            from smc import replay as _srp
+
+            m15 = _sdf.get_ohlcv(req.symbol, "M15", req.m15_bars)
+            h1 = _sdf.get_ohlcv(req.symbol, "H1", req.m15_bars // 4 + 300)
+            h4 = _sdf.get_ohlcv(req.symbol, "H4", req.m15_bars // 16 + 200)
+            d1 = _sdf.get_ohlcv(req.symbol, "D1", 400)
+            with _smc_replay_lock:
+                _smc_replay_state.update(provider=m15.provider,
+                                         synthetic=m15.is_synthetic)
+
+            def _progress(done: int, total: int, n: int) -> None:
+                with _smc_replay_lock:
+                    _smc_replay_state.update(done=done, total=total, signals=n)
+
+            res = _srp.run_replay(m15.df, h1.df, h4.df, d1.df,
+                                  symbol=req.symbol, on_progress=_progress)
+            with _smc_replay_lock:
+                _smc_replay_state.update(
+                    running=False, result=res.summary(),
+                    signals=len(res.signals),
+                    finished_at=datetime.now(timezone.utc).isoformat())
+        except Exception as exc:
+            with _smc_replay_lock:
+                _smc_replay_state.update(
+                    running=False, error=str(exc),
+                    finished_at=datetime.now(timezone.utc).isoformat())
+
+    threading.Thread(target=_run, daemon=True, name="smc-replay").start()
+    return {"ok": True, "message": f"Replay SMC lancé sur {req.symbol}"}
+
+
+@app.get("/api/smc/replay")
+def get_smc_replay(_user: dict = Depends(get_current_user)):
+    with _smc_replay_lock:
+        return dict(_smc_replay_state)
+
+
 # ── Optimisation Bayésienne (Optuna) ──────────────────────────────────────────
 _optuna_state: Dict[str, Any] = {
     "running": False, "progress": 0, "n_trials": 0, "best_score": 0.0,
@@ -2980,7 +3051,13 @@ _rl_trainers: Dict[str, _RLTrainer] = {}
 
 def _get_rl_trainer(symbol: str = "XAUUSD") -> _RLTrainer:
     if symbol not in _rl_trainers:
-        trainer = _RLTrainer(symbol=symbol)
+        # ES n'a pas de flux gratuit : il passe par le proxy SPY ×10, exactement
+        # comme la boucle live (MARKET_CONFIG) et pretrain_es. Sans ça, "ES"
+        # partait tel quel au data_provider — qui renvoyait de l'or en silence.
+        _cfg = MARKET_CONFIG.get(symbol, {})
+        trainer = _RLTrainer(symbol=symbol,
+                             data_symbol=_cfg.get("data_symbol"),
+                             price_scale=_cfg.get("price_scale", 1.0))
         trainer.start_auto()
         _rl_trainers[symbol] = trainer
     return _rl_trainers[symbol]
