@@ -2607,6 +2607,15 @@ async def smc_chart_image(
 
     try:
         ext = _ci.extract(data)
+    except ImportError as exc:
+        # Une dépendance absente n'est pas une image illisible. Le message brut
+        # (« No module named 'PIL' ») envoyait chercher le défaut du côté de la
+        # capture — vécu en production, Pillow n'ayant été déclaré que dans le
+        # requirements.txt de la racine, que le build Railway n'installe pas.
+        raise HTTPException(
+            status_code=503,
+            detail=f"Dépendance manquante côté serveur ({exc}). Ce n'est pas "
+                   f"ton image : le déploiement est incomplet.")
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Lecture impossible : {exc}")
     if ext is None:

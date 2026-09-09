@@ -124,3 +124,22 @@ def test_the_endpoint_requires_authentication(client, capture):
     r = client.post("/api/smc/chart-image",
                     files={"file": ("c.png", capture, "image/png")})
     assert r.status_code == 401
+
+
+def test_a_missing_server_dependency_is_not_reported_as_a_bad_image(
+        client, auth, capture, monkeypatch):
+    """Vécu en production : Pillow n'était déclaré que dans le requirements.txt
+    de la racine, que le build Railway n'installe pas. L'utilisateur voyait
+    « Lecture impossible : No module named 'PIL' » et cherchait le défaut du côté
+    de sa capture. Une dépendance absente doit se dire comme telle."""
+    from smc import chart_image as ci
+
+    def _boom(_data):
+        raise ImportError("No module named 'PIL'")
+
+    monkeypatch.setattr(ci, "extract", _boom)
+    r = _post(client, auth, capture)
+    assert r.status_code == 503
+    detail = r.json()["detail"]
+    assert "Dépendance manquante" in detail
+    assert "ton image" in detail

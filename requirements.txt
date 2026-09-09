@@ -40,3 +40,6 @@ optuna>=3.6
 
 # Lecture des captures d'écran de graphiques (scanner SMC image → order blocks)
 Pillow>=10.0
+
+# Uploads multipart (capture d'écran vers /api/smc/chart-image)
+python-multipart==0.0.9
