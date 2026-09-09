@@ -396,7 +396,8 @@ function logout401(onLogout) {
 }
 
 /* ============================ Dashboard ================================== */
-export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNavigateOtherMarket }) {
+export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNavigateOtherMarket,
+                                    onNavigateScanner }) {
   const [activeMarket, setActiveMarket] = useState(lockMarket || "XAUUSD");
   const [weightsOpen, setWeightsOpen] = useState(false);
   const [state, setState] = useState(null);
@@ -1232,6 +1233,24 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
             </button>
           ))}
           <div style={{ width: 1, background: COLORS.border, margin: "0 4px" }} />
+          {onNavigateScanner && (
+            <button
+              onClick={onNavigateScanner}
+              style={{
+                background: "transparent",
+                color: COLORS.green,
+                border: `1px solid ${COLORS.green}`,
+                borderRadius: 6,
+                padding: "6px 14px",
+                fontSize: 13,
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+              title="Scanner SMC — capture d'écran → Order Blocks"
+            >
+              Scanner →
+            </button>
+          )}
           {onNavigateES && (
             <button
               onClick={onNavigateES}

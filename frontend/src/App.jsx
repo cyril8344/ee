@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import LoginPage from "./LoginPage";
 import Dashboard from "./Dashboard";
 import DashboardES from "./DashboardES";
+import ScannerPage from "./ScannerPage";
 
 /* Error boundary — prevents a single render error from blacking out the
  * entire app. Shows a readable message + reload button instead. */
@@ -76,6 +77,14 @@ export default function App() {
     return <LoginPage onLogin={handleLogin} />;
   }
 
+  if (page === "scanner") {
+    return (
+      <ErrorBoundary>
+        <ScannerPage onBack={() => setPage("xau")} />
+      </ErrorBoundary>
+    );
+  }
+
   if (page === "es") {
     return (
       <ErrorBoundary>
@@ -88,7 +97,8 @@ export default function App() {
     return (
       <ErrorBoundary>
         <Dashboard key="eur" onLogout={handleLogout} lockMarket="EURUSD"
-          onNavigateOtherMarket={() => setPage("xau")} />
+          onNavigateOtherMarket={() => setPage("xau")}
+          onNavigateScanner={() => setPage("scanner")} />
       </ErrorBoundary>
     );
   }
@@ -96,7 +106,8 @@ export default function App() {
   return (
     <ErrorBoundary>
       <Dashboard key="xau" onLogout={handleLogout} lockMarket="XAUUSD" onNavigateES={() => setPage("es")}
-        onNavigateOtherMarket={() => setPage("eur")} />
+        onNavigateOtherMarket={() => setPage("eur")}
+        onNavigateScanner={() => setPage("scanner")} />
     </ErrorBoundary>
   );
 }
