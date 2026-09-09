@@ -39,7 +39,8 @@ from typing import Optional, Dict, Any, List
 logger = logging.getLogger("main")
 
 import pandas as pd
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
+from fastapi import (FastAPI, WebSocket, WebSocketDisconnect, HTTPException,
+                     Depends, UploadFile, File, Form)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -2556,6 +2557,107 @@ def start_smc_replay(req: SmcReplayRequest, _user: dict = Depends(get_current_us
 def get_smc_replay(_user: dict = Depends(get_current_user)):
     with _smc_replay_lock:
         return dict(_smc_replay_state)
+
+
+# ── Order Blocks depuis une capture d'écran ───────────────────────────────────
+# Aucune donnée de marché n'est consultée : tout vient des pixels de l'image.
+# Une capture pèse quelques Mo au plus ; au-delà on refuse plutôt que de charger
+# en mémoire une image qui ne peut pas être un graphique.
+SMC_IMAGE_MAX_BYTES = 12 * 1024 * 1024
+
+
+@app.post("/api/smc/chart-image")
+async def smc_chart_image(
+    file: UploadFile = File(...),
+    cal_y1: Optional[float] = Form(None),
+    cal_price1: Optional[float] = Form(None),
+    cal_y2: Optional[float] = Form(None),
+    cal_price2: Optional[float] = Form(None),
+    _user: dict = Depends(get_current_user),
+):
+    """Détecte les Order Blocks sur une capture de graphique et la renvoie annotée.
+
+    La calibration est FACULTATIVE et se donne en QUATRE valeurs : deux points de
+    l'image (`cal_y1`, `cal_y2`, en pixels depuis le haut) et le prix lu en face
+    de chacun. Sans elle, les zones restent en pixels — visibles sur l'image,
+    mais pas transposables en chiffres, et c'est dit explicitement.
+
+    Pourquoi les positions et pas seulement deux prix : une première version
+    prenait « prix du haut / prix du bas » en supposant qu'ils correspondaient
+    aux extrémités des bougies. C'est faux — ce sont les positions des ÉTIQUETTES
+    sur l'axe, qui ne coïncident pas avec les bougies. Vérifié contre une capture
+    réelle : la zone du haut sortait à 79 282–79 407 alors qu'elle est à ~78 850.
+    Des prix plausibles mais faux sont pires que pas de prix du tout.
+
+    Volontairement pas d'OCR de l'axe : il n'y en a pas ici, et un OCR se trompe
+    d'un chiffre sans le signaler — sur un prix, ça donne un niveau faux qui a
+    l'air juste.
+    """
+    import base64
+
+    from smc import chart_image as _ci
+    from smc import zones as _zones
+    from smc.structure import find_events as _find_events
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Fichier vide")
+    if len(data) > SMC_IMAGE_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Image trop lourde (max 12 Mo)")
+
+    try:
+        ext = _ci.extract(data)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Lecture impossible : {exc}")
+    if ext is None:
+        return {"ok": False,
+                "error": "Aucun graphique en bougies reconnu sur cette image. "
+                         "Cadre la zone des bougies, et évite les thèmes noir et "
+                         "blanc — sans couleur, rien ne distingue une bougie."}
+
+    events = _find_events(ext.df, 2)
+    obs = _zones.find_order_blocks(ext.df, "M15", events=events)
+    _zones.update_states(ext.df, obs)
+
+    to_price = None
+    cal = (cal_y1, cal_price1, cal_y2, cal_price2)
+    if any(v is not None for v in cal):
+        if any(v is None for v in cal):
+            raise HTTPException(
+                status_code=400,
+                detail="Calibration incomplète : il faut les deux points "
+                       "(position + prix pour chacun).")
+        try:
+            to_price = _ci.calibrate(y_top=cal_y1, price_top=cal_price1,
+                                     y_bottom=cal_y2, price_bottom=cal_price2,
+                                     height=ext.height)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    def _zone_out(z) -> Dict[str, Any]:
+        out = {"type": "haussier" if z.side == "bullish" else "baissier",
+               "state": z.state, "index": z.index,
+               "displacement_atr": round(z.displacement_atr, 2),
+               "low_px": round(z.low, 1), "high_px": round(z.high, 1)}
+        if to_price is not None:
+            lo, hi = to_price(z.low), to_price(z.high)
+            out["low"] = round(min(lo, hi), 2)
+            out["high"] = round(max(lo, hi), 2)
+        return out
+
+    png = _ci.annotate(data, ext, obs)
+    return {
+        "ok": True,
+        "image": "data:image/png;base64," + base64.b64encode(png).decode(),
+        "calibrated": to_price is not None,
+        "candles": ext.n_candles,
+        "pitch": ext.pitch,
+        "periodicity": round(ext.periodicity, 3),
+        "zones": [_zone_out(z) for z in obs],
+        "note": None if to_price is not None else
+                "Zones en pixels. Touche deux repères de prix sur l'image et "
+                "saisis leur valeur pour obtenir des niveaux recopiables dans MT5.",
+    }
 
 
 # ── Optimisation Bayésienne (Optuna) ──────────────────────────────────────────
