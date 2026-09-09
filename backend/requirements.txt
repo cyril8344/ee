@@ -14,3 +14,7 @@ gymnasium==0.29.1
 optuna==3.6.1
 aiofiles==23.2.1
 anthropic>=0.44.0
+Pillow>=10.0
+# Importé directement par main.py — non épinglé pour laisser pip
+# satisfaire la contrainte de fastapi plutôt que la contredire.
+pydantic
