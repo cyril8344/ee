@@ -244,3 +244,48 @@ def test_annotation_never_paints_over_the_price_axis():
     obs = zones.find_order_blocks(ext.df, "M15", events=ev)
     zones.update_states(ext.df, obs)
     assert ext.x_plot_end <= x_tag
+
+
+# --------------------------------------------------------------------------- #
+# Le pas détecté doit être la fondamentale, pas une harmonique
+# --------------------------------------------------------------------------- #
+def _tres_regulier(n=66, pitch=9):
+    """Un graphique à bougies très régulières : c'est là que l'autocorrélation
+    se fait piéger par les multiples du pas."""
+    rows = [(99.6, 100.8, 99.2, 100.4) for _ in range(40)]
+    rows += [(100, 112, 99.6, 111)]
+    rows += [(99.6, 100.8, 99.2, 100.4) for _ in range(3)]
+    rows += [(100, 100.4, 95, 96), (96, 130, 96, 128)]
+    rows += [(127.6, 128.8, 127.2, 128.4) for _ in range(10)]
+    rows += [(128, 128.4, 120, 121)]
+    rows += [(103.6, 104.8, 103.2, 104.4) for _ in range(10)]
+    return _render(rows, pitch=pitch, height=700)
+
+
+def test_the_detected_pitch_is_the_fundamental_not_a_harmonic():
+    """Un signal périodique a des harmoniques (2×, 3×, 5× le pas) dont la
+    corrélation peut dépasser celle du pas réel. Mesuré avant correctif : pas
+    réel 9 px, pic retenu 45 px — 14 bougies lues au lieu de 66, et plus aucune
+    structure détectable. L'échec était silencieux : l'extraction « réussissait »."""
+    ext = ci.extract(_png(_tres_regulier(pitch=9)))
+    assert ext is not None
+    assert ext.pitch == pytest.approx(9, abs=1)
+    assert ext.n_candles >= 60
+
+
+def test_the_pitch_survives_jpeg_bleed():
+    """Une capture partagée depuis un téléphone est ré-encodée en JPEG : les
+    colonnes « vides » valent 2 ou 3 au lieu de 0. Un seuil de binarisation à
+    zéro ne séparerait plus rien."""
+    im = _tres_regulier(pitch=9)
+    buf = io.BytesIO()
+    im.save(buf, format="JPEG", quality=80)
+    ext = ci.extract(buf.getvalue())
+    assert ext is not None
+    assert ext.pitch == pytest.approx(9, abs=1)
+    assert ext.n_candles >= 60
+
+
+def test_a_different_pitch_is_detected_as_itself():
+    ext = ci.extract(_png(_tres_regulier(pitch=14)))
+    assert ext.pitch == pytest.approx(14, abs=1)

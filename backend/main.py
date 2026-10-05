@@ -2573,6 +2573,7 @@ async def smc_chart_image(
     cal_price1: Optional[float] = Form(None),
     cal_y2: Optional[float] = Form(None),
     cal_price2: Optional[float] = Form(None),
+    htf_bias: Optional[str] = Form(None),
     _user: dict = Depends(get_current_user),
 ):
     """Détecte les Order Blocks sur une capture de graphique et la renvoie annotée.
@@ -2628,6 +2629,13 @@ async def smc_chart_image(
     obs = _zones.find_order_blocks(ext.df, "M15", events=events)
     _zones.update_states(ext.df, obs)
 
+    # Plan chiffré : entrée, stop, cible, R:R, et chaque critère avec sa mesure.
+    # `htf_bias` vient de l'utilisateur (son alignement H1/H4), qui ne se lit pas
+    # sur une capture M5 — sans lui, le biais est celui de l'image seule.
+    from smc import plan as _plan
+
+    analyse = _plan.analyse(ext.df, "M15", htf_bias=htf_bias or None)
+
     to_price = None
     cal = (cal_y1, cal_price1, cal_y2, cal_price2)
     if any(v is not None for v in cal):
@@ -2654,9 +2662,25 @@ async def smc_chart_image(
             out["high"] = round(max(lo, hi), 2)
         return out
 
+    plan_out = analyse.as_dict()
+    if to_price is not None and plan_out.get("plan"):
+        pl = plan_out["plan"]
+        for clef in ("entry", "stop", "target"):
+            pl[clef] = round(to_price(pl[clef]), 2)
+        pl["risque"] = round(abs(pl["entry"] - pl["stop"]), 2)
+        pl["gain"] = round(abs(pl["target"] - pl["entry"]), 2)
+        pl["zone"]["low"], pl["zone"]["high"] = sorted(
+            (round(to_price(pl["zone"]["low"]), 2),
+             round(to_price(pl["zone"]["high"]), 2)))
+        # Le R:R est un RAPPORT de deux distances : il est invariant par
+        # changement d'échelle linéaire. On le laisse tel quel plutôt que de le
+        # recalculer après arrondi, qui le ferait bouger pour rien.
+    plan_out["en_prix"] = to_price is not None
+
     png = _ci.annotate(data, ext, obs)
     return {
         "ok": True,
+        "analyse": plan_out,
         "image": "data:image/png;base64," + base64.b64encode(png).decode(),
         "calibrated": to_price is not None,
         "candles": ext.n_candles,
