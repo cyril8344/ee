@@ -21,6 +21,12 @@ ZONE_MAX_AGE_DAYS       = 4     # fraîcheur : au-delà, la zone est périmée
 SWEEP_MAX_DEPTH_ATR     = 0.5   # au-delà, c'est une vraie cassure, pas un sweep
 SWEEP_TO_CHOCH_BARS     = 8     # fenêtre M15 entre le sweep et le CHoCH déclencheur
 
+# Poches de liquidité (Equal Highs / Equal Lows). Mêmes valeurs que
+# strategy_ict._find_equal_levels, dont la définition est reprise : deux swings
+# ou plus à moins de tol×ATR l'un de l'autre forment un cluster.
+EQUAL_LEVEL_LOOKBACK      = 50
+EQUAL_LEVEL_TOLERANCE_ATR = 0.15
+
 # Confluence
 ZONE_TOUCH_LOOKBACK_BARS = 8    # le prix doit être dans la zone, ou l'avoir touchée
                                 # dans les 8 dernières M15

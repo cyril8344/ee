@@ -124,3 +124,92 @@ def test_the_endpoint_requires_authentication(client, capture):
     r = client.post("/api/smc/chart-image",
                     files={"file": ("c.png", capture, "image/png")})
     assert r.status_code == 401
+
+
+def test_a_missing_server_dependency_is_not_reported_as_a_bad_image(
+        client, auth, capture, monkeypatch):
+    """Vécu en production : Pillow n'était déclaré que dans le requirements.txt
+    de la racine, que le build Railway n'installe pas. L'utilisateur voyait
+    « Lecture impossible : No module named 'PIL' » et cherchait le défaut du côté
+    de sa capture. Une dépendance absente doit se dire comme telle."""
+    from smc import chart_image as ci
+
+    def _boom(_data):
+        raise ImportError("No module named 'PIL'")
+
+    monkeypatch.setattr(ci, "extract", _boom)
+    r = _post(client, auth, capture)
+    assert r.status_code == 503
+    detail = r.json()["detail"]
+    assert "Dépendance manquante" in detail
+    assert "ton image" in detail
+
+
+def _capture_avec_ob():
+    """Une capture contenant un vrai Order Block : range calme, sommet, bougie
+    rouge, impulsion qui casse la structure, puis repli vers la zone."""
+    def calm(p, n):
+        # Corps réellement visible : une bougie dont open == close se dessine
+        # sur 1 px de haut, ce qu'aucun graphique réel ne produit, et le
+        # détecteur la traite alors comme un trait et non comme une bougie.
+        return [(p - 0.4, p + 0.8, p - 0.8, p + 0.4) for _ in range(n)]
+    rows = calm(100, 40) + [(100, 112, 99.6, 111)] + calm(100, 3)
+    rows += [(100, 100.4, 95, 96)] + [(96, 130, 96, 128)] + calm(128, 10)
+    rows += [(128, 128.4, 120, 121)] + calm(104, 10)
+    return _png(_render(rows, height=700))
+
+
+def test_the_response_carries_a_measured_analysis(client, auth):
+    """Tout ce que l'endpoint affirme doit venir d'un nombre : c'est la
+    contrainte posée par l'utilisateur."""
+    d = _post(client, auth, _capture_avec_ob(), htf_bias="bullish").json()
+    assert d["ok"] is True
+    a = d["analyse"]
+    assert a["bias"] == "bullish"
+    assert a["atr"] > 0
+    assert "eqh" in a and "eql" in a
+    assert a["plan"] is not None or a["raison"]
+
+
+def test_every_criterion_of_the_plan_shows_its_value_and_threshold(client, auth):
+    a = _post(client, auth, _capture_avec_ob(), htf_bias="bullish").json()["analyse"]
+    if a["plan"] is None:
+        pytest.skip(f"pas de plan sur cette capture : {a['raison']}")
+    for c in a["plan"]["criteres"]:
+        assert c["valeur"] is not None
+        assert c["seuil"] is not None
+        assert c["detail"]
+
+
+def test_the_plan_is_in_pixels_until_the_chart_is_calibrated(client, auth):
+    """Mêmes garde-fous que pour les zones : des pixels ne doivent jamais être
+    présentés comme des prix recopiables."""
+    brut = _post(client, auth, _capture_avec_ob(), htf_bias="bullish").json()["analyse"]
+    assert brut["en_prix"] is False
+
+    cal = _post(client, auth, _capture_avec_ob(), htf_bias="bullish",
+                cal_y1=100, cal_price1=4700.0,
+                cal_y2=600, cal_price2=4300.0).json()["analyse"]
+    assert cal["en_prix"] is True
+    if cal["plan"]:
+        assert 4200 < cal["plan"]["entry"] < 4800
+
+
+def test_the_ratio_survives_the_change_of_scale(client, auth):
+    """Le R:R est un rapport de deux distances : il ne doit pas bouger quand on
+    passe des pixels aux prix, sinon l'une des deux lectures est fausse."""
+    brut = _post(client, auth, _capture_avec_ob(), htf_bias="bullish").json()["analyse"]
+    cal = _post(client, auth, _capture_avec_ob(), htf_bias="bullish",
+                cal_y1=100, cal_price1=4700.0,
+                cal_y2=600, cal_price2=4300.0).json()["analyse"]
+    if brut["plan"] and cal["plan"]:
+        assert brut["plan"]["rr"] == pytest.approx(cal["plan"]["rr"], rel=0.01)
+
+
+def test_the_response_never_contains_a_verdict(client, auth):
+    """Un « VALIDE » se recopie dans la plateforme ; un décompte de critères,
+    non. Rien dans ce dépôt ne mesure si un trade va marcher."""
+    d = _post(client, auth, _capture_avec_ob(), htf_bias="bullish").json()
+    texte = repr(d["analyse"]).lower()
+    for mot in ("valide", "verdict", "probabilit", "espérance", "esperance"):
+        assert mot not in texte
