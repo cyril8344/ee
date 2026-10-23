@@ -59,6 +59,10 @@ MIN_PERIODICITY = 0.25
 # comme le plus haut de CHAQUE bougie qu'elle traverse — constaté sur la capture
 # de référence : `high` identique sur des dizaines de bougies d'affilée.
 HLINE_COVERAGE = 0.70
+# Un pic d'autocorrélation atteignant cette fraction du meilleur est considéré
+# comme aussi valable que lui : on retient alors le plus petit lag, donc la
+# fondamentale plutôt qu'une harmonique.
+HARMONIC_TOLERANCE = 0.80
 
 
 @dataclass
@@ -150,6 +154,21 @@ def _pitch_of(mask: np.ndarray, y0: int, y1: int) -> Tuple[float, float]:
     if len(xs) < PITCH_MIN * 4:
         return 0.0, 0.0
     p = prof[xs.min(): xs.max() + 1]
+    # BINARISER avant d'autocorréler. Le profil brut porte deux informations :
+    # l'alternance bougie/vide (ce qu'on cherche) et la hauteur des bougies, qui
+    # varie lentement. Cette enveloppe lente domine l'autocorrélation et fait
+    # ressortir un multiple du pas. Mesuré sur un graphique de test : le profil
+    # valait exactement 15,15,29,15,15,0,0,0,0 en boucle — périodicité parfaite à
+    # 9 — et l'autocorrélation donnait 0.137 à 9 contre 0.316 à 45.
+    #
+    # Le seuil est relatif à la médiane des colonnes occupées, pas à zéro : sur
+    # une capture JPEG les « vides » valent 2 ou 3 à cause du bavement de
+    # compression, et un seuil à zéro ne séparerait rien.
+    occupe = p[p > 0]
+    if len(occupe) == 0:
+        return 0.0, 0.0
+    seuil_bin = max(1.0, 0.3 * float(np.median(occupe)))
+    p = (p >= seuil_bin).astype(float)
     p = p - p.mean()
     if not np.any(p):
         return 0.0, 0.0
@@ -157,11 +176,25 @@ def _pitch_of(mask: np.ndarray, y0: int, y1: int) -> Tuple[float, float]:
     if ac[0] <= 0:
         return 0.0, 0.0
     ac = ac / ac[0]
-    best_lag, best = 0.0, 0.0
+    pics = []
     for lag in range(PITCH_MIN, min(PITCH_MAX, len(ac) - 1)):
-        if ac[lag] > ac[lag - 1] and ac[lag] >= ac[lag + 1] and ac[lag] > best:
-            best_lag, best = float(lag), float(ac[lag])
-    return best_lag, best
+        if ac[lag] > ac[lag - 1] and ac[lag] >= ac[lag + 1]:
+            pics.append((lag, float(ac[lag])))
+    if not pics:
+        return 0.0, 0.0
+
+    # Prendre la FONDAMENTALE, pas la plus forte. Un signal périodique a des
+    # harmoniques (2×, 3×, 5× le pas) dont la corrélation peut égaler voire
+    # dépasser celle du pas réel quand les bougies sont très régulières. Mesuré
+    # sur un graphique de test : pas réel 9 px, pic retenu 45 px — soit 14
+    # bougies lues au lieu de 66, et plus aucune structure détectable.
+    # On garde donc le plus PETIT lag dont la force approche la meilleure.
+    meilleur = max(p[1] for p in pics)
+    seuil = HARMONIC_TOLERANCE * meilleur
+    for lag, force in pics:
+        if force >= seuil:
+            return float(lag), force
+    return 0.0, 0.0
 
 
 def grow_band(mask: np.ndarray, y0: int, y1: int,

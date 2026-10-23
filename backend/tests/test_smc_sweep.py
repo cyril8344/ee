@@ -26,6 +26,27 @@ def _calm(price, n):
     return [(price, price + 0.5, price - 0.5, price) for _ in range(n)]
 
 
+def _respire(p, n):
+    """Comme `_calm`, mais les bougies ne sont pas strictement identiques.
+
+    Des bougies rigoureusement égales n'ont jamais de plus-bas strictement
+    inférieur au suivant : la détection de jambe ne bascule donc jamais, aucun
+    pivot alterné ne se forme, et la fixture « prouve » une absence de signal
+    qui ne vient que de sa propre platitude. Aucune série de marché ne répète
+    trois fois le même low au centième — d'où ce micro-bruit, déterministe et
+    indexé sur la position dans CETTE série (un compteur partagé rendrait
+    chaque test dépendant de l'ordre d'exécution des autres).
+
+    `_calm` reste strictement plat : les tests qui vérifient le comportement
+    sur une série sans structure en ont besoin.
+    """
+    out = []
+    for i in range(n):
+        d = ((i * 37) % 11 - 5) * 0.01        # −0.05 … +0.05
+        out.append((p + d, p + 0.5 + d, p - 0.5 + d, p + d))
+    return out
+
+
 # Profondeur maximale tolérée = 0,5 × ATR. Sur ces fixtures l'ATR vaut ~1.75,
 # donc la limite est ~0.87 : une mèche à 0.3 sous le niveau est un sweep, une
 # mèche à 50 est une vraie cassure. Mes premières fixtures utilisaient 1.0 et

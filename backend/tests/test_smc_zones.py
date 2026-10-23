@@ -32,6 +32,27 @@ def _calm(price, n):
     return [(price, price + 0.5, price - 0.5, price) for _ in range(n)]
 
 
+def _respire(p, n):
+    """Comme `_calm`, mais les bougies ne sont pas strictement identiques.
+
+    Des bougies rigoureusement égales n'ont jamais de plus-bas strictement
+    inférieur au suivant : la détection de jambe ne bascule donc jamais, aucun
+    pivot alterné ne se forme, et la fixture « prouve » une absence de signal
+    qui ne vient que de sa propre platitude. Aucune série de marché ne répète
+    trois fois le même low au centième — d'où ce micro-bruit, déterministe et
+    indexé sur la position dans CETTE série (un compteur partagé rendrait
+    chaque test dépendant de l'ordre d'exécution des autres).
+
+    `_calm` reste strictement plat : les tests qui vérifient le comportement
+    sur une série sans structure en ont besoin.
+    """
+    out = []
+    for i in range(n):
+        d = ((i * 37) % 11 - 5) * 0.01        # −0.05 … +0.05
+        out.append((p + d, p + 0.5 + d, p - 0.5 + d, p + d))
+    return out
+
+
 def _bull_rows():
     """Range calme, un sommet, une bougie rouge, puis une impulsion qui casse le
     sommet en clôture. La bougie rouge (index 20) est l'Order Block."""
@@ -61,13 +82,27 @@ def _range_h1():
 # --------------------------------------------------------------------------- #
 # Order Blocks
 # --------------------------------------------------------------------------- #
-def test_ob_is_the_last_opposite_candle_before_the_break():
+def test_ob_is_the_extreme_candle_of_the_leg():
+    """Définition par défaut (`leg_extreme`) : la bougie la plus basse de la
+    jambe, zone = sa bougie ENTIÈRE, mèche comprise."""
     obs = zones.find_order_blocks(_frame(_bull_rows()), "M15")
     assert len(obs) == 1
     ob = obs[0]
     assert ob.side == "bullish"
-    assert ob.index == 20                      # la bougie rouge, pas l'impulsion
-    assert ob.low == pytest.approx(95)         # zone = open → low (§4)
+    assert ob.index == 20                      # la bougie basse, pas l'impulsion
+    assert ob.low == pytest.approx(95)
+    assert ob.high == pytest.approx(100.4)     # le high de la bougie
+
+
+def test_the_other_definition_stops_at_the_open_and_is_still_available():
+    """`last_opposite` reste accessible : sur cette jambe les deux désignent la
+    même bougie, et se séparent sur le bord haut de la zone — l'open (100) au
+    lieu du high (100.4). Mesuré ailleurs : elles désignent une bougie
+    différente dans la majorité des cassures."""
+    ob = zones.find_order_blocks(_frame(_bull_rows()), "M15",
+                                 style="last_opposite")[0]
+    assert ob.index == 20
+    assert ob.low == pytest.approx(95)
     assert ob.high == pytest.approx(100)
 
 
@@ -98,7 +133,7 @@ def test_bearish_ob_is_the_exact_mirror():
     assert len(obs) == 1
     ob = obs[0]
     assert ob.side == "bearish" and ob.index == 20
-    assert ob.low == pytest.approx(100)        # open
+    assert ob.low == pytest.approx(99.6)       # le low de la bougie entière
     assert ob.high == pytest.approx(105)       # high
 
 
@@ -232,7 +267,8 @@ def test_the_ob_at_95_100_is_in_discount_and_survives():
     kept = zones.active_zones(_frame(_bull_rows()), "M15", h1=_range_h1())
     obs = [z for z in kept if z.kind == "OB"]
     assert obs and obs[0].low == pytest.approx(95)
-    assert obs[0].discount_pct == pytest.approx((97.5 - 90) / 20 * 100)
+    # Milieu de la zone = (95 + 100.4) / 2, la zone couvrant la bougie entière.
+    assert obs[0].discount_pct == pytest.approx((97.7 - 90) / 20 * 100)
 
 
 def test_active_zones_excludes_mitigated_and_expired():

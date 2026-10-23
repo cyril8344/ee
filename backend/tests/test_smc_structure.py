@@ -59,11 +59,22 @@ def test_last_n_bars_can_never_hold_a_confirmed_pivot():
 
 def test_a_plateau_does_not_produce_several_pivots():
     """Avec `>=` au lieu de `>`, trois bougies au même sommet donneraient trois
-    pivots au même prix, et autant de faux niveaux à casser."""
+    pivots au même prix, et autant de faux niveaux à casser.
+
+    Les deux définitions tiennent cette promesse autrement : la fractale
+    n'en produit aucun (aucune bougie du plateau n'est strictement supérieure à
+    ses voisines), le mode « jambe » en produit un seul, à la dernière bougie
+    du plateau. Un sommet, un niveau — c'est ce que le test exige, et il ne
+    doit pas exiger davantage, sans quoi il interdit la seconde définition
+    pour une raison qui n'a rien à voir avec les faux niveaux.
+    """
     rows = [_bar(10, 9), _bar(11, 10), _bar(20, 19), _bar(20, 19), _bar(20, 19),
             _bar(11, 10), _bar(10, 9)]
-    assert [p for p in structure.find_pivots(_frame(rows), n=2)
-            if p.kind == "high"] == []
+    for mode in ("symmetric", "rolling"):
+        hauts = [p for p in structure.find_pivots(_frame(rows), n=2, mode=mode)
+                 if p.kind == "high"]
+        assert len(hauts) <= 1, mode
+        assert all(p.price == pytest.approx(20) for p in hauts), mode
 
 
 def test_pivot_low_is_detected_symmetrically():
