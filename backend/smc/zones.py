@@ -96,18 +96,81 @@ class Zone:
 # --------------------------------------------------------------------------- #
 # Order Blocks
 # --------------------------------------------------------------------------- #
+def _ob_last_opposite(e: StructureEvent, opens, closes, lows, highs):
+    """Dernière bougie de couleur contraire avant la cassure. Zone = open→extrême."""
+    for j in range(e.index, max(-1, e.index - 20), -1):
+        if j < 0:
+            break
+        if e.direction == "bullish" and closes[j] < opens[j]:
+            return j, float(lows[j]), float(opens[j])
+        if e.direction == "bearish" and closes[j] > opens[j]:
+            return j, float(opens[j]), float(highs[j])
+    return None, 0.0, 0.0
+
+
+def _ob_leg_extreme(e: StructureEvent, opens, closes, lows, highs,
+                    max_height: Optional[float]):
+    """Bougie la plus extrême de la jambe swing→cassure. Zone = son high→low.
+
+    Deux différences avec « la dernière bougie de couleur contraire », et elles
+    comptent :
+
+    - **L'extrême, pas la couleur.** Sur une jambe qui contient plusieurs
+      bougies rouges, la dernière n'est pas forcément celle qui a imprimé le
+      plus bas. C'est le plus bas que le prix revient chercher, pas la couleur.
+    - **La bougie entière.** La zone va du high au low, pas de l'open à
+      l'extrême : la mèche fait partie de l'empreinte.
+
+    Une bougie plus haute que `max_height` est écartée **du choix**, et pas
+    seulement du résultat : une bougie de nouvelle imprime un extrême qui n'est
+    l'empreinte d'aucun ordre, seulement d'un trou de liquidité. L'écarter
+    pendant la sélection fait remonter la zone suivante la plus extrême, là où
+    un filtre appliqué après coup supprimerait l'Order Block de cette cassure.
+
+    La référence est l'ATR, pas l'amplitude du candidat courant : une référence
+    glissante écarterait la bougie monstrueuse si elle arrive en second et la
+    retiendrait si elle arrive en premier — ce n'est pas une définition, c'est
+    un effet de bord du sens de parcours. Et ce n'est pas non plus la médiane de
+    la jambe : la bougie qui porte l'OB est, par nature, plus large que les
+    bougies calmes qui l'entourent, donc une médiane ×2 écarte précisément la
+    bonne (vérifié — c'est ce que faisait la première version).
+    """
+    best = None
+    lo = hi = 0.0
+    for j in range(e.pivot_index + 1, e.index):
+        bar_lo, bar_hi = float(lows[j]), float(highs[j])
+        if max_height is not None and (bar_hi - bar_lo) > max_height:
+            continue
+        if best is None:
+            best, lo, hi = j, bar_lo, bar_hi
+            continue
+        plus_extreme = bar_lo < lo if e.direction == "bullish" else bar_hi > hi
+        if plus_extreme:
+            best, lo, hi = j, bar_lo, bar_hi
+    if best is None:
+        return None, 0.0, 0.0
+    return best, lo, hi
+
+
 def find_order_blocks(df: pd.DataFrame, timeframe: str,
                       events: Optional[List[StructureEvent]] = None,
                       min_displacement_atr: float = config.OB_MIN_DISPLACEMENT_ATR,
+                      style: str = config.OB_STYLE,
+                      max_height_atr: Optional[float] = config.OB_MAX_HEIGHT_ATR,
                       ) -> List[Zone]:
     """OB attachés à une cassure de structure, un par événement au plus.
 
-    Pour un BOS/CHoCH haussier en `e.index` : on remonte depuis la bougie de
-    cassure jusqu'à la dernière bougie **baissière**, et c'est elle l'OB. Zone =
-    open→low (§4). Miroir exact pour un événement baissier (open→high).
+    Deux définitions possibles (`style`), documentées sur les deux fonctions
+    ci-dessus. Dans les deux cas le déplacement est mesuré de l'extrême de la
+    bougie OB jusqu'à la clôture qui a cassé : c'est l'impulsion réellement
+    produite, pas la taille d'une bougie.
 
-    Le déplacement est mesuré de l'extrême de la bougie OB jusqu'à la clôture qui
-    a cassé — c'est l'impulsion réellement produite, pas la taille d'une bougie.
+    `max_height_atr` refuse une zone trop haute. Ce filtre manquait, et son
+    absence se paie sur le R:R : l'entrée se prend au bord proximal et le stop
+    sous le bord opposé, donc une zone de 4 ATR impose un risque de 4 ATR pour
+    une cible qui, elle, ne grandit pas avec la zone. En style `leg_extreme` il
+    agit **pendant** le choix de la bougie, pas après : une bougie aberrante
+    fait remonter la suivante au lieu d'annuler l'Order Block.
     """
     n = config.FRACTAL_N.get(timeframe.upper(), 3)
     events = events if events is not None else find_events(df, n)
@@ -125,28 +188,25 @@ def find_order_blocks(df: pd.DataFrame, timeframe: str,
         if not (atr_val > 0):
             continue
 
-        # Remonter jusqu'à la dernière bougie contrariante avant la cassure.
-        ob_i = None
-        for j in range(e.index, max(-1, e.index - 20), -1):
-            if j < 0:
-                break
-            if e.direction == "bullish" and closes[j] < opens[j]:
-                ob_i = j
-                break
-            if e.direction == "bearish" and closes[j] > opens[j]:
-                ob_i = j
-                break
+        plafond = None if max_height_atr is None else max_height_atr * atr_val
+        if style == "leg_extreme":
+            ob_i, low, high = _ob_leg_extreme(e, opens, closes, lows, highs,
+                                              plafond)
+        elif style == "last_opposite":
+            ob_i, low, high = _ob_last_opposite(e, opens, closes, lows, highs)
+        else:
+            raise ValueError(f"style d'Order Block inconnu : {style!r}")
         if ob_i is None:
             continue
 
         if e.direction == "bullish":
             displacement = float(closes[e.index]) - float(lows[ob_i])
-            low, high = float(lows[ob_i]), float(opens[ob_i])
         else:
             displacement = float(highs[ob_i]) - float(closes[e.index])
-            low, high = float(opens[ob_i]), float(highs[ob_i])
 
         if high <= low:
+            continue
+        if plafond is not None and (high - low) > plafond:
             continue
         ratio = displacement / atr_val
         if ratio < min_displacement_atr:
@@ -202,10 +262,15 @@ def find_fvgs(df: pd.DataFrame, timeframe: str,
 def update_states(df: pd.DataFrame, zones: List[Zone],
                   upto: Optional[int] = None,
                   max_age_days: int = config.ZONE_MAX_AGE_DAYS,
-                  fill_ratio: float = config.FVG_FILL_RATIO) -> List[Zone]:
+                  fill_ratio: float = config.FVG_FILL_RATIO,
+                  mitigation: str = config.OB_MITIGATION) -> List[Zone]:
     """Marque chaque zone `active` / `mitigated` / `expired` à la bougie `upto`.
 
-    - OB : mitigée dès que le prix **retouche** la zone (§4).
+    - OB : mitigée dès que le prix **retouche** la zone (§4). `mitigation`
+      choisit ce qui compte comme une touche : `"wick"` (une mèche suffit) ou
+      `"close"` (il faut une clôture dedans). Le second laisse vivantes les
+      zones simplement effleurées — c'est un choix de lecture, il ne déplace
+      aucune zone.
     - FVG : comblé à 50 % → `mitigated` (la spec dit `filled`, même effet — la
       zone sort des actives ; on garde un seul vocabulaire d'état).
     - Fraîcheur : plus de `max_age_days` jours calendaires → `expired`.
@@ -217,8 +282,11 @@ def update_states(df: pd.DataFrame, zones: List[Zone],
     if limit < 0 or df.empty:
         return zones
     highs, lows = df["high"].values, df["low"].values
+    closes = df["close"].values
     idx = df.index
     now_ts = idx[limit]
+    if mitigation not in ("wick", "close"):
+        raise ValueError(f"mode de mitigation inconnu : {mitigation!r}")
 
     for z in zones:
         z.state = "active"
@@ -234,6 +302,8 @@ def update_states(df: pd.DataFrame, zones: List[Zone],
 
         for j in range(z.created_index + 1, limit + 1):
             bar_low, bar_high = float(lows[j]), float(highs[j])
+            if z.kind == "OB" and mitigation == "close":
+                bar_low = bar_high = float(closes[j])
             if bar_high < z.low or bar_low > z.high:
                 continue
             if z.kind == "OB":

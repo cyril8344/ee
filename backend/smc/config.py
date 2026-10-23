@@ -11,6 +11,59 @@ from typing import Dict, Tuple
 # Fractales : n bougies de chaque côté pour valider un pivot.
 FRACTAL_N: Dict[str, int] = {"D1": 3, "H4": 3, "H1": 3, "M15": 2, "M5": 2}
 
+# --------------------------------------------------------------------------- #
+# Définitions de structure — alignement sur l'indicateur réellement utilisé
+# --------------------------------------------------------------------------- #
+# Le scanner ne sert à rien s'il ne désigne pas les mêmes zones que celles qu'on
+# voit à l'écran. Trois définitions divergeaient.
+#
+# PIVOT_MODE
+#   "symmetric" : fractale classique, n bougies plus basses de CHAQUE côté.
+#   "rolling"   : une bougie est un swing haut dès qu'aucune des n bougies
+#                 SUIVANTES ne la dépasse — rien n'est exigé à sa gauche. S'y
+#                 ajoute une alternance stricte haut/bas/haut.
+#
+#   MESURÉ (7 marches aléatoires de 800 bougies à corps réel, n=3) : "rolling"
+#   donne 0 à 19 % de pivots en MOINS, jamais plus, sur 7 séries sur 7. L'effet
+#   vient de l'alternance, pas de l'absence de contrainte à gauche. Attention
+#   au protocole : sur une série dégénérée où open == close, les deux modes
+#   s'équivalent — c'est ce qu'une première mesure a conclu à tort. Il faut des
+#   bougies avec corps pour que la question ait un sens.
+#   **Reste à vérifier contre une capture d'écran réelle.**
+PIVOT_MODE = "rolling"
+
+# Deux échelles de structure lues ensemble : la cassure « interne » (celle qui
+# déclenche une entrée) et la cassure « de swing » (celle qui donne la
+# tendance). Une seule échelle oblige à choisir entre ces deux rôles.
+STRUCTURE_LENGTH_INTERNAL = 5
+STRUCTURE_LENGTH_SWING    = 50
+
+# OB_STYLE
+#   "last_opposite" : dernière bougie de couleur contraire avant la cassure.
+#   "leg_extreme"   : la bougie la plus EXTRÊME de la jambe comprise entre le
+#                     swing cassé et la cassure, zone = son high→low complet.
+#
+#   MESURÉ (195 Order Blocks sur 7 marches aléatoires) : les deux définitions
+#   désignent une bougie DIFFÉRENTE dans 67 % des cas, et la zone est en médiane
+#   74 % plus haute (2.54 contre 1.46). Ce n'est donc pas un détail de
+#   convention : c'est l'écart qui faisait que le scanner et le graphique
+#   montraient deux zones à deux endroits, sans qu'aucun des deux ait l'air en
+#   panne. C'est l'écart principal corrigé ici.
+OB_STYLE = "leg_extreme"
+
+# Un OB plus haut que ce multiple de l'ATR n'est pas une zone d'entrée : le stop
+# qu'il impose rend tout R:R mécaniquement faux. Ce filtre manquait. Il sert
+# aussi d'exclusion de volatilité pendant le choix de la bougie : une bougie de
+# nouvelle imprime un extrême qui n'est l'empreinte d'aucun ordre, seulement
+# d'un trou de liquidité, et c'est la bougie suivante la plus extrême qui est
+# alors retenue.
+OB_MAX_HEIGHT_ATR = 3.0
+
+# OB_MITIGATION : "wick" (une mèche dans la zone suffit) ou "close" (il faut une
+# clôture dedans). Le choix change le nombre de zones encore vivantes, jamais
+# leur emplacement.
+OB_MITIGATION = "wick"
+
 # Zones
 OB_MIN_DISPLACEMENT_ATR = 1.5   # déplacement minimum de l'impulsion qui crée l'OB
 FVG_MIN_SIZE_ATR        = 0.3   # taille minimale d'un Fair Value Gap

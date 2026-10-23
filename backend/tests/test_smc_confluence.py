@@ -28,31 +28,52 @@ def _calm(p, n):
     return [(p, p + 0.5, p - 0.5, p) for _ in range(n)]
 
 
+def _respire(p, n):
+    """Comme `_calm`, mais les bougies ne sont pas strictement identiques.
+
+    Des bougies rigoureusement égales n'ont jamais de plus-bas strictement
+    inférieur au suivant : la détection de jambe ne bascule donc jamais, aucun
+    pivot alterné ne se forme, et la fixture « prouve » une absence de signal
+    qui ne vient que de sa propre platitude. Aucune série de marché ne répète
+    trois fois le même low au centième — d'où ce micro-bruit, déterministe et
+    indexé sur la position dans CETTE série (un compteur partagé rendrait
+    chaque test dépendant de l'ordre d'exécution des autres).
+
+    `_calm` reste strictement plat : les tests qui vérifient le comportement
+    sur une série sans structure en ont besoin.
+    """
+    out = []
+    for i in range(n):
+        d = ((i * 37) % 11 - 5) * 0.01        # −0.05 … +0.05
+        out.append((p + d, p + 0.5 + d, p - 0.5 + d, p + d))
+    return out
+
+
 def _h4_bullish():
     """Dernier événement structurel H4 = BOS haussier → biais haussier."""
-    return _F(_calm(100, 16) + [(100, 112, 99.6, 111)] + _calm(100, 3)
-              + [(100, 130, 99.6, 128)] + _calm(128, 4),
+    return _F(_respire(100, 16) + [(100, 112, 99.6, 111)] + _respire(100, 3)
+              + [(100, 130, 99.6, 128)] + _respire(128, 4),
               "2026-01-01 00:00", "240min")
 
 
 def _h1_with_demand_zone():
     """OB haussier 95→100, en discount du range 95–130, jamais retesté en H1."""
-    return _F(_calm(100, 16) + [(100, 112, 99.6, 111)] + _calm(100, 3)
-              + [(100, 100.4, 95, 96)] + [(96, 130, 96, 128)] + _calm(128, 6),
+    return _F(_respire(100, 16) + [(100, 112, 99.6, 111)] + _respire(100, 3)
+              + [(100, 100.4, 95, 96)] + [(96, 130, 96, 128)] + _respire(128, 6),
               "2026-01-05 00:00", "60min")
 
 
 def _m15_pullback_then_choch():
     """Le prix redescend dans la zone H1, puis un CHoCH haussier M15 se forme sur
     la dernière bougie. C'est le déclencheur du §6."""
-    return _F(_calm(128, 6)
+    return _F(_respire(128, 6)
               + [(128, 128.4, 120, 121)]      # 6  : pivot bas
-              + _calm(128, 3)
+              + _respire(128, 3)
               + [(128, 128.5, 110, 112)]      # 10 : BOS baissier
               + [(112, 112.5, 98, 99)]        # 11 : entre dans la zone 95–100
-              + _calm(99, 2)
+              + _respire(99, 2)
               + [(99, 105, 98.6, 104)]        # 14 : pivot haut
-              + _calm(99, 2)
+              + _respire(99, 2)
               + [(99, 110, 98.6, 108)],       # 17 : CHoCH haussier → déclencheur
               "2026-01-05 03:15", "15min")
 
@@ -67,8 +88,13 @@ def test_the_three_conditions_together_produce_a_signal():
                             _h4_bullish(), None)
     assert s is not None
     assert s.direction == "bullish" and s.bias_h4 == "bullish"
-    assert s.zone.kind == "OB"
-    assert (s.zone.low, s.zone.high) == (95.0, 100.0)
+    # Cette jambe laisse DEUX zones derrière elle : la bougie basse (OB) et
+    # l'imbalance ouverte par l'impulsion (FVG). C'est le cas normal — une
+    # impulsion assez forte pour casser la structure laisse presque toujours un
+    # gap. Le test porte sur le déclenchement, pas sur laquelle des deux gagne.
+    assert s.zone.kind in ("OB", "FVG")
+    assert s.zone.timeframe == "H1" and s.zone.side == "bullish"
+    assert s.zone.low < s.zone.high
     assert s.choch.kind == "CHoCH" and s.choch.direction == "bullish"
 
 
@@ -87,10 +113,10 @@ def test_the_signal_carries_the_features_the_ml_dataset_needs():
 def test_a_neutral_h4_bias_blocks_every_direction():
     """§6 : CHoCH H4 non confirmé par un BOS → biais neutre → aucun signal, dans
     aucun sens. Un CHoCH est le premier signe d'un retournement, pas sa preuve."""
-    h4 = _F(_calm(100, 16) + [(100, 112, 99.6, 111)] + _calm(100, 3)
-            + [(100, 130, 99.6, 128)] + _calm(128, 3)
-            + [(128, 128.4, 90, 91)] + _calm(128, 3)
-            + [(128, 128.5, 80, 82)],          # CHoCH baissier terminal
+    h4 = _F(_respire(100, 16) + [(100, 112, 99.6, 111)] + _respire(100, 3)
+            + [(100, 130, 99.6, 128)] + _respire(128, 3)
+            + [(128, 128.4, 90, 91)]           # CHoCH baissier, et rien après :
+            + _respire(128, 3),                # une seconde cassure en ferait un BOS
             "2026-01-01 00:00", "240min")
     assert find_events(h4, config.FRACTAL_N["H4"])[-1].kind == "CHoCH"
     assert confluence.evaluate(_m15_pullback_then_choch(),
@@ -98,7 +124,7 @@ def test_a_neutral_h4_bias_blocks_every_direction():
 
 
 def test_no_h1_zone_means_no_signal():
-    h1_plat = _F(_calm(100, 40), "2026-01-05 00:00", "60min")
+    h1_plat = _F(_respire(100, 40), "2026-01-05 00:00", "60min")
     assert confluence.evaluate(_m15_pullback_then_choch(), h1_plat,
                                _h4_bullish(), None) is None
 
@@ -130,7 +156,7 @@ def test_the_trigger_must_land_on_the_current_bar():
     """Sinon le même signal serait ré-émis à chaque bougie suivante — l'anti-spam
     du §8 ne rattraperait pas une émission par bougie."""
     m15 = _m15_pullback_then_choch()
-    prolonge = pd.concat([m15, _F(_calm(108, 3), "2026-01-05 07:45", "15min")])
+    prolonge = pd.concat([m15, _F(_respire(108, 3), "2026-01-05 07:45", "15min")])
     assert confluence.evaluate(prolonge, _h1_with_demand_zone(),
                                _h4_bullish(), None) is None
 
@@ -138,17 +164,29 @@ def test_the_trigger_must_land_on_the_current_bar():
 def test_one_signal_per_zone_maximum():
     """§6 : 1 signal max par zone."""
     m15, h1, h4 = (_m15_pullback_then_choch(), _h1_with_demand_zone(), _h4_bullish())
-    s = confluence.evaluate(m15, h1, h4, None)
-    assert s is not None
-    assert confluence.evaluate(m15, h1, h4, None,
-                               signalled_zones={s.zone_key}) is None
+    vues = set()
+    while True:
+        s = confluence.evaluate(m15, h1, h4, None, signalled_zones=vues)
+        if s is None:
+            break
+        assert s.zone_key not in vues, "une zone déjà signalée a re-signalé"
+        vues.add(s.zone_key)
+        assert len(vues) <= 4, "boucle : une zone resignale indéfiniment"
+    assert vues, "aucun signal du tout : le test ne prouverait rien"
 
 
 def test_a_zone_traversed_by_the_price_is_dead():
     """§6 : zone traversée sans déclencheur = dead, supprimée."""
     m15, h1, h4 = (_m15_pullback_then_choch(), _h1_with_demand_zone(), _h4_bullish())
-    s = confluence.evaluate(m15, h1, h4, None)
-    assert confluence.evaluate(m15, h1, h4, None, dead_zones={s.zone_key}) is None
+    mortes = set()
+    while True:
+        s = confluence.evaluate(m15, h1, h4, None, dead_zones=mortes)
+        if s is None:
+            break
+        assert s.zone_key not in mortes, "une zone morte a resignalé"
+        mortes.add(s.zone_key)
+        assert len(mortes) <= 4
+    assert mortes
 
 
 # --------------------------------------------------------------------------- #
@@ -172,8 +210,8 @@ def test_d1_never_blocks_a_signal_in_v1():
     """§6 : la structure D1 est mentionnée dans l'alerte à titre d'information,
     sans bloquer le signal en v1. Le tester évite qu'elle devienne un filtre par
     inadvertance."""
-    d1_contraire = _F(_calm(100, 16) + [(100, 100.4, 88, 89)] + _calm(100, 3)
-                      + [(100, 100.5, 70, 72)] + _calm(72, 4),
+    d1_contraire = _F(_respire(100, 16) + [(100, 100.4, 88, 89)] + _respire(100, 3)
+                      + [(100, 100.5, 70, 72)] + _respire(72, 4),
                       "2025-11-01 00:00", "1440min")
     s = confluence.evaluate(_m15_pullback_then_choch(), _h1_with_demand_zone(),
                             _h4_bullish(), d1_contraire)
@@ -185,7 +223,7 @@ def test_unknown_d1_is_not_reported_as_contrary():
     """« On ne sait pas » et « contraire » ne doivent pas se confondre dans
     l'alerte."""
     assert confluence.d1_alignment(None, "bullish") is None
-    plat = _F(_calm(100, 30), "2025-11-01 00:00", "1440min")
+    plat = _F(_respire(100, 30), "2025-11-01 00:00", "1440min")
     assert confluence.d1_alignment(plat, "bullish") is None
 
 

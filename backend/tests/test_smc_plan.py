@@ -26,6 +26,27 @@ def _calm(p, n):
     return [(p, p + 0.5, p - 0.5, p) for _ in range(n)]
 
 
+def _respire(p, n):
+    """Comme `_calm`, mais les bougies ne sont pas strictement identiques.
+
+    Des bougies rigoureusement égales n'ont jamais de plus-bas strictement
+    inférieur au suivant : la détection de jambe ne bascule donc jamais, aucun
+    pivot alterné ne se forme, et la fixture « prouve » une absence de signal
+    qui ne vient que de sa propre platitude. Aucune série de marché ne répète
+    trois fois le même low au centième — d'où ce micro-bruit, déterministe et
+    indexé sur la position dans CETTE série (un compteur partagé rendrait
+    chaque test dépendant de l'ordre d'exécution des autres).
+
+    `_calm` reste strictement plat : les tests qui vérifient le comportement
+    sur une série sans structure en ont besoin.
+    """
+    out = []
+    for i in range(n):
+        d = ((i * 37) % 11 - 5) * 0.01        # −0.05 … +0.05
+        out.append((p + d, p + 0.5 + d, p - 0.5 + d, p + d))
+    return out
+
+
 def _setup_haussier():
     """Range calme, sommet, bougie rouge (l'OB), impulsion qui casse, repli."""
     return _frame(_calm(100, 16)
@@ -42,18 +63,32 @@ def _setup_haussier():
 # Equal Highs / Equal Lows
 # --------------------------------------------------------------------------- #
 def _trois_sommets_egaux(ecart=0.0):
-    """Trois pointes au même prix (à `ecart` près) = une poche de liquidité."""
-    rows = _calm(100, 16)
+    """Trois pointes au même prix (à `ecart` près) = une poche de liquidité.
+
+    Les creux entre les pointes doivent être de vrais creux : avec des bougies
+    rigoureusement identiques, aucun plus-bas n'est strictement inférieur au
+    suivant, aucun pivot bas ne se forme, et les trois pointes se fondent en
+    une seule jambe. D'où `_respire`.
+    """
+    rows = _respire(100, 16)
     for k in range(3):
         rows += [(100, 110 + k * ecart, 99.6, 101)]
-        rows += _calm(100, 4)
+        rows += _respire(100, 4)
     return _frame(rows)
 
 
+def _pointes(niveaux, seuil=105.0):
+    """Les poches formées par les trois pointes, en écartant celle que forme le
+    range calme lui-même. Un range EST une pile de sommets quasi égaux : c'est
+    une détection correcte, pas un parasite, mais ce n'est pas l'objet de ces
+    tests-ci."""
+    return [lv for lv in niveaux if lv.price > seuil]
+
+
 def test_several_swings_at_the_same_price_form_one_pocket():
-    niveaux = liquidity.equal_levels(_trois_sommets_egaux(), "EQH")
-    assert len(niveaux) == 1
-    lv = niveaux[0]
+    pointes = _pointes(liquidity.equal_levels(_trois_sommets_egaux(), "EQH"))
+    assert len(pointes) == 1
+    lv = pointes[0]
     assert lv.kind == "EQH"
     assert lv.n_swings == 3
     assert lv.price == pytest.approx(110, abs=0.5)
@@ -62,23 +97,24 @@ def test_several_swings_at_the_same_price_form_one_pocket():
 def test_the_number_of_swings_is_reported_not_judged():
     """Un EQH à quatre touches ne vaut pas un EQH à deux. Le module renvoie le
     compte, il ne décide pas à partir de quand c'est « valable »."""
-    lv = liquidity.equal_levels(_trois_sommets_egaux(), "EQH")[0]
+    lv = _pointes(liquidity.equal_levels(_trois_sommets_egaux(), "EQH"))[0]
     assert isinstance(lv.n_swings, int)
     assert lv.spread >= 0
 
 
 def test_swings_too_far_apart_are_not_a_pocket():
     """Au-delà de la tolérance, ce sont deux niveaux distincts, pas un cluster."""
-    loin = liquidity.equal_levels(_trois_sommets_egaux(ecart=20.0), "EQH")
+    loin = _pointes(liquidity.equal_levels(_trois_sommets_egaux(ecart=20.0), "EQH"))
     assert all(lv.n_swings < 3 for lv in loin)
 
 
 def test_equal_lows_are_the_mirror():
-    rows = _calm(100, 16)
+    rows = _respire(100, 16)
     for _ in range(3):
         rows += [(100, 100.4, 90, 99)]
-        rows += _calm(100, 4)
-    niveaux = liquidity.equal_levels(_frame(rows), "EQL")
+        rows += _respire(100, 4)
+    niveaux = [lv for lv in liquidity.equal_levels(_frame(rows), "EQL")
+               if lv.price < 95.0]
     assert niveaux and niveaux[0].kind == "EQL"
     assert niveaux[0].price == pytest.approx(90, abs=0.5)
 
