@@ -279,6 +279,13 @@ def evaluate_sweep(m5: pd.DataFrame,
         timestamp=now,
         max_duration_min=MAX_DURATION_MIN,
         meta={
+            # Dupliqué ici volontairement : le live lit la durée maximale dans
+            # `pos.meta`, pas sur le Signal, et retombe sinon sur
+            # `strategy.MAX_TRADE_MINUTES` (75). Le pretrain, lui, lit
+            # `sig.max_duration_min` (240). Sans cette ligne, la même stratégie
+            # tiendrait ses trades trois fois moins longtemps en live qu'en
+            # backtest — et aucune erreur ne le signalerait.
+            "max_duration_min": MAX_DURATION_MIN,
             "niveau_h1": niveau,
             "extreme_h1": extreme_h1,
             "pdl": pdl,

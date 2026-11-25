@@ -295,3 +295,14 @@ def test_the_minimum_rr_is_off_by_default_and_can_be_switched_on():
     sig = _eval(_scenario())
     assert sig is not None
     assert _eval(_scenario(), min_rr=sig.meta["rr_tp1"] + 1.0) is None
+
+
+def test_the_max_duration_travels_in_the_meta_too():
+    """Le live lit la durée maximale dans `pos.meta` (défaut 75 min), le
+    pretrain sur `sig.max_duration_min` (240). Sans la clé dans le meta, la
+    même stratégie tiendrait ses trades trois fois moins longtemps en live
+    qu'en backtest, sans la moindre erreur visible. C'est la famille de bug qui
+    a déjà coûté le biais H1 à ce dépôt."""
+    sig = _eval(_scenario())
+    assert sig is not None
+    assert sig.meta["max_duration_min"] == sig.max_duration_min == ss.MAX_DURATION_MIN
