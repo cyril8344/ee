@@ -1399,7 +1399,7 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
                 <span style={{ fontSize: 18, fontWeight: 700,
                   color: mkt.daily_stopped ? COLORS.red : COLORS.text }}>
-                  {mkt.trades_today ?? state?.trades_today ?? 0} / {mkt.inst_settings?.max_trades_per_day ?? state?.max_trades_per_day ?? 4}
+                  {mkt.trades_today ?? state?.trades_today ?? 0} / {mkt.max_trades_effective ?? mkt.inst_settings?.max_trades_per_day ?? state?.max_trades_per_day ?? 4}
                   {mkt.daily_stopped && <span style={{ fontSize: 11, color: COLORS.red, marginLeft: 4 }}>🛑</span>}
                 </span>
                 <button onClick={handleResetDaily} title="Resynchroniser le compteur depuis la DB"
@@ -1569,7 +1569,7 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                     <Row k="Capital" v={`$${fmtUSD((mkt.risk ?? state?.risk)?.capital, 2)}`} />
                     <Row k="Risque / trade" v={`${fmt((mkt.risk ?? state?.risk)?.risk_per_trade_pct, 1)}% · $${fmtUSD((mkt.risk ?? state?.risk)?.risk_amount_usd, 2)}`} />
                     <Row k="Stop journalier" v={`-$${fmtUSD((mkt.risk ?? state?.risk)?.daily_loss_limit_usd, 0)}`} />
-                    <Row k="Trades max / jour" v={`${(mkt.risk ?? state?.risk)?.max_trades_per_day ?? "—"}`} />
+                    <Row k="Trades max / jour" v={`${(mkt.risk ?? state?.risk)?.max_trades_per_day_effective ?? (mkt.risk ?? state?.risk)?.max_trades_per_day ?? "—"}`} />
                   </>
                 )}
               </div>

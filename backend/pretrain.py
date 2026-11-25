@@ -316,6 +316,11 @@ def run_pretrain(
         rejection_counts: Dict[str, int] = {}  # compter les rejets par étape pipeline
         # Limite journalière (prétrain : 10 trades/jour max)
         max_trades_day = 10
+        if strategy_mode == "C":
+            # Même plafond que la boucle live pour la C (strategy_sweep.LIVE_*),
+            # sinon le backtest couperait des journées que le live trade.
+            import strategy_sweep as _ss_env
+            max_trades_day = _ss_env.LIVE_MAX_TRADES_PER_DAY
         _day_trades: Dict[str, int] = {}  # date_str → nb trades ce jour
 
         if write_to_db:

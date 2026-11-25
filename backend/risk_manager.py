@@ -62,6 +62,12 @@ class RiskManager:
     risk_per_trade_pct: float = 5.0
     max_trades_per_day: int = 4
     daily_stop_pct: float = 2.0
+    # Surcharges posées par le CODE pour une stratégie donnée (stratégie C sur
+    # l'or), jamais par les réglages : sync_from_settings() ne les touche pas et
+    # _sync_shared_risk_settings() (main.py) ne les recopie pas vers EUR/ES.
+    # None = suivre max_trades_per_day / daily_stop_pct comme avant.
+    max_trades_override: Optional[int] = None
+    daily_stop_override: Optional[float] = None
 
     # mutable daily state
     trades_today: int = 0
@@ -150,15 +156,25 @@ class RiskManager:
     # ------------------------------------------------------------------ #
     # Pre-trade gate
     # ------------------------------------------------------------------ #
+    @property
+    def effective_max_trades(self) -> int:
+        return (self.max_trades_override if self.max_trades_override is not None
+                else self.max_trades_per_day)
+
+    @property
+    def effective_daily_stop_pct(self) -> float:
+        return (self.daily_stop_override if self.daily_stop_override is not None
+                else self.daily_stop_pct)
+
     def can_open_trade(self, entry: float, stop: float,
                        contract_size: float = CONTRACT_SIZE) -> RiskDecision:
         if self.blocked:
             return RiskDecision(False, f"Bot blocked: {self.block_reason}")
 
-        if self.trades_today >= self.max_trades_per_day:
+        if self.trades_today >= self.effective_max_trades:
             return RiskDecision(
                 False,
-                f"Max trades/day reached ({self.max_trades_per_day})",
+                f"Max trades/day reached ({self.effective_max_trades})",
             )
 
         # Pre-emptive daily-stop check
@@ -210,7 +226,7 @@ class RiskManager:
                 return False  # pas de stop journalier pendant l'amorçage
         except Exception:
             pass
-        limit = -abs(self.start_equity_today * (self.daily_stop_pct / 100.0))
+        limit = -abs(self.start_equity_today * (self.effective_daily_stop_pct / 100.0))
         return self.realised_pnl_today <= limit
 
     def _reevaluate_block(self) -> None:
@@ -222,7 +238,7 @@ class RiskManager:
     # Reporting
     # ------------------------------------------------------------------ #
     def daily_loss_limit_usd(self) -> float:
-        return abs(self.start_equity_today * (self.daily_stop_pct / 100.0))
+        return abs(self.start_equity_today * (self.effective_daily_stop_pct / 100.0))
 
     def status(self) -> Dict[str, Any]:
         effective_risk_pct = self._effective_risk_pct()
@@ -235,12 +251,18 @@ class RiskManager:
                 max(0.0, (self.equity_peak - self.capital) / self.equity_peak * 100.0)
                 if self.equity_peak else 0.0, 2
             ),
+            # Valeurs des RÉGLAGES (le formulaire du dashboard les relit et
+            # les renvoie : y mettre la surcharge C la recopierait dans les
+            # réglages partagés, donc vers EUR/ES). Ce qui s'applique
+            # réellement est dans les clés *_effective.
             "daily_stop_pct": self.daily_stop_pct,
+            "daily_stop_pct_effective": self.effective_daily_stop_pct,
             "risk_amount_usd": round(
                 self.capital * (effective_risk_pct / 100.0), 2
             ),
             "trades_today": self.trades_today,
             "max_trades_per_day": self.max_trades_per_day,
+            "max_trades_per_day_effective": self.effective_max_trades,
             "realised_pnl_today": round(self.realised_pnl_today, 2),
             "realised_pnl_today_pct": round(
                 (self.realised_pnl_today / self.start_equity_today * 100.0)

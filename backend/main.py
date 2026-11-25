@@ -108,6 +108,32 @@ import pretrain_es_h1 as _pretrain_es_h1_module
 ES_INITIAL_CAPITAL = 10_000.0
 
 
+def _apply_strategy_c_envelope(risk: "RiskManager") -> None:
+    """Pose l'enveloppe live de la stratégie C (strategy_sweep.LIVE_*) sur le
+    RiskManager de l'or quand il tourne en C — et la retire sinon.
+
+    Surcharges en champs séparés : sync_from_settings() ne les écrase pas et
+    _sync_shared_risk_settings() ne les recopie pas vers EUR/ES.
+    """
+    import strategy_sweep as _ss
+    if MARKET_CONFIG["XAUUSD"].get("default_strategy", "A") == "C":
+        risk.max_trades_override = _ss.LIVE_MAX_TRADES_PER_DAY
+        risk.daily_stop_override = _ss.LIVE_DAILY_STOP_PCT
+    else:
+        risk.max_trades_override = None
+        risk.daily_stop_override = None
+
+
+def _inst_daily_stop_pct(ms) -> float:
+    """Stop journalier par instrument. Pour la C, l'enveloppe du code
+    (strategy_sweep.LIVE_DAILY_STOP_PCT) remplace le réglage (2 % par défaut,
+    qui arrêtait la journée dès la première perte pleine à 2 % de risque)."""
+    if ms.config.get("default_strategy", "A") == "C":
+        import strategy_sweep as _ss
+        return _ss.LIVE_DAILY_STOP_PCT
+    return ms.inst_settings.get("daily_stop_pct", 2.0)
+
+
 def _sync_shared_risk_settings(target: "RiskManager", source: "RiskManager") -> None:
     """Aligne risk_per_trade_pct/daily_stop_pct/max_trades_per_day de `target` sur
     `source` — sans toucher au capital (propre à chaque enveloppe isolée : ES via
@@ -223,6 +249,7 @@ class BotState:
                 self.settings = db.update_settings({"bot_enabled": True})
         self.risk = RiskManager()
         self.risk.sync_from_settings(self.settings)
+        _apply_strategy_c_envelope(self.risk)
         # ES : mêmes risk_per_trade_pct/max_trades_per_day/daily_stop_pct que XAU/EUR,
         # mais un capital propre (ES_INITIAL_CAPITAL) — l'économie des contrats ES
         # (minimum 1 contrat, ~175$ de risque au SL par défaut) n'a aucun sens avec le
@@ -382,7 +409,7 @@ class BotState:
             ms.trades_today = len(sym_trades)
             ms.pnl_today = sum(t.get("pnl") or 0.0 for t in sym_closed)
             ms.daily_stopped = False
-            _inst_stop_pct = ms.inst_settings.get("daily_stop_pct", 2.0)
+            _inst_stop_pct = _inst_daily_stop_pct(ms)
             if sym == "ES":
                 _base_eq = self.risk_es.capital
             elif sym == "EURUSD":
@@ -611,6 +638,10 @@ def _trading_tick_locked() -> Dict[str, Any]:
                 _inst_bad_hours = set(ms.inst_settings.get("bad_hours_cet", []))
                 _inst_bot_enabled = ms.inst_settings.get("bot_enabled", True)
                 _inst_max_trades = ms.inst_settings.get("max_trades_per_day", _risk_for(ms).max_trades_per_day)
+                if sym_strategy == "C":
+                    # Ancien plafond par instrument (4/jour) en stand-by pour la C.
+                    import strategy_sweep as _ss_env
+                    _inst_max_trades = _ss_env.LIVE_MAX_TRADES_PER_DAY
                 snap = snapshot(m5, m15, h1, atr_min_override=ms.config["atr_min"],
                                pattern_weights=state.pattern_weights,
                                adaptive_thresholds=ms.adaptive)
@@ -878,6 +909,10 @@ def _trading_tick_locked() -> Dict[str, Any]:
                     macro_blocked, macro_reason = state.macro.blocks_entry(ms.symbol, snap.get("bias", "NEUTRE"))
                 if macro_blocked:
                     state.push_alert("warn", f"[{ms.symbol}] Macro bloqué: {macro_reason}")
+                # Filtre actualités en stand-by pour la C (ancien paramétrage) :
+                # pretrain mode C ne le modélise pas, l'appliquer en live
+                # retirerait des trades que le backtest compte.
+                _news_blocked = bool(news_status["blocked"]) and sym_strategy != "C"
                 # Circuit breaker — lever la pause si le délai est écoulé
                 if ms.circuit_breaker_until is not None and now >= ms.circuit_breaker_until:
                     ms.circuit_breaker_until = None
@@ -890,7 +925,7 @@ def _trading_tick_locked() -> Dict[str, Any]:
                         _set_loop_gate("hors_session")
                     elif _risk_for(ms).blocked:
                         _set_loop_gate(f"risk: {_risk_for(ms).block_reason}")
-                    elif news_status["blocked"]:
+                    elif _news_blocked:
                         _set_loop_gate("actualités")
                     elif macro_blocked:
                         _set_loop_gate(f"macro: {macro_reason}")
@@ -916,7 +951,7 @@ def _trading_tick_locked() -> Dict[str, Any]:
                         and not ms.daily_stopped
                         and (_bs or (
                             not _risk_for(ms).blocked
-                            and not news_status["blocked"]
+                            and not _news_blocked
                             and not macro_blocked
                             and ms.circuit_breaker_until is None
                             and _inst_bot_enabled
@@ -1024,7 +1059,9 @@ def _trading_tick_locked() -> Dict[str, Any]:
         # ---- Determine overall bot status ----
         if state.risk.blocked:
             state.bot_status = "BLOQUE"
-        elif news_status["blocked"]:
+        elif news_status["blocked"] and not any(
+                m.config.get("default_strategy", "A") == "C"
+                for m in state.market_states.values()):
             state.bot_status = "BLOQUE"
         elif session is None and session_filter:
             state.bot_status = "EN VEILLE"
@@ -1105,7 +1142,7 @@ def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], 
 
     # Per-instrument P&L tracking and daily stop
     ms.pnl_today += pnl
-    _inst_stop_pct = ms.inst_settings.get("daily_stop_pct", 2.0)
+    _inst_stop_pct = _inst_daily_stop_pct(ms)
     _start_eq = _mkt_risk.start_equity_today or _mkt_risk.capital
     if not ms.daily_stopped and _start_eq > 0 and ms.pnl_today <= -abs(_start_eq * _inst_stop_pct / 100.0):
         ms.daily_stopped = True
@@ -1133,7 +1170,11 @@ def _finalize_trade(ms: MarketState, pos: Position, close_info: Dict[str, Any], 
     ms.recent_results.append(won)
     if len(ms.recent_results) > 15:
         ms.recent_results = ms.recent_results[-15:]
-    if len(ms.recent_results) >= 10:
+    # En stand-by pour la C : son seuil (WR < 38 % sur 10-15 trades) a été posé
+    # pour la géométrie de la A (TP1 0.7R / TP2 1.8R). La C a d'autres cibles,
+    # donc un autre WR d'équilibre, et pretrain C ne l'applique pas.
+    if (len(ms.recent_results) >= 10
+            and ms.config.get("default_strategy", "A") != "C"):
         rolling_wr = sum(ms.recent_results) / len(ms.recent_results)
         if rolling_wr < 0.38 and ms.circuit_breaker_until is None:
             ms.circuit_breaker_until = now + timedelta(hours=2)
@@ -1346,6 +1387,11 @@ def _public_state(session=None, news_status=None) -> Dict[str, Any]:
             "pnl_today": round(ms.pnl_today, 2),
             "daily_stopped": ms.daily_stopped,
             "inst_settings": ms.inst_settings,
+            # Plafond réellement appliqué par la boucle (la C remplace le réglage).
+            "max_trades_effective": (
+                __import__("strategy_sweep").LIVE_MAX_TRADES_PER_DAY
+                if ms.config.get("default_strategy", "A") == "C"
+                else ms.inst_settings.get("max_trades_per_day")),
         }
 
     return {
@@ -2071,6 +2117,7 @@ def write_settings(patch: SettingsPatch, _user: dict = Depends(get_current_user)
     with state.lock:
         state.settings = db.update_settings(data)
         state.risk.sync_from_settings(state.settings)
+        _apply_strategy_c_envelope(state.risk)
         _sync_shared_risk_settings(state.risk_es, state.risk)  # % partagés, capital ES inchangé
         _sync_shared_risk_settings(state.risk_eur, state.risk)  # % partagés, capital EUR inchangé
     return state.settings

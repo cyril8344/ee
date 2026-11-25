@@ -77,6 +77,29 @@ MIN_RR = 0.0
 ATR_PERIOD = 14
 MAX_DURATION_MIN = 240        # 4 h : l'horloge de la méthode est le H1, pas le M5
 
+# --------------------------------------------------------------------------- #
+# Enveloppe live — ce que la boucle de trading applique à la C sur l'or
+# --------------------------------------------------------------------------- #
+# Tout l'ancien paramétrage (celui de la A) est en STAND-BY pour la C : session,
+# heures bloquées, filtre macro, filtre actualités, circuit breaker, plafonds
+# par instrument. Il reste dans le code et s'applique toujours dès qu'on remet
+# "A" dans MARKET_CONFIG["XAUUSD"]["default_strategy"].
+#
+# Ces valeurs sont lues dans le CODE, pas dans les réglages SQLite : le
+# dashboard plafonne max_trades_per_day à 10 (RiskManager.sync_from_settings)
+# et BotState ramène toute valeur > 10 à 4 au démarrage, sans le dire. Un 15
+# saisi au dashboard serait donc redevenu 4 au premier redéploiement.
+#
+# ⚠️ Mesuré sur 131 jours de marche aléatoire calibrée or : 0.95 setup C
+# distinct par jour (max 6 un jour, 55 jours sur 131 avec au moins un). À ce
+# rythme le plafond ne lie quasiment jamais : relever le plafond ne crée pas de
+# trades, seule la règle les crée. Sur l'or réel, rien n'est encore mesuré.
+LIVE_MAX_TRADES_PER_DAY = 15
+# Stop journalier gardé (garde-fou du risk manager), relevé de 2 % à 10 % :
+# à 2 % de risque par trade, l'ancien 2 % arrêtait la journée dès la première
+# perte pleine, donc un test à 10-15 trades/jour était impossible.
+LIVE_DAILY_STOP_PCT = 10.0
+
 
 def _atr(df: pd.DataFrame, period: int = ATR_PERIOD) -> float:
     """ATR du dernier chandelier, ou NaN si la série est trop courte."""
