@@ -122,6 +122,18 @@ def _sync_shared_risk_settings(target: "RiskManager", source: "RiskManager") -> 
 
 MARKET_CONFIG = {
     "XAUUSD": {
+        # Stratégie C (balayage/récupération D1→H1→M15, strategy_sweep.py).
+        # La A reste dans le code et reste testable en pretrain : elle n'est
+        # simplement plus branchée sur l'or. Revenir en arrière = remettre "A"
+        # sur cette seule ligne.
+        #
+        # ⚠️ AUCUN walk-forward n'a validé la C à ce jour. Décision humaine
+        # explicite, prise en connaissance de cause : la A mesurait PF 0.89–1.03
+        # sur 24 mois, donc perdante, mais la C n'est pas mesurée du tout. Le
+        # seul chiffre disponible, le R:R médian de 0.59 au TP1 sur séries
+        # simulées, penche du mauvais côté. À faire tourner en pretrain puis en
+        # walk-forward dès que possible.
+        "default_strategy": "C",
         "name": "XAU/USD",
         "atr_min": 0.8,
         "contract_size": 100.0,
@@ -844,11 +856,26 @@ def _trading_tick_locked() -> Dict[str, Any]:
                 # strategy_es.evaluate() applique déjà son propre gate de session RTH,
                 # donc le gate CET générique ne s'applique pas ici (il bloquerait
                 # quasiment tous les trades ES sinon).
+                # La C ne connaît pas les sessions : la méthode qu'elle
+                # transcrit n'en parle pas, et pretrain la fait tourner sans ce
+                # filtre. Le laisser ici ferait diverger le live du backtest —
+                # exactement le défaut qui a coûté le biais H1 à ce dépôt.
                 can_enter_session = (
-                    True if sym_strategy == "ES"
+                    True if sym_strategy in ("ES", "C")
                     else (session is not None) or (not session_filter)
                 )
-                macro_blocked, macro_reason = state.macro.blocks_entry(ms.symbol, snap.get("bias", "NEUTRE"))
+                # La C est exclue du filtre macro. Il juge un LONG/SHORT sur
+                # snap["bias"], qui est le biais EMA H1 de la stratégie A — pas
+                # le sens de la C, fixé par le balayage journalier. Mesuré sur
+                # la règle : quand les deux donnent un sens, ils ne sont
+                # d'accord que 30 % du temps. Appliqué tel quel, il bloquait
+                # des SHORT C parce que la A voyait un LONG, et laissait passer
+                # l'inverse ; et pretrain mode C ne l'applique pas, donc le
+                # live aurait divergé du backtest comme pour la session.
+                if sym_strategy == "C":
+                    macro_blocked, macro_reason = False, ""
+                else:
+                    macro_blocked, macro_reason = state.macro.blocks_entry(ms.symbol, snap.get("bias", "NEUTRE"))
                 if macro_blocked:
                     state.push_alert("warn", f"[{ms.symbol}] Macro bloqué: {macro_reason}")
                 # Circuit breaker — lever la pause si le délai est écoulé
@@ -894,7 +921,24 @@ def _trading_tick_locked() -> Dict[str, Any]:
                             and ms.circuit_breaker_until is None
                             and _inst_bot_enabled
                         ))):
-                    if sym_strategy == "B":
+                    if sym_strategy == "C":
+                        from strategy_sweep import (evaluate_sweep as _eval_sweep,
+                                                    resample as _rs_sweep)
+                        # Les frames sont REFABRIQUÉES ici au lieu de réutiliser
+                        # m15/h1 : build_context() agrège en label="right" alors
+                        # que pretrain (et strategy_sweep.resample) agrègent en
+                        # label="left". Réutiliser les frames du contexte ferait
+                        # lire à _closed() des bornes décalées d'une bougie, donc
+                        # un live qui ne calcule pas la même chose que le
+                        # backtest, sans la moindre erreur visible.
+                        _rlogc: Dict[str, Any] = {}
+                        sig = _eval_sweep(m5, _rs_sweep(m5, "15min"),
+                                          _rs_sweep(m5, "60min"), _rs_sweep(m5, "1D"),
+                                          now=now, _reject_log=_rlogc)
+                        if sig is None and _rlogc:
+                            ms.last_snapshot["reject_log"] = _rlogc
+                            _set_loop_gate("evaluate_sweep: " + list(_rlogc.keys())[0])
+                    elif sym_strategy == "B":
                         from strategy_ict import evaluate_ict as _eval_ict
                         sig = _eval_ict(m5, m15, h1, now=now,
                                         check_session=session_filter,

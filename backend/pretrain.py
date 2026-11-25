@@ -32,6 +32,7 @@ from strategy import (
 )
 import strategy_ict
 from strategy_ict import evaluate_ict
+from strategy_sweep import evaluate_sweep
 from backtest import load_m5_data, resample, _try_exit
 import database as db
 import data_provider as _dp
@@ -263,6 +264,10 @@ def run_pretrain(
         m15_full = add_indicators(resample(m5_raw, _tf["mid"]))
         h1_full  = add_indicators(resample(m5_raw, _tf["high"]))
         h4_full  = add_indicators(resample(m5_raw, _tf["top"]))
+        # Journalier, pour le mode C uniquement. Calculé UNE fois : le
+        # resampler à chaque bougie rendrait la boucle quadratique — sur deux
+        # ans de M5 c'est la différence entre une minute et plusieurs heures.
+        d1_full  = resample(m5_raw, "1D")
         # ---- Initialiser les systèmes d'apprentissage ----
         # Les instances pretrain ne sauvegardent JAMAIS en DB (isolation totale)
         # pour éviter que l'entraînement sur données historiques écrase ce que
@@ -471,8 +476,12 @@ def run_pretrain(
             # Pré-filtrage session rapide (évite 80 % des appels evaluate) — on
             # tague quand même le rejet, sinon ces bougies (≈2/3 des heures d'une
             # journée) disparaissent silencieusement du diagnostic rejection_counts.
+            # Le mode C est volontairement hors de ce pré-filtre : la méthode
+            # qu'il transcrit ne dit rien des sessions, et la lui imposer
+            # reviendrait à tester « la méthode ET notre horaire » au lieu de
+            # la méthode. C'est toute la raison d'être d'un mode séparé.
             sess = active_session(ts.to_pydatetime())
-            if sess is None:
+            if strategy_mode != "C" and sess is None:
                 rejection_counts["session"] = rejection_counts.get("session", 0) + 1
                 continue
 
@@ -481,7 +490,13 @@ def run_pretrain(
 
             # evaluate() / evaluate_ict() SANS ml_gate ni adaptive → signal brut
             h4_s = None
-            if strategy_mode == "B":
+            if strategy_mode == "C":
+                d1_s = d1_full.iloc[:d1_full.index.searchsorted(ts, side="right")]
+                sig = evaluate_sweep(
+                    m5.iloc[max(0, i - 288): i + 1], m15_s, h1_s, d1_s,
+                    now=ts.to_pydatetime(), _reject_log=rejection_counts,
+                )
+            elif strategy_mode == "B":
                 ICT_M5_WINDOW = 576
                 m5_win = m5.iloc[max(0, i - ICT_M5_WINDOW + 1): i + 1]
                 sig = evaluate_ict(m5_win, m15_s, h1_s, now=ts.to_pydatetime(),
