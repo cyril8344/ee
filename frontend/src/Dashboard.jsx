@@ -108,16 +108,51 @@ function useBeep() {
   }, []);
 }
 
+/* ====================== Stratégie C — étapes en clair ===================== */
+// Critères mesurés, jamais de verdict : chaque étape dit si elle est remplie et
+// à quel niveau ; la première qui ne l'est pas porte son motif tel que la
+// stratégie le renvoie.
+function SweepSteps({ t }) {
+  const f = (x) => (x == null ? "—" : Number(x).toFixed(2));
+  const hm = (iso) => iso ? new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit",
+    hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" }) : "";
+  const sens = t.etape1?.sens === "bullish" ? "achat" : t.etape1?.sens === "bearish" ? "vente" : null;
+  const steps = [
+    ["1 · Balayage Daily", t.etape1, t.etape1 && `${sens} — niveau ${f(t.etape1.niveau_balaye)} (PDH ${f(t.pdh)} · PDL ${f(t.pdl)})`],
+    ["2 · Setup H1", t.etape2, t.etape2 && `bougie ${hm(t.etape2.bougie_h1)} — niveau ${f(t.etape2.niveau_h1)}, cible ${f(t.etape2.extreme_h1)}`],
+    ["3a · Cassure M15", t.cassure_m15, t.cassure_m15 && hm(t.cassure_m15)],
+    ["3b · Order Block", t.order_block, t.order_block && `${f(t.order_block.bas)} – ${f(t.order_block.haut)} · prix ${f(t.prix)}`],
+    ["Niveaux", t.niveaux, t.niveaux && `entrée ${f(t.niveaux.entree)} · SL ${f(t.niveaux.sl)} · TP1 ${f(t.niveaux.tp1)} · TP2 ${f(t.niveaux.tp2)}${t.rr_tp1 != null ? ` · R:R TP1 ${Number(t.rr_tp1).toFixed(2)}` : ""}`],
+  ];
+  return (
+    <div style={{ marginTop: 8, fontSize: 11, color: COLORS.sub, lineHeight: 1.6 }}>
+      <div style={{ color: COLORS.amber, fontWeight: 600 }}>Stratégie C — étapes (non validée)</div>
+      {steps.map(([label, ok, detail]) => (
+        <div key={label}>
+          <span style={{ color: ok ? COLORS.green : COLORS.sub }}>{ok ? "✓" : "·"}</span> {label}
+          {detail ? <span> : {detail}</span> : null}
+        </div>
+      ))}
+      <div>
+        {t.signal
+          ? <span style={{ color: COLORS.amber }}>Toutes les étapes sont remplies sur la dernière bougie.</span>
+          : <span>Bloqué à : <code>{t.bloque_a || "—"}</code></span>}
+      </div>
+    </div>
+  );
+}
+
 /* ============================= TradingView chart ========================== */
 const getChartH = () => (typeof window !== "undefined" && window.innerWidth <= 768 ? 240 : 480);
 
-function TvChart({ candles, markers, levels, orderBlocks, position, symbol, livePrice }) {
+function TvChart({ candles, markers, levels, orderBlocks, position, symbol, livePrice, sweepC }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const seriesRef = useRef({});
   const srLinesRef = useRef([]);
   const obLinesRef = useRef([]);
   const posLinesRef = useRef([]);
+  const sweepLinesRef = useRef([]);
   const markersPluginRef = useRef(null);
   const lastCandleRef = useRef(null);
   const isForex = symbol === "EURUSD";
@@ -209,6 +244,13 @@ function TvChart({ candles, markers, levels, orderBlocks, position, symbol, live
           shape: m.direction === "long" ? "arrowUp" : "arrowDown",
           text: m.direction === "long" ? "L" : "S",
         });
+      } else if (m.type === "sweep") {
+        // Étapes de la stratégie C (balayage H1, Order Block, cassure M15)
+        marks.push({
+          time: t,
+          position: m.direction === "long" ? "belowBar" : "aboveBar",
+          color: "#f0b429", shape: "square", text: m.text,
+        });
       } else if (m.type === "exit") {
         marks.push({ time: t, position: "aboveBar", color: "#9598a1", shape: "circle", text: "X" });
       }
@@ -268,6 +310,37 @@ function TvChart({ candles, markers, levels, orderBlocks, position, symbol, live
       close: livePrice,
     });
   }, [livePrice]);
+
+  // Stratégie C : niveaux calculés par strategy_sweep.evaluate_sweep (la même
+  // fonction que la boucle live). PDH/PDL, niveau balayé et extrême H1 dès
+  // qu'ils existent ; entrée/SL/TP seulement si toutes les étapes sont remplies
+  // et qu'aucune position n'est ouverte (sinon ce sont celles de la position).
+  useEffect(() => {
+    const s = seriesRef.current;
+    if (!s.candle) return;
+    sweepLinesRef.current.forEach((pl) => s.candle.removePriceLine(pl));
+    sweepLinesRef.current = [];
+    if (!sweepC) return;
+    const add = (price, color, title, lineStyle = 2) => {
+      if (price == null || !isFinite(price)) return;
+      sweepLinesRef.current.push(s.candle.createPriceLine({
+        price, color, lineWidth: 1, lineStyle, axisLabelVisible: true, title,
+      }));
+    };
+    add(sweepC.pdh, "#9598a1", "PDH", 1);
+    add(sweepC.pdl, "#9598a1", "PDL", 1);
+    const bull = sweepC.etape1?.sens === "bullish";
+    if (sweepC.etape2) {
+      add(sweepC.etape2.niveau_h1, "#f0b429", "Niveau H1 balayé", 2);
+      add(sweepC.etape2.extreme_h1, "#f0b42988", bull ? "Plus haut H1" : "Plus bas H1", 3);
+    }
+    if (sweepC.niveaux && !position) {
+      add(sweepC.niveaux.entree, "#f0b429", "C entrée", 0);
+      add(sweepC.niveaux.sl, "#ea3943", "C SL", 0);
+      add(sweepC.niveaux.tp1, "#16c784", "C TP1", 0);
+      add(sweepC.niveaux.tp2, "#16c784aa", "C TP2", 1);
+    }
+  }, [sweepC, position]);
 
   // Position SL / TP lines
   useEffect(() => {
@@ -1369,7 +1442,8 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
               </div>
               <TvChart candles={chart?.candles} markers={chart?.markers} levels={chart?.levels}
                 orderBlocks={chart?.order_blocks} position={pos} symbol={activeMarket}
-                livePrice={mkt.price} />
+                livePrice={mkt.price} sweepC={chart?.sweep_c} />
+              {chart?.sweep_c && <SweepSteps t={chart.sweep_c} />}
               <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 11, color: COLORS.sub, flexWrap: "wrap" }}>
                 <Legend c={COLORS.amber} t="EMA9" /><Legend c={COLORS.blue} t="EMA21" />
                 <Legend c="#c084fc" t="EMA200" />
