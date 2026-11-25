@@ -864,7 +864,18 @@ def _trading_tick_locked() -> Dict[str, Any]:
                     True if sym_strategy in ("ES", "C")
                     else (session is not None) or (not session_filter)
                 )
-                macro_blocked, macro_reason = state.macro.blocks_entry(ms.symbol, snap.get("bias", "NEUTRE"))
+                # La C est exclue du filtre macro. Il juge un LONG/SHORT sur
+                # snap["bias"], qui est le biais EMA H1 de la stratégie A — pas
+                # le sens de la C, fixé par le balayage journalier. Mesuré sur
+                # la règle : quand les deux donnent un sens, ils ne sont
+                # d'accord que 30 % du temps. Appliqué tel quel, il bloquait
+                # des SHORT C parce que la A voyait un LONG, et laissait passer
+                # l'inverse ; et pretrain mode C ne l'applique pas, donc le
+                # live aurait divergé du backtest comme pour la session.
+                if sym_strategy == "C":
+                    macro_blocked, macro_reason = False, ""
+                else:
+                    macro_blocked, macro_reason = state.macro.blocks_entry(ms.symbol, snap.get("bias", "NEUTRE"))
                 if macro_blocked:
                     state.push_alert("warn", f"[{ms.symbol}] Macro bloqué: {macro_reason}")
                 # Circuit breaker — lever la pause si le délai est écoulé

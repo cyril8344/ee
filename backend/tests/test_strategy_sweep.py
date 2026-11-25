@@ -135,12 +135,15 @@ def test_the_three_steps_together_produce_a_signal():
 
 
 def test_the_levels_follow_the_documented_conventions():
-    """Entrée au bord de l'Order Block, stop derrière lui moins la marge, TP1
-    un peu sous le plus haut H1. Tout doit se retrouver à la main."""
-    sig = _eval(_scenario())
+    """Entrée au prix courant (revenu dans l'Order Block), stop derrière l'OB
+    moins la marge, TP1 un peu sous le plus haut H1. Tout doit se retrouver à
+    la main."""
+    m5 = _scenario()
+    sig = _eval(m5)
     assert sig is not None
     m = sig.meta
-    assert sig.entry == pytest.approx(m["ob_haut"])
+    assert sig.entry == pytest.approx(float(m5["close"].iloc[-1]))
+    assert m["ob_bas"] <= sig.entry <= m["ob_haut"]
     assert sig.stop_loss == pytest.approx(
         m["ob_bas"] - ss.SL_MARGIN_ATR * sig.atr)
     assert sig.take_profit1 == pytest.approx(
@@ -306,3 +309,24 @@ def test_the_max_duration_travels_in_the_meta_too():
     sig = _eval(_scenario())
     assert sig is not None
     assert sig.meta["max_duration_min"] == sig.max_duration_min == ss.MAX_DURATION_MIN
+
+
+def test_the_entry_is_the_price_a_market_order_would_get():
+    """Le live remplit au marché, au dernier close (`PaperBroker.market_order`),
+    pretrain remplit à `sig.entry`. Les deux doivent être le même prix, sinon
+    le backtest mesure une entrée que le live ne prend jamais."""
+    m5 = _scenario()
+    sig = _eval(m5)
+    assert sig is not None
+    assert sig.entry == float(m5["close"].iloc[-1])
+
+
+def test_the_meta_survives_the_database_write():
+    """`_open_trade` écrit `sig.meta` en base via json.dumps, APRÈS l'ouverture
+    chez le broker. Un champ non sérialisable (un pd.Timestamp, par exemple)
+    y lève : la position est ouverte mais jamais enregistrée — absente de
+    l'historique, des rapports, et perdue au redémarrage, sans alerte."""
+    import json
+    sig = _eval(_scenario())
+    assert sig is not None
+    json.dumps({"ticket": 1, "reason": sig.reason, **sig.meta})

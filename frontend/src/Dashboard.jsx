@@ -1146,7 +1146,10 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
   };
 
   // Strategy is fixed per symbol — EURUSD always uses B (ICT), others use A (EMA)
-  const strategyMode = activeMarket === "EURUSD" ? "B" : "A";
+  // Doit suivre MARKET_CONFIG[...]["default_strategy"] côté backend : l'or tourne
+  // en C en live. Laisser "A" ici faisait lancer pretrain et walk-forward sur la
+  // stratégie A depuis le dashboard, pendant que le live tournait en C.
+  const strategyMode = activeMarket === "EURUSD" ? "B" : "C";
 
   // Résultat prétrain de la stratégie active (séparé par stratégie)
   const currentPretrainResult = pretrainStatus?.last_by_strategy?.[strategyMode]
@@ -1680,7 +1683,7 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                   {isSectionOpen("tools") && (
                   <div style={{ marginTop: 6, borderTop: `1px solid ${COLORS.border}`, paddingTop: 6 }}>
                     <div style={{ fontSize: 10, color: strategyMode === "B" ? COLORS.blue : COLORS.amber, fontWeight: 600, marginBottom: 6 }}>
-                      Prétrain {strategyMode === "A" ? "XAU/USD — Strat A" : "EUR/USD — Strat B"}
+                      Prétrain {strategyMode === "B" ? "EUR/USD — Strat B" : `XAU/USD — Strat ${strategyMode}`}
                     </div>
                     {/* Sélecteur de période */}
                     {!isPretrainRunningForMe && (
@@ -3414,7 +3417,7 @@ export default function Dashboard({ onLogout, onNavigateES, lockMarket, onNaviga
                   background: strategyMode === "B" ? COLORS.blue + "22" : COLORS.amber + "22",
                   border: `1px solid ${strategyMode === "B" ? COLORS.blue : COLORS.amber}55`,
                   color: strategyMode === "B" ? COLORS.blue : COLORS.amber, textAlign: "center" }}>
-                  {activeMarket === "EURUSD" ? "EUR/USD → ICT / Order Blocks (B)" : "XAU/USD → EMA / Patterns (A)"}
+                  {activeMarket === "EURUSD" ? "EUR/USD → ICT / Order Blocks (B)" : "XAU/USD → Balayage D1→H1→M15 (C, non validée)"}
                 </div>
               </div>
 

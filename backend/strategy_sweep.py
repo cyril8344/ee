@@ -238,14 +238,20 @@ def evaluate_sweep(m5: pd.DataFrame,
         rejet("atr_indisponible"); return None
 
     pdh, pdl = float(d1c["high"].iloc[-1]), float(d1c["low"].iloc[-1])
+    # Entrée au PRIX COURANT, pas au bord de l'Order Block. Le live n'envoie
+    # que des ordres au marché (`PaperBroker.market_order` remplit au dernier
+    # close), alors que pretrain remplit à `sig.entry`. Avec `entry = ob_haut`,
+    # le backtest aurait acheté au bord haut de la zone pendant que le live
+    # achetait plus bas dans la zone — R différent, et lot dimensionné sur une
+    # distance au SL que le live n'avait pas, sans aucune erreur visible. Le
+    # bord de la zone reste dans le meta (`ob_haut` / `ob_bas`).
+    entry = prix
     if sens == "bullish":
-        entry = ob_haut
         stop = ob_bas - sl_margin_atr * atr
         tp1 = extreme_h1 - tp1_margin_atr * atr
         tp2 = max(pdh, tp1)                        # PDH : liquidité opposée
         valide = stop < entry < tp1
     else:
-        entry = ob_bas
         stop = ob_haut + sl_margin_atr * atr
         tp1 = extreme_h1 + tp1_margin_atr * atr
         tp2 = min(pdl, tp1)
@@ -291,7 +297,12 @@ def evaluate_sweep(m5: pd.DataFrame,
             "pdl": pdl,
             "pdh": pdh,
             "tp2_sur_liquidite": tp2_sur_liquidite,
-            "ob_ts": apres.index[ob],
+            # En chaîne ISO, pas en pd.Timestamp : `_open_trade` sérialise le
+            # meta avec json.dumps (database.insert_trade). Un Timestamp y lève
+            # APRÈS l'ouverture chez le broker — position ouverte, jamais écrite
+            # en base, donc absente de l'historique et des rapports, et perdue
+            # au redémarrage. Même convention que strategy_ict (`ob_ts_str`).
+            "ob_ts": apres.index[ob].isoformat(),
             "ob_haut": ob_haut,
             "ob_bas": ob_bas,
             "rr_tp1": rr,
