@@ -122,15 +122,27 @@ def evaluate_sweep(m5: pd.DataFrame,
                    ob_lookback_bars: int = OB_LOOKBACK_BARS,
                    min_rr: float = MIN_RR,
                    _reject_log: Optional[Dict[str, int]] = None,
+                   _trace: Optional[Dict[str, Any]] = None,
                    ) -> Optional[Signal]:
     """Les trois étapes, dans l'ordre. `None` dès qu'une n'est pas remplie.
 
     L'ordre compte : le journalier fixe le sens, jamais l'inverse. Sans ça une
     mèche de M15 déciderait du biais de la journée.
     """
+    # `_trace` reçoit, étape par étape, ce que la fonction a calculé, et le
+    # motif de l'étape qui a bloqué. C'est ce que dessine le graphique du
+    # dashboard : il appelle CETTE fonction au lieu de recalculer les niveaux
+    # de son côté, sinon le graphique et la boucle live finiraient par ne plus
+    # désigner les mêmes zones, sans que rien ne le signale.
+    trace: Dict[str, Any] = _trace if _trace is not None else {}
+
+    def note(**kw: Any) -> None:
+        trace.update(kw)
+
     def rejet(motif: str) -> None:
         if _reject_log is not None:
             _reject_log[motif] = _reject_log.get(motif, 0) + 1
+        note(bloque_a=motif)
 
     if m5 is None or m5.empty:
         rejet("m5_vide"); return None
@@ -149,6 +161,9 @@ def evaluate_sweep(m5: pd.DataFrame,
         rejet("etape1_pas_de_balayage_d1"); return None
     sens = jour.direction
     direction = "long" if sens == "bullish" else "short"
+    note(etape1={"sens": sens, "jour": d1c.index[-1].isoformat(),
+                 "niveau_balaye": float(jour.niveau)},
+         pdh=float(d1c["high"].iloc[-1]), pdl=float(d1c["low"].iloc[-1]))
 
     # --- Étape 2 : setup H1, même sens, récent ------------------------------
     if len(h1c) < 2:
@@ -172,6 +187,8 @@ def evaluate_sweep(m5: pd.DataFrame,
     niveau = setup.niveau
     extreme_h1 = (float(h1c["high"].values[ref]) if sens == "bullish"
                   else float(h1c["low"].values[ref]))
+    note(etape2={"bougie_h1": h1c.index[setup.index].isoformat(),
+                 "niveau_h1": float(niveau), "extreme_h1": extreme_h1})
 
     # --- Étape 3 : cassure M15 puis retour sur l'Order Block ----------------
     if len(m15c) < 3:
@@ -206,6 +223,7 @@ def evaluate_sweep(m5: pd.DataFrame,
             break
     if cassure is None:
         rejet("etape3_pas_de_cassure"); return None
+    note(cassure_m15=apres.index[cassure].isoformat())
     if (len(apres) - 1 - cassure) > m15_break_max_bars:
         rejet("etape3_cassure_trop_ancienne"); return None
 
@@ -225,6 +243,8 @@ def evaluate_sweep(m5: pd.DataFrame,
         rejet("etape3_pas_d_order_block"); return None
 
     ob_haut, ob_bas = float(highs[ob]), float(lows[ob])
+    note(order_block={"bougie_m15": apres.index[ob].isoformat(),
+                      "haut": ob_haut, "bas": ob_bas}, prix=prix)
     if ob_haut <= ob_bas:
         rejet("ob_degenere"); return None
 
@@ -264,6 +284,7 @@ def evaluate_sweep(m5: pd.DataFrame,
     # rendre une seconde cible fabriquée.
     tp2_sur_liquidite = (tp2 != tp1)
 
+    note(niveaux={"entree": entry, "sl": stop, "tp1": tp1, "tp2": tp2})
     risque = abs(entry - stop)
     if risque <= 0:
         rejet("risque_nul"); return None
@@ -271,6 +292,7 @@ def evaluate_sweep(m5: pd.DataFrame,
     if min_rr > 0 and rr < min_rr:
         rejet("rr_insuffisant"); return None
 
+    note(signal=True, rr_tp1=rr)
     return Signal(
         direction=direction,
         bias="LONG" if direction == "long" else "SHORT",

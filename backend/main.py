@@ -1621,7 +1621,55 @@ def get_chart(tf: str = "M5", symbol: str = "XAUUSD", _user: dict = Depends(get_
                 "price": t.get("exit_price"), "pnl": t.get("pnl"),
             })
 
-    if ms.config.get("default_strategy", "A") == "B":
+    sweep_c = None
+    if ms.config.get("default_strategy", "A") == "C":
+        # Stratégie C : le graphique montre ce que la boucle live calcule, en
+        # appelant la MÊME fonction sur les MÊMES données (CONTEXT_BARS_M5 du
+        # broker, frames refabriquées par strategy_sweep.resample en
+        # label="left", comme dans _trading_tick_locked). Recalculer les
+        # niveaux ici ferait tôt ou tard désigner au graphique d'autres zones
+        # que celles sur lesquelles le bot entre.
+        # Le détecteur d'OB générique (strategy.find_order_blocks, Strat A)
+        # n'est PAS affiché pour la C : il contredirait l'Order Block retenu.
+        from strategy_sweep import evaluate_sweep as _eval_sweep, resample as _rs_sweep
+        _m5c = ms.broker.get_rates_m5(CONTEXT_BARS_M5)
+        _trace: Dict[str, Any] = {}
+        try:
+            _eval_sweep(_m5c, _rs_sweep(_m5c, "15min"), _rs_sweep(_m5c, "60min"),
+                        _rs_sweep(_m5c, "1D"), now=datetime.now(timezone.utc),
+                        _trace=_trace)
+        except Exception as exc:  # le graphique ne doit jamais tomber pour ça
+            _trace = {"bloque_a": f"erreur: {exc}"}
+        sweep_c = _trace
+        # Repères des étapes sur les bougies affichées. Les frames de la C sont
+        # en label="left" (horodatage = début de bougie) ; celles du graphique
+        # M15/H1 en label="right" (fin de bougie). Le repère va donc sur la
+        # première bougie affichée qui CONTIENT l'instant : >= en M5 (mêmes
+        # horodatages), > au-dessus.
+        _cts = [pd.Timestamp(c["time"]) for c in candles]
+        _strict = tf.upper() != "M5"
+
+        def _snap(iso):
+            t = pd.Timestamp(iso)
+            for c, ct in zip(candles, _cts):
+                if (ct > t) if _strict else (ct >= t):
+                    return c["time"]
+            return None
+
+        for _label, _iso in (
+            ("Balayage H1", (_trace.get("etape2") or {}).get("bougie_h1")),
+            ("OB", (_trace.get("order_block") or {}).get("bougie_m15")),
+            ("Cassure M15", _trace.get("cassure_m15")),
+        ):
+            if _iso and (_t := _snap(_iso)):
+                markers.append({"time": _t, "type": "sweep", "text": _label,
+                                "direction": "long" if (_trace.get("etape1") or {}).get("sens") == "bullish" else "short"})
+        obs = []
+        _ob = _trace.get("order_block")
+        if _ob:
+            _sens = (_trace.get("etape1") or {}).get("sens", "bullish")
+            obs = [{"type": _sens, "low": _ob["bas"], "high": _ob["haut"]}]
+    elif ms.config.get("default_strategy", "A") == "B":
         # Strategy B (EUR/USD) : le graphique doit afficher les OBs détectés par
         # l'algorithme ICT réellement utilisé par la boucle live (strategy_ict.
         # _find_order_blocks — contrarian + impulse + BOS + non-mitigée [+ liquidité]),
@@ -1641,7 +1689,8 @@ def get_chart(tf: str = "M5", symbol: str = "XAUUSD", _user: dict = Depends(get_
     order_blocks = [{"type": ob["type"], "low": round(ob["low"], 5), "high": round(ob["high"], 5)} for ob in obs]
 
     return {"timeframe": tf.upper(), "symbol": symbol, "candles": candles,
-            "levels": levels, "markers": markers, "order_blocks": order_blocks}
+            "levels": levels, "markers": markers, "order_blocks": order_blocks,
+            "sweep_c": sweep_c}
 
 
 @app.get("/api/levels")

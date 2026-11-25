@@ -330,3 +330,44 @@ def test_the_meta_survives_the_database_write():
     sig = _eval(_scenario())
     assert sig is not None
     json.dumps({"ticket": 1, "reason": sig.reason, **sig.meta})
+
+
+# --------------------------------------------------------------------------- #
+# Ce que dessine le graphique du dashboard
+# --------------------------------------------------------------------------- #
+def test_the_trace_holds_every_level_the_signal_uses():
+    """Le graphique dessine `_trace`, la boucle live trade le Signal. Les deux
+    sortent du même appel : s'ils divergeaient, le graphique montrerait une
+    entrée que le bot ne prend pas."""
+    tr = {}
+    sig = _eval(_scenario(), _trace=tr)
+    assert sig is not None
+    assert tr["signal"] is True and "bloque_a" not in tr
+    assert tr["etape1"]["sens"] == "bullish"
+    assert tr["etape2"]["niveau_h1"] == pytest.approx(sig.meta["niveau_h1"])
+    assert tr["order_block"]["haut"] == pytest.approx(sig.meta["ob_haut"])
+    assert tr["order_block"]["bas"] == pytest.approx(sig.meta["ob_bas"])
+    n = tr["niveaux"]
+    assert (n["entree"], n["sl"], n["tp1"], n["tp2"]) == pytest.approx(
+        (sig.entry, sig.stop_loss, sig.take_profit1, sig.take_profit2))
+    assert tr["pdh"] == pytest.approx(sig.meta["pdh"])
+    assert tr["pdl"] == pytest.approx(sig.meta["pdl"])
+
+
+def test_a_blocked_trace_names_its_step_and_keeps_what_was_found():
+    """Un blanc se lit comme une panne : quand une étape bloque, la trace dit
+    laquelle, avec le motif exact du rejet, et garde les étapes déjà remplies."""
+    motifs, tr = {}, {}
+    sig = _eval(_scenario(), min_rr=1e9, _reject_log=motifs, _trace=tr)
+    assert sig is None
+    assert tr["bloque_a"] == "rr_insuffisant" == next(iter(motifs))
+    assert "signal" not in tr
+    assert "etape1" in tr and "etape2" in tr and "order_block" in tr
+
+
+def test_the_trace_is_json_serialisable():
+    """Elle part telle quelle dans la réponse de /api/chart."""
+    import json
+    tr = {}
+    _eval(_scenario(), _trace=tr)
+    json.dumps(tr)
