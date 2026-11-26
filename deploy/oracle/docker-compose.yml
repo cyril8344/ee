@@ -1,0 +1,52 @@
+# ============================================================================
+# Déploiement VM (Oracle Cloud Always Free).
+# Lancé par install.sh / update.sh depuis la racine du dépôt :
+#   docker compose -f deploy/oracle/docker-compose.yml --env-file .env up -d --build
+#
+# - bot   : FastAPI + boucle de trading + dashboard (port 8000, non exposé)
+# - caddy : HTTPS automatique (Let's Encrypt) devant le bot, ports 80/443.
+#           DOMAIN est écrit dans .env par install.sh (<ip>.sslip.io par défaut).
+# ============================================================================
+services:
+  bot:
+    build:
+      context: ../..
+      dockerfile: deploy/oracle/Dockerfile
+    image: xau-bot:latest
+    container_name: xau-bot
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      - XAU_DB_PATH=/data/xau_bot.db
+    volumes:
+      # Base SQLite + fichiers d'état : sur le disque de la VM, survit aux
+      # rebuilds et aux redémarrages.
+      - ${XAU_DATA_DIR:-/var/lib/xau-bot}:/data
+    expose:
+      - "8000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  caddy:
+    image: caddy:2
+    container_name: xau-caddy
+    restart: unless-stopped
+    depends_on:
+      - bot
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:?DOMAIN manquant dans .env (relancer install.sh)}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  caddy-data:
+  caddy-config:

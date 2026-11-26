@@ -1,0 +1,5 @@
+# HTTPS automatique pour le dashboard. Le WebSocket /ws passe tel quel.
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy bot:8000
+}

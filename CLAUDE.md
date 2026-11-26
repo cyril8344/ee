@@ -113,8 +113,10 @@ FastAPI app with a background asyncio trading loop. Key endpoints:
 
 Railway auto-deploys from `main` via nixpacks. Build: Python 3.12 venv + `npm run build` in `frontend/`. Start: `uvicorn --app-dir backend main:app`. Frontend static files are served by nginx inside the frontend container; nginx also reverse-proxies `/api/` and `/ws` to the backend container.
 
+**VM Oracle Cloud Always Free (`deploy/oracle/`, novembre 2026)** — alternative gratuite à Railway. Une seule image (`deploy/oracle/Dockerfile`, même build que nixpacks : Python 3.12 + `npm run build`, uvicorn sert l'API et `frontend/dist`) + Caddy pour le HTTPS automatique sur `<ip>.sslip.io`. La base SQLite vit sur le disque de la VM (`XAU_DATA_DIR`, défaut `/var/lib/xau-bot`, monté sur `/data`). `install.sh` installe Docker, ouvre 80/443 dans iptables (les images Ubuntu d'Oracle bloquent tout sauf SSH), récupère les variables collées depuis le Raw Editor Railway, refuse un mot de passe vide ou `changeme`, génère `AUTH_SECRET`. Un cron (`update.sh --auto`, toutes les 5 min) reconstruit le bot quand `main` bouge : c'est lui qui remplace l'auto-déploiement Railway. Le `docker-compose.yml` de la racine (backend + frontend nginx séparés) reste celui du dev local.
+
 After merging to `main`:
-1. Wait ~2–3 min for Railway deploy
+1. Wait ~2–3 min for Railway deploy (VM Oracle : jusqu'à 5 min de délai du cron + le temps du build)
 2. Re-run pretrain (with `reset=True`) if filters or ML features changed
 3. Monitor WR/PF in the "Statut bot" panel
 
@@ -191,9 +193,10 @@ Toute modification de paramètre stratégie (RSI, ATR, ADX, TREND_BIAS_DISTANCE,
 
 ## Secrets — Never Commit
 
-Store only in Railway Variables (not in `.env` files committed to git):
+Store only in Railway Variables, or in the VM's untracked `.env` (chmod 600) — never in a committed file:
 
 - `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`
 - `FRED_API_KEY`
 - `ADMIN_USERNAME` / `ADMIN_PASSWORD`
-- `JWT_SECRET`
+- `AUTH_SECRET` (signature des jetons, lue par `auth.py`). Ce fichier listait `JWT_SECRET`, que **aucun code ne lit** : sans `AUTH_SECRET`, un secret aléatoire est tiré à chaque démarrage. Une ligne `ADMIN_PASSWORD=` ou `AUTH_SECRET=` **vide** est pire qu'absente (mot de passe vide accepté, jetons signés avec une clé vide) : `os.environ.get` ne retombe sur le défaut que si la clé manque.
+- `TWELVEDATA_API_KEY` (+ `_BACKTEST`, `_BACKTEST_2`), `FINNHUB_API_KEY` — liste complète dans `.env.example`
